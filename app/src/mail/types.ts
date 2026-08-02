@@ -1,0 +1,40 @@
+/**
+ * Provider connector contract (architecture.md §2). The prototype ships one
+ * real implementation (Gmail REST) and one demo implementation; everything
+ * above this line is provider-agnostic.
+ */
+
+export type MailSummary = {
+  id: string;
+  threadId?: string;
+  from: { address: string; name?: string };
+  to: string[];
+  date: string;
+  /** Header subject — the placeholder for encrypted mail. */
+  subject: string;
+  /** Provider-supplied preview; never trusted for encrypted mail. */
+  snippet: string;
+  unread: boolean;
+  starred: boolean;
+};
+
+/** A change to a message's flags. `archived: true` removes it from the inbox. */
+export type FlagPatch = { unread?: boolean; starred?: boolean; archived?: boolean };
+
+export interface MailClient {
+  readonly kind: 'gmail' | 'demo';
+  readonly address: string;
+  listInbox(limit?: number): Promise<MailSummary[]>;
+  /** Full RFC 5322 source — what the crypto core needs. */
+  getRaw(id: string): Promise<string>;
+  send(rfc822: string): Promise<void>;
+  /** Update read/starred/archived state. Metadata only — never touches ciphertext. */
+  updateFlags(id: string, patch: FlagPatch): Promise<void>;
+}
+
+export class MailError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'MailError';
+  }
+}

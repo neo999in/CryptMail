@@ -1,0 +1,433 @@
+# Feature Register
+
+Every feature CipherMail could plausibly build next, written against **what the
+code actually does today**.
+
+This is the implementation-oriented companion to [roadmap.md](roadmap.md).
+The roadmap answers *"what are we committed to, and in what phase?"*; this file
+answers *"what exactly would we build, which files would it touch, what's
+blocking it, and how would we know it works?"*
+
+Last updated: 2026-07-25.
+
+---
+
+## How to read this
+
+Every entry carries a **readiness** tag — the single most useful axis in this
+repo, because the app currently runs against a non-cryptographic demo core with
+no backend:
+
+| Tag | Meaning |
+|---|---|
+| 🟢 **Ready** | Buildable today, in TypeScript, against the existing demo core. No new native code, no server. |
+| 🟡 **Needs core** | Blocked on the real Rust `ciphermail-core` (M1/M2 of [prototype-plan.md](prototype-plan.md)). |
+| 🔵 **Needs backend** | Blocked on the optional service in [api.md](api.md) (key directory / push relay / secure links). |
+| 🟣 **Needs surface** | Blocked on a new platform target (desktop, iOS, browser extension). |
+| ⚫ **Debt** | Not a feature — something already wrong that gates shipping to real users. |
+
+**Impact** and **effort** are S/M/L, from the perspective of a small team. They
+are prioritisation aids, not estimates.
+
+---
+
+## Baseline — what exists today
+
+Six features have been built one-by-one on top of the encryption prototype, each
+test-driven and verified in the running app. Knowing this is what makes
+"upcoming" well-defined.
+
+| Shipped | Core module | Screens | Tests |
+|---|---|---|---|
+| Search over decrypted mail | [`search/search.ts`](../app/src/search/search.ts) | Inbox search field | 9 |
+| Threading / conversation view | [`threads/threads.ts`](../app/src/threads/threads.ts) | `ConversationScreen` | 7 |
+| Drafts + autosave | [`drafts/drafts.ts`](../app/src/drafts/drafts.ts) | `DraftsScreen`, Compose | 9 |
+| Message actions (star / archive / read) | [`mail/flags.ts`](../app/src/mail/flags.ts) | Inbox rows, `MessageScreen` | 8 |
+| Scheduled send + outbox | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts) | `ScheduledScreen`, Compose | 8 |
+| Import real OpenPGP public keys | [`pgp/parseArmoredKey.ts`](../app/src/pgp/parseArmoredKey.ts) | `KeysScreen` | 11 |
+
+**52 tests across 6 suites**, run with `npm test` (jest-expo). Convention: pure
+logic lives in a framework-free module with a `__tests__/*-test.ts` sibling;
+persistence lives in `store/*`; `state/AppState.tsx` orchestrates.
+
+**What is deliberately still fake:**
+
+- `core/demoCore.ts` **base64-encodes; it does not encrypt.** Every send path
+  gates on `core.kind`, so the app can never present encoded bytes as encrypted.
+- No backend at all — no key directory, no push, no secure links.
+- All local storage is **plaintext AsyncStorage** (keyring, drafts, outbox,
+  search index). This is the prototype's stated "known debt."
+- One real provider connector (Gmail REST) plus a demo fixture client, behind
+  the `MailClient` interface: `listInbox` / `getRaw` / `send` / `updateFlags`.
+
+---
+
+## Tier 0 — 🟢 Buildable today
+
+No native code, no server. These are the features that can be picked up in the
+current session and finished end-to-end.
+
+### 0.1 Client-side filters & rules · Impact M · Effort M
+
+**What.** User-defined rules — *if sender is X / subject contains Y → star,
+archive, label, mute, mark read* — evaluated locally.
+
+**Why.** The provider cannot read encrypted mail, so server-side filtering is
+structurally impossible for exactly the messages that matter most. Rules have to
+run on-device after decrypt or they don't exist. This is one of the clearest
+"encryption forces us to rebuild it client-side" features, and it composes with
+the search index that already stores decrypted content.
+
+**Build sketch.** A pure `rules/rules.ts` (`type Rule`, `matchRule`,
+`applyRules(messages, index, rules): FlagPatch[]`) reusing the same
+summary+index shape `messageMatchesQuery` already takes. Persist in
+`store/rulesStore.ts`. Run from `AppState` on inbox refresh and after
+`openMessage` indexes new content. New `RulesScreen` + entry in the account
+sheet; "create rule from this message" from `MessageScreen`.
+
+**Done when.** A rule created from a message auto-applies to a matching message
+on the next refresh, survives restart, and never fires on content that hasn't
+been decrypted on this device.
+
+### 0.2 Labels / folders + bulk selection · Impact M · Effort M
+
+**What.** Local labels, multi-select in the inbox, bulk archive/star/mark-read,
+swipe actions on mobile.
+
+**Why.** `updateFlags` already exists in the connector and Gmail maps labels
+natively; the inbox is currently a flat single-action list. This is table stakes
+that also gives filters (0.1) something to act on.
+
+**Build sketch.** Extend `FlagPatch` with `labels?: { add?: string[]; remove?:
+string[] }`; implement in `demoMail.ts` and via `messages/{id}/modify` in
+`gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
+sibling-`Pressable` row pattern — a nested pressable inside the row breaks on
+RN-web.
+
+**Done when.** Selecting three messages and archiving them updates the list
+optimistically and survives a refresh.
+
+### 0.3 Undo send · Impact S · Effort S
+
+**What.** A 5–30 s window after Send during which the message can be pulled back.
+
+**Why.** Nearly free given the outbox: it is `scheduleSend` with a very short
+`sendAt` plus a toast. It also makes the scheduler's catch-up-on-launch path
+exercised on every send rather than only on scheduled ones.
+
+**Build sketch.** Compose calls `scheduleSend({ sendAt: now + delay })`; show a
+persistent toast wired to `cancelScheduled` → restore draft. The 15 s scheduler
+tick is coarser than a 5 s window, so either tighten the interval or schedule a
+one-shot timer for the exact due time.
+
+**Done when.** "Undo" within the window leaves the message in Drafts and nothing
+in the mailbox; ignoring the toast delivers exactly once.
+
+### 0.4 Snooze · Impact S · Effort S
+
+**What.** Hide a message until a chosen time, then return it to the top of the
+inbox.
+
+**Why.** Same shape as the outbox (a due-time queue), and again something the
+provider cannot do on the user's behalf for encrypted mail.
+
+**Build sketch.** `snooze/snooze.ts` mirroring `outbox.ts` (`dueSnoozed`), a
+`store/snoozeStore.ts`, filtered out of `InboxScreen` while pending, re-surfaced
+by the same interval tick that drives the scheduler. Worth extracting one shared
+`dueQueue` helper rather than a third near-copy.
+
+**Done when.** A snoozed message disappears from the inbox, reappears at its due
+time, and survives a restart.
+
+### 0.5 Contacts & per-contact trust dashboard · Impact M · Effort M
+
+**What.** An address book built from the keyring plus seen senders: one screen
+showing every contact, their trust state, when the key was first seen, and
+whether it ever changed.
+
+**Why.** `contact_keys.trust` (seen / verified / changed) is already tracked and
+already drives the compose fail-safe, but it's only visible on the Keys screen.
+Trust is the product's actual security claim; it deserves a first-class surface.
+
+**Build sketch.** `contacts/contacts.ts` merging `Keyring` with addresses
+observed in `messages`. New `ContactsScreen`; recipient autocomplete in Compose
+sourced from it, with the trust badge shown inline as you type.
+
+**Done when.** Every address the app has seen appears with the right trust badge,
+and picking one in Compose shows its state before you type a body.
+
+### 0.6 Email signature + canned replies · Impact S · Effort S
+
+**What.** A stored signature appended on compose; a small set of reusable
+snippets.
+
+**Build sketch.** Settings values in a new `store/settingsStore.ts`; Compose
+seeds the body with the signature for new messages (never on a resumed draft, or
+autosave will duplicate it).
+
+**Done when.** A new message opens with the signature; editing and sending
+behaves; drafts don't accumulate copies.
+
+### 0.7 Reply / reply-all / forward · Impact L · Effort S
+
+**What.** The most conspicuous gap: there is no reply button.
+
+**Why.** Threading exists and `In-Reply-To`/`References` stay in the clear by
+design ([message-format.md](message-format.md)) — so replies can thread properly
+without leaking content. Small, and it makes the client feel real.
+
+**Build sketch.** `Compose` params gain `inReplyTo` / `references` / quoted body;
+`buildProtectedInner` and `buildEncryptedEnvelope` gain the two headers; quote
+the decrypted body from the search index. Reply-all must resolve *every*
+recipient's key and refuse to downgrade if one is missing — the existing
+fail-safe already covers this if `resolveRecipients` is used.
+
+**Done when.** A reply lands in the same conversation and the fail-safe fires
+when any recipient lacks a key.
+
+### 0.8 Remote-content / tracking-pixel blocking · Impact M · Effort M
+
+**What.** Don't load remote images by default; a per-message "load images" and a
+per-sender allowlist.
+
+**Why.** A privacy client that silently phones home on open undercuts its own
+promise. Currently moot (bodies render as plain text) but becomes urgent the
+moment HTML rendering lands — build the policy first, and it's cheap.
+
+**Build sketch.** A `privacy/remoteContent.ts` that rewrites/strips remote `img`
+and `link` URLs from decrypted HTML before render, plus the allowlist store.
+Pairs with 0.9.
+
+**Done when.** A message with a tracking pixel issues zero network requests on
+open, and "load images" is an explicit, per-message action.
+
+### 0.9 HTML reader + rich-text compose · Impact M · Effort M–L
+
+**What.** Render inbound HTML mail; optionally compose it.
+
+**Why.** Most real mail is HTML; plain-text-only is a hard ceiling on
+usefulness. But this is the app's largest new attack surface — decrypted HTML is
+attacker-controlled and can exfiltrate plaintext via remote loads.
+
+**Build sketch.** Sanitise in one auditable module (`html/sanitize.ts`) with an
+allowlist of tags/attributes, no scripts, no remote loads without 0.8's consent.
+Extend `parseProtectedInner` to walk `multipart/alternative` and prefer
+`text/plain` when present.
+
+**Done when.** A hostile fixture (script tags, `onerror`, remote CSS, data-URI
+payloads) renders inert, verified by tests over the sanitizer.
+
+### 0.10 Privacy-preserving notification policy · Impact M · Effort S
+
+**What.** The rule that a notification never carries subject or sender to the OS
+lock screen; fetch and decrypt first, then reveal only if the device is unlocked
+and the user opted in.
+
+**Why.** The push relay is Phase 2 and needs a backend, but the *policy* and its
+UI can be settled now so the relay can't be built the wrong way.
+
+**Build sketch.** A `notifications/policy.ts` deciding what text a payload may
+contain per setting; document the contract so [api.md](api.md)'s relay never
+sees content.
+
+**Done when.** Policy tests cover every setting, and the payload contract is
+written down before the relay exists.
+
+### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L
+
+**What.** More than one mailbox, switchable, optionally merged.
+
+**Why.** The data model already keys on `account_id` ([data-model.md](data-model.md));
+the app hard-codes a single session. Retrofitting this later touches every
+store, so doing it earlier is cheaper.
+
+**Build sketch.** Key every store by account (`ciphermail.<store>.v1.<account>`),
+make `AppState` hold `accounts[]` + `activeAccount`, and give each its own
+`MailClient`. Identity and keyring stay per-account.
+
+**Done when.** Two demo accounts coexist, each with its own keyring and drafts,
+and switching never leaks state between them.
+
+### 0.12 Storage management & cache eviction · Impact S · Effort S
+
+**What.** Show what's cached; bound it; "clear decrypted content" as a visible,
+honest control.
+
+**Why.** The search index is a growing plaintext store of decrypted mail. Users
+who care enough to run this app deserve a switch for that — and it's the honest
+counterpart to the known debt.
+
+**Done when.** A settings row shows index size and clearing it empties the store
+without breaking search over freshly-opened mail.
+
+### 0.13 Mailbox export / backup · Impact M · Effort M
+
+**What.** Export decrypted mail as `.mbox` or `.eml` files.
+
+**Why.** The product's honest answer to "no server-side archival": your data is
+yours and you can take it out. Also a de-risking story for account loss.
+
+**Done when.** An export opens cleanly in Thunderbird.
+
+### 0.14 Sign-only / verify-only mode · Impact S · Effort S
+
+**What.** Send signed-but-unencrypted mail to recipients with no key.
+
+**Why.** The current fail-safe correctly refuses to send. A signed plaintext
+option is a middle path that never *pretends* to be private — but it must be an
+explicit, clearly-labelled choice, never a fallback the app takes on its own.
+
+**Done when.** The UI distinguishes "encrypted", "signed only", and "refused"
+without ambiguity, and signing never happens implicitly.
+
+### 0.15 Onboarding: recovery-code drill · Impact M · Effort S
+
+**What.** Make the user actually perform an unlock-with-recovery-code once,
+during setup.
+
+**Why.** [security.md](security.md) names permanent data loss as the top *user*
+risk. A code you've never used is a code you don't have. (Full backup/restore is
+🔵 backend; the *drill* is not.)
+
+**Done when.** Setup can't complete without a successful code entry, and the
+copy states plainly what is lost if it's lost.
+
+### 0.16 Accessibility, i18n & theming pass · Impact M · Effort M
+
+**What.** Screen-reader labels (trust badges must be conveyed non-visually),
+dynamic type, high contrast, RTL, localisation, formal design tokens.
+
+**Why.** Security state communicated only by colour is security state that some
+users never receive. Also the hardest copy to translate well — start early.
+
+**Done when.** The inbox and message screens are fully navigable by screen
+reader, and every trust state has a text equivalent.
+
+---
+
+## Tier 1 — 🟡 Needs the real crypto core
+
+These are gated on `ciphermail-core` (M1/M2). Several have their *UI* buildable
+now against the demo core, with the crypto swapped in later.
+
+| Feature | Impact | Effort | Notes |
+|---|---|---|---|
+| **Attachments** — send, receive, inline images, preview | L | M–L | `buildProtectedInner` emits a single `text/plain` part inside `multipart/mixed`; attachments are added parts there. Needs streaming over the bridge (file paths, not base64 strings) for anything past ~1 MB. UI is 🟢 today. |
+| **Encrypted local store (SQLCipher)** | M | S–M | Replaces plaintext AsyncStorage. See ⚫ Debt — this gates shipping. |
+| **Encrypted search index** | M | M | Today's index is plaintext decrypted content on disk, which fights any no-plaintext-cache mode. Encrypting it lets search and that mode coexist. |
+| **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |
+| **Fingerprint / QR safety-number verification** | L | M | The durable defence against key substitution. Fingerprints render today; the *comparison ceremony* is the feature. QR "add me" cards are a cheaper sibling. |
+| **Multiple identities / send-as aliases** | S–M | M | Data model already allows N identity keys per account. |
+| **Publish own key via WKD / keyserver** | S | M | Lookup is planned; publishing is what helps non-users reach you. |
+| **Sign / verify / encrypt arbitrary files** | S | S | Pure reuse of the core; a cheap power-user surface. |
+| **Message size padding** | S | S | Pad ciphertext to buckets to blunt size fingerprinting — [security.md](security.md) admits size leaks. |
+| **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |
+| **Expiring / self-destruct messages** | M | M | Client-enforced only; the copy must be honest that a recipient can always keep a copy. |
+| **S/MIME support** | M | L | Enterprise interop; a large second format surface. |
+| **Client-side spam / malware scanning** | M | L | E2EE kills server-side scanning — a real, acknowledged gap. Must run after local decrypt. |
+
+---
+
+## Tier 2 — 🔵 Needs a backend
+
+The service specced in [api.md](api.md). Everything here is Phase 1+ and each
+item adds an operational and privacy surface, so each needs its own threat note.
+
+| Feature | Impact | Effort | Notes |
+|---|---|---|---|
+| **Key directory** (publish / lookup + address-ownership proof) | L | L | Removes manual key exchange — the prototype's most obviously unshippable seam. |
+| **Encrypted key backup + recovery codes** | L | M | The other half of 0.15. Server stores only an opaque blob it cannot open. |
+| **Push relay** | L | M | Payload carries "new mail" only — never content. Pairs with 0.10. |
+| **Secure-link fallback for key-less recipients** | M | L | Passphrase-protected web reader; the honest alternative to sending plaintext. |
+| **Multi-device sync + device approval** | M | L | Includes a flag-conflict merge rule — read/star state genuinely diverges across devices. |
+| **Key transparency log** | L | L | Makes directory misbehaviour detectable rather than merely unlikely. CONIKS/KT-style. |
+| **Abuse controls** — PoW + rate limits on lookups | M | M | Blunts enumeration of the directory and abuse of the link relay. |
+| **Invite flow for key-less recipients** | M | S | Turns the fail-safe's dead end into a growth loop. |
+
+---
+
+## Tier 3 — 🟣 Needs a new platform surface
+
+| Feature | Impact | Effort | Notes |
+|---|---|---|---|
+| ⭐ **Browser extension — decrypt in place inside Gmail/Outlook web** | L | L | The highest-ceiling item in this document. It inverts the adoption problem: instead of asking people to switch clients, turn the ciphertext block into readable text in the tab they already have open. New threat model (key material in a browser extension) — prototype it the moment the core is stable, not before. |
+| **Desktop app (Tauri)** | L | L | In the original architecture; the prototype went mobile-first, so it is effectively unbuilt. |
+| **iOS app** | L | L | Keychain / Secure Enclave for the wrapped key. |
+| **Web PWA** | M | L | Listed in the architecture, but browser key storage is a serious threat-model question — decide deliberately. |
+| **Widgets / watch** | S | M | Must inherit the notification policy from 0.10. |
+
+---
+
+## Tier 4 — Product quality (not user-facing, load-bearing)
+
+| Item | Impact | Effort | Notes |
+|---|---|---|---|
+| **Conformance tests vs [message-format.md](message-format.md)** | L | M | Named as cross-cutting in the roadmap. The 52 tests cover app logic; the *envelope spec* has none. Highest-value testing work available. |
+| **Interop test suite** (Thunderbird / Proton / GnuPG) | M | M | Protected-headers behaviour varies across clients; find out from tests, not from users. |
+| **MIME-parser fuzzing** | M | M | The parser eats attacker-controlled bytes. |
+| **Reproducible builds** | M | M | Lets others verify the shipped binary matches audited source — a trust multiplier for a crypto app. |
+| **Opt-in, privacy-first telemetry** | M | M | Must never carry content or metadata. Local-first, aggregate-only, or not at all. |
+| **Independent security audit** | L | L | Phase 3, but scope and budget it early. |
+
+---
+
+## ⚫ Debt that gates shipping
+
+Not features — things already wrong. Any of these reaching a real user is worse
+than shipping without any Tier 0 item.
+
+1. **Plaintext local storage.** Keyring, drafts, outbox, and the decrypted
+   search index are unencrypted AsyncStorage. Directly contradicts
+   [security.md](security.md). → SQLCipher (Tier 1).
+2. **Trust on first use with no verification ceremony.** Every imported key is
+   accepted; "key changed" is recorded but there is no comparison flow.
+   → Fingerprint/QR verification (Tier 1).
+3. **The scheduler only runs while the app runs.** Scheduled sends and snoozes
+   fire from a 15 s in-app interval. Honest UI copy today; real background
+   execution eventually.
+4. **No token-revocation handling.** Expired refresh tokens surface as errors
+   rather than a re-auth prompt.
+5. **The README says "design documentation only. No code yet."** That stopped
+   being true six features ago.
+
+---
+
+## Suggested order
+
+If the goal is *a client someone would actually use*, without pretending the
+crypto is finished:
+
+1. **0.7 Reply/forward** — the most conspicuous gap, and small.
+2. **0.1 Filters & rules** — the flagship "we had to build this client-side
+   because encryption" feature.
+3. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
+4. **0.5 Contacts + trust dashboard** — makes the security model visible where
+   recipients are chosen.
+5. **Tier 4 conformance tests** — before more surface area accretes on an
+   unverified envelope spec.
+
+If the goal is *shippable to a real user*, the order is instead: SQLCipher →
+verification ceremony → recovery drill → conformance tests. Nothing in Tier 0
+matters if the app writes decrypted mail to disk in the clear.
+
+---
+
+## Adding to this file
+
+One entry per feature, in the tier that matches its true blocker:
+
+```markdown
+### N.M Name · Impact ? · Effort ?
+
+**What.** One sentence.
+**Why.** The argument — ideally one this product can make and others can't.
+**Build sketch.** Concrete modules/files in this repo.
+**Done when.** An observable check, not "it works."
+```
+
+Keep the pure-logic-module + `__tests__/*-test.ts` convention: it is why the
+last six features each shipped with tests and no framework mocking.
+
+> These are candidates, not commitments. When one is picked up, run it through
+> brainstorm → spec → plan like anything else, and fold what's accepted back
+> into the phases in [roadmap.md](roadmap.md).

@@ -1,0 +1,80 @@
+# dependencies
+node_modules/
+.npm/
+.pnp.*
+.yarn/*
+!.yarn/releases
+
+# Expo / React Native build output
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+/ios
+/android
+app/ios
+app/android
+
+# native
+.kotlin/
+*.orig.*
+*.hprof
+*.keystore
+!debug.keystore
+
+# secrets — never commit these
+.env
+.env.*
+!.env.example
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
+credentials.json
+service-account*.json
+
+# metro / bundler caches
+.metro-health-check*
+.metro/
+*.jsbundle
+
+# test + build caches
+coverage/
+.jest-cache/
+*.tsbuildinfo
+.eslintcache
+
+# logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.*
+
+# tool artifacts
+.playwright-mcp/
+playwright-report/
+test-results/
+
+# Claude Code config
+.claude/
+
+# editors
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# os
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/

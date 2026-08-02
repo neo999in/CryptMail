@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "CipherMail",
+    "slug": "ciphermail",
+    "scheme": "ciphermail",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0C0F14",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.ciphermail.prototype",
+      "adaptiveIcon": {
+        "backgroundColor": "#0C0F14",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      "expo-secure-store",
+      "expo-font"
+    ]
+  }
+}

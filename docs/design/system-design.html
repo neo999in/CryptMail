@@ -1,0 +1,866 @@
+<title>CipherMail — Architecture & Screen Designs</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --ground:   #0C0F14;
+    --ground-2: #0A0D11;
+    --panel:    #141A22;
+    --panel-2:  #1A222D;
+    --chip:     #1C2531;
+    --line:     #263140;
+    --line-soft:#1B232F;
+    --ink:      #E8ECF3;
+    --ink-dim:  #9AA6B6;
+    --ink-faint:#67717F;
+    --brass:    #EBB863;
+    --brass-dk: #C99A4E;
+    --brass-bg: #2A2214;
+    --mint:     #57D6A3;
+    --mint-bg:  #12271F;
+    --coral:    #F2795E;
+    --coral-bg: #2C1A15;
+    --radius:   14px;
+    --radius-sm:9px;
+    --maxw:     1140px;
+    --font-sans: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground-2);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    min-height: 100vh;
+    background:
+      radial-gradient(900px 500px at 12% -8%, rgba(235,184,99,.10), transparent 60%),
+      radial-gradient(800px 520px at 100% 8%, rgba(87,214,163,.06), transparent 55%),
+      linear-gradient(var(--ground-2), var(--ground));
+  }
+
+  .i { width: 1em; height: 1em; flex: none; stroke: currentColor; fill: none;
+       stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- nav ---------- */
+  .nav {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(10,13,17,.72);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .nav-in { max-width: var(--maxw); margin: 0 auto; padding: 13px 24px;
+            display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700;
+           letter-spacing: -.01em; }
+  .brand .lk { color: var(--brass); font-size: 18px; display: inline-flex; }
+  .brand b { font-weight: 800; }
+  .brand span { color: var(--ink-faint); font-weight: 500; }
+  .nav-links { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; }
+  .nav-links a {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--ink-dim); text-decoration: none;
+    padding: 6px 11px; border-radius: 999px; transition: color .15s, background .15s;
+  }
+  .nav-links a:hover { color: var(--ink); background: var(--panel); }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 68px 0 40px; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .22em;
+    text-transform: uppercase; color: var(--brass); margin: 0 0 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::after { content: ""; height: 1px; width: 64px;
+    background: linear-gradient(90deg, var(--brass-dk), transparent); }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.35rem); line-height: 1.04; margin: 0;
+    font-weight: 800; letter-spacing: -.025em; text-wrap: balance; max-width: 16ch;
+  }
+  .hero h1 em { font-style: normal; color: var(--brass); }
+  .lede { margin: 22px 0 0; max-width: 60ch; color: var(--ink-dim);
+          font-size: 1.075rem; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+  .meta {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim);
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 999px;
+  }
+  .meta .i { color: var(--brass); font-size: 14px; }
+  .meta.mint .i { color: var(--mint); }
+
+  /* ---------- section frame ---------- */
+  .section { padding: 46px 0; border-top: 1px solid var(--line-soft); }
+  .section-head { margin-bottom: 34px; }
+  .kicker {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ink-faint); margin: 0 0 12px;
+  }
+  .section h2 { font-size: clamp(1.5rem, 3vw, 2.05rem); margin: 0; font-weight: 800;
+                letter-spacing: -.02em; text-wrap: balance; }
+  .sub { color: var(--ink-dim); margin: 14px 0 0; max-width: 68ch; }
+
+  /* ---------- architecture ---------- */
+  .arch { display: flex; flex-direction: column; gap: 0; }
+  .tier {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .tier-head { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 18px; }
+  .tier-ic {
+    width: 40px; height: 40px; border-radius: 11px; flex: none;
+    display: grid; place-items: center; font-size: 20px;
+    background: var(--panel-2); border: 1px solid var(--line);
+  }
+  .tier-ic.client { color: var(--brass); }
+  .tier-ic.provider { color: var(--ink-dim); }
+  .tier-ic.backend { color: var(--mint); }
+  .tier-name { font-weight: 700; font-size: 1.08rem; letter-spacing: -.01em; }
+  .tier-sub { color: var(--ink-faint); font-size: .86rem;
+              font-family: var(--font-mono); }
+  .tier-flag {
+    margin-left: auto; font-family: var(--font-mono); font-size: 10.5px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--mint);
+    background: var(--mint-bg); border: 1px solid rgba(87,214,163,.3);
+    padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  }
+
+  .chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+           gap: 11px; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 13px 14px;
+  }
+  .chip.anchor { border-color: rgba(235,184,99,.42);
+    background: linear-gradient(180deg, rgba(235,184,99,.07), var(--chip)); }
+  .chip-t { display: flex; align-items: center; gap: 8px; font-weight: 650;
+            font-size: .93rem; }
+  .chip-t .i { font-size: 15px; color: var(--ink-dim); }
+  .chip.anchor .chip-t .i { color: var(--brass); }
+  .chip.lock .chip-t .i { color: var(--mint); }
+  .chip-d { color: var(--ink-faint); font-size: .8rem; margin-top: 5px;
+            font-family: var(--font-mono); line-height: 1.5; }
+
+  .branch { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .band { display: flex; justify-content: center; padding: 14px 0; }
+  .band-inner { position: relative; text-align: center; }
+  .band-line { width: 1px; height: 20px; margin: 0 auto;
+               background: linear-gradient(var(--line), var(--brass-dk)); }
+  .band-lbl {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-dim);
+    background: var(--panel); border: 1px dashed var(--line);
+    padding: 7px 13px; border-radius: 999px;
+  }
+  .band-lbl .i { font-size: 13px; color: var(--brass); }
+  .band-lbl.mint .i { color: var(--mint); }
+  .band-dir { display: block; margin-top: 6px; font-family: var(--font-mono);
+              font-size: 10.5px; color: var(--ink-faint); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 22px;
+            padding: 16px 18px; background: var(--panel); border: 1px solid var(--line-soft);
+            border-radius: var(--radius-sm); }
+  .legend-item { display: flex; align-items: center; gap: 9px;
+                 font-size: .84rem; color: var(--ink-dim); }
+  .swatch { width: 26px; height: 0; border-top-width: 2.5px; border-top-style: solid; flex: none; }
+  .sw-cipher { border-color: var(--brass); }
+  .sw-keys   { border-color: var(--mint); border-top-style: dashed; }
+  .sw-meta   { border-color: var(--ink-faint); border-top-style: dotted; }
+
+  .boundary {
+    display: flex; align-items: flex-start; gap: 12px; margin-top: 20px;
+    padding: 16px 18px; border-radius: var(--radius-sm);
+    background: var(--brass-bg); border: 1px solid rgba(235,184,99,.28);
+  }
+  .boundary .i { color: var(--brass); font-size: 20px; margin-top: 2px; }
+  .boundary p { margin: 0; font-size: .9rem; color: #E9D3A6; }
+  .boundary b { color: var(--brass); }
+
+  /* ---------- flows ---------- */
+  .flows { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .flow-card { background: var(--panel); border: 1px solid var(--line);
+               border-radius: var(--radius); padding: 20px; }
+  .flow-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .flow-n { font-family: var(--font-mono); font-size: 12px; color: var(--brass);
+            font-weight: 700; }
+  .flow-t { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; }
+  .flow-d { color: var(--ink-dim); font-size: .88rem; margin: 0 0 14px; }
+  .flow-diagram { overflow-x: auto; background: #141A22; border: 1px solid var(--line-soft);
+                  border-radius: var(--radius-sm); padding: 8px 4px; }
+  pre.mermaid { margin: 0; background: transparent; text-align: center;
+                font-family: var(--font-mono); min-height: 40px; }
+  pre.mermaid:not([data-processed]) { color: var(--ink-faint); font-size: 12px; padding: 16px; }
+
+  /* ---------- screens ---------- */
+  .screens { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+             gap: 22px; }
+  .screen.wide { grid-column: 1 / -1; }
+  .screen-cap { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint);
+                margin: 12px 2px 0; letter-spacing: .02em; }
+  .screen-cap b { color: var(--ink-dim); font-weight: 600; }
+
+  .win { background: var(--panel); border: 1px solid var(--line);
+         border-radius: var(--radius); overflow: hidden; height: 100%;
+         transition: transform .18s, border-color .18s; }
+  .screen:hover .win { transform: translateY(-3px); border-color: #32404f; }
+  .win-bar { display: flex; align-items: center; gap: 8px; padding: 11px 15px;
+             background: var(--panel-2); border-bottom: 1px solid var(--line); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #38424f; }
+  .win-title { margin-left: 6px; font-family: var(--font-mono); font-size: 11.5px;
+               color: var(--ink-dim); display: flex; align-items: center; gap: 7px; }
+  .win-title .i { color: var(--mint); font-size: 13px; }
+  .win-body { padding: 18px; }
+
+  .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .cmp-grid > div { padding: 18px; }
+  .cmp-grid > div:first-child { border-right: 1px solid var(--line); }
+  .cmp-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em;
+             text-transform: uppercase; margin: 0 0 12px; display: flex;
+             align-items: center; gap: 8px; }
+  .cmp-tag.bad { color: var(--ink-faint); }
+  .cmp-tag.good { color: var(--mint); }
+
+  h3.win-h { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
+  .muted { color: var(--ink-dim); font-size: .9rem; }
+  .mono { font-family: var(--font-mono); }
+
+  .provider-btn {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    background: var(--chip); border: 1px solid var(--line); color: var(--ink);
+    border-radius: var(--radius-sm); padding: 13px 15px; margin-top: 10px;
+    font-size: .95rem; font-weight: 600; cursor: default;
+  }
+  .provider-btn .g { width: 26px; height: 26px; border-radius: 7px; flex: none;
+    display: grid; place-items: center; font-weight: 800; font-size: 13px;
+    font-family: var(--font-mono); }
+  .g.gmail { background: #EA433522; color: #EF6a5c; border: 1px solid #EA433544; }
+  .g.ms { background: #2f8cff22; color: #6db0ff; border: 1px solid #2f8cff44; }
+  .g.imap { background: var(--panel-2); color: var(--ink-dim); border: 1px solid var(--line); }
+  .provider-btn .arrow { margin-left: auto; color: var(--ink-faint); }
+  .reassure { display: flex; gap: 10px; margin-top: 18px; padding: 13px;
+    background: var(--mint-bg); border: 1px solid rgba(87,214,163,.25);
+    border-radius: var(--radius-sm); font-size: .82rem; color: #A7E6CC; }
+  .reassure .i { color: var(--mint); font-size: 17px; flex: none; }
+
+  .mailrow { display: flex; gap: 12px; padding: 13px 0; border-top: 1px solid var(--line-soft); }
+  .mailrow:first-of-type { border-top: 0; }
+  .av { width: 34px; height: 34px; border-radius: 9px; flex: none; display: grid;
+        place-items: center; font-weight: 700; font-size: .8rem; color: #0C0F14; }
+  .av.a { background: #EBB863; } .av.b { background: #57D6A3; }
+  .av.c { background: #8CA0FF; } .av.d { background: #F2795E; }
+  .mail-main { min-width: 0; flex: 1; }
+  .mail-top { display: flex; align-items: center; gap: 8px; }
+  .mail-from { font-weight: 650; font-size: .92rem; }
+  .mail-time { margin-left: auto; font-size: .74rem; color: var(--ink-faint);
+               font-family: var(--font-mono); }
+  .mail-sub { font-size: .87rem; margin-top: 1px; }
+  .mail-snip { font-size: .82rem; color: var(--ink-faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px;
+    text-transform: uppercase; white-space: nowrap; }
+  .badge .i { font-size: 11px; }
+  .badge--enc  { color: var(--mint); background: var(--mint-bg); border: 1px solid rgba(87,214,163,.3); }
+  .badge--warn { color: var(--coral); background: var(--coral-bg); border: 1px solid rgba(242,121,94,.3); }
+  .badge--plain{ color: var(--ink-faint); background: var(--panel-2); border: 1px solid var(--line); }
+
+  .banner { display: flex; align-items: center; gap: 10px; padding: 11px 13px;
+    border-radius: var(--radius-sm); font-size: .84rem; margin-bottom: 15px; }
+  .banner.ok { background: var(--mint-bg); border: 1px solid rgba(87,214,163,.3); color: #A7E6CC; }
+  .banner .i { font-size: 17px; color: var(--mint); flex: none; }
+
+  .kv { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
+  .kv .av { width: 38px; height: 38px; }
+  .kv-name { font-weight: 650; font-size: .92rem; }
+  .kv-key { font-family: var(--font-mono); font-size: .74rem; color: var(--mint); }
+  .msg-body { font-size: .92rem; color: #D3DAE4; }
+  .msg-body p { margin: 0 0 11px; }
+  .attach { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px;
+    background: var(--chip); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 9px 12px; font-size: .82rem; }
+  .attach .i { color: var(--mint); }
+  .attach small { color: var(--ink-faint); font-family: var(--font-mono); margin-left: 4px; }
+
+  .field { background: var(--chip); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 11px 13px; margin-bottom: 11px; }
+  .field-l { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 8px; }
+  .recip { display: inline-flex; align-items: center; gap: 7px; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 5px 4px 11px;
+    font-size: .82rem; margin: 0 6px 6px 0; }
+  .recip .badge { margin-left: 2px; }
+  .field-txt { color: var(--ink-dim); font-size: .9rem; }
+  .field-txt.big { min-height: 58px; }
+
+  .sendbar { border-top: 1px solid var(--line); margin: 4px -18px -18px;
+    padding: 15px 18px; background: var(--panel-2); }
+  .sendbar.warn { background: var(--coral-bg); border-top-color: rgba(242,121,94,.35); }
+  .send-status { display: flex; align-items: center; gap: 9px; font-size: .85rem;
+    color: var(--coral); margin-bottom: 12px; }
+  .send-status .i { font-size: 17px; flex: none; }
+  .fallbacks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .fb { font-size: .8rem; font-weight: 600; padding: 8px 13px; border-radius: var(--radius-sm);
+    border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: default; }
+  .fb.primary { background: var(--brass); color: #241A08; border-color: var(--brass);
+    display: inline-flex; align-items: center; gap: 7px; }
+
+  .cipher { font-family: var(--font-mono); font-size: 11px; line-height: 1.5;
+    color: var(--ink-dim); background: var(--ground); border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm); padding: 13px; overflow-x: auto; white-space: pre;
+    margin: 0; }
+  .ghost-sub { font-family: var(--font-mono); font-size: .8rem; color: var(--ink-faint);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; display: inline-block; margin-bottom: 12px; }
+
+  .fp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 14px;
+    font-family: var(--font-mono); font-size: .95rem; color: var(--ink);
+    background: var(--chip); border: 1px solid var(--line); border-radius: var(--radius-sm);
+    padding: 15px; margin-bottom: 14px; letter-spacing: .05em; text-align: center;
+    font-variant-numeric: tabular-nums; }
+  .verify-row { display: flex; gap: 14px; align-items: center; }
+  .qr { width: 92px; height: 92px; flex: none; border-radius: var(--radius-sm);
+    border: 1px solid var(--line); background:
+      conic-gradient(from 0deg, #1c2531 0 25%, #10151c 0 50%, #1c2531 0 75%, #10151c 0);
+    background-size: 16px 16px; position: relative; }
+  .qr::after { content: ""; position: absolute; inset: 26px; border-radius: 4px;
+    background: var(--panel); border: 3px solid var(--brass); }
+
+  .code-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
+    margin-bottom: 15px; }
+  .word { display: flex; align-items: baseline; gap: 8px; background: var(--chip);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .word i { font-family: var(--font-mono); font-size: .7rem; color: var(--ink-faint);
+    font-style: normal; width: 14px; }
+  .word b { font-family: var(--font-mono); font-weight: 600; font-size: .86rem; }
+
+  .callout { display: flex; gap: 11px; padding: 13px 15px; border-radius: var(--radius-sm);
+    background: var(--coral-bg); border: 1px solid rgba(242,121,94,.3);
+    font-size: .83rem; color: #F0BCAD; margin-bottom: 15px; }
+  .callout .i { color: var(--coral); font-size: 18px; flex: none; }
+
+  .btn-primary { width: 100%; background: var(--brass); color: #241A08; border: 0;
+    font-weight: 700; font-size: .92rem; padding: 12px; border-radius: var(--radius-sm);
+    cursor: default; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .check-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+    font-size: .86rem; color: var(--ink-dim); }
+  .cb { width: 18px; height: 18px; border-radius: 5px; background: var(--mint);
+    color: #0C0F14; display: grid; place-items: center; flex: none; }
+  .cb .i { font-size: 13px; stroke-width: 3; }
+
+  /* ---------- footer ---------- */
+  .foot { border-top: 1px solid var(--line-soft); padding: 34px 0 56px; margin-top: 20px; }
+  .foot p { color: var(--ink-faint); font-size: .84rem; margin: 0; max-width: 70ch; }
+  .foot .files { font-family: var(--font-mono); color: var(--ink-dim); }
+
+  @media (max-width: 760px) {
+    .flows, .branch, .cols2, .cmp-grid { grid-template-columns: 1fr; }
+    .cmp-grid > div:first-child { border-right: 0; border-bottom: 1px solid var(--line); }
+    .hero { padding: 46px 0 30px; }
+    .nav-links { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="key" viewBox="0 0 24 24"><circle cx="8" cy="16" r="4"/><path d="M11 13 21 3m-3 0 3 3-3 3"/></symbol>
+  <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><path d="M12 4 3 20h18L12 4z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="device" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.6 3.1 3 7 3s7-1.4 7-3V6"/><path d="M5 12c0 1.6 3.1 3 7 3s7-1.4 7-3"/></symbol>
+  <symbol id="cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></symbol>
+  <symbol id="ui" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></symbol>
+  <symbol id="plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v5"/></symbol>
+  <symbol id="link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></symbol>
+</svg>
+
+<div class="page">
+
+  <nav class="nav">
+    <div class="nav-in">
+      <div class="brand"><span class="lk"><svg class="i"><use href="#lock"/></svg></span> <b>CipherMail</b> <span>design</span></div>
+      <div class="nav-links">
+        <a href="#arch">Architecture</a>
+        <a href="#flows">Data flows</a>
+        <a href="#screens">Screens</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">System &amp; Interface Design</p>
+      <h1>Encrypted mail, on the inbox you <em>already have</em>.</h1>
+      <p class="lede">The architecture, the data flows, and the screens for a client that
+        end-to-end encrypts mail over your existing Gmail or Outlook account — so it reads
+        normally in CipherMail and shows as ciphertext everywhere else.</p>
+      <div class="meta-row">
+        <span class="meta"><svg class="i"><use href="#key"/></svg> OpenPGP / PGP-MIME</span>
+        <span class="meta mint"><svg class="i"><use href="#shield"/></svg> Zero-knowledge backend</span>
+        <span class="meta"><svg class="i"><use href="#device"/></svg> Local-first client</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= ARCHITECTURE ================= -->
+  <section class="section" id="arch">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">System architecture</p>
+        <h2>One client, two backends it never has to trust</h2>
+        <p class="sub">All cryptography happens on the device. The client talks to the user's
+          mail provider (which only ever holds ciphertext) and to a thin CipherMail service
+          (which only ever holds public keys and opaque backups).</p>
+      </div>
+
+      <div class="arch">
+        <!-- client tier -->
+        <div class="tier">
+          <div class="tier-head">
+            <div class="tier-ic client"><svg class="i"><use href="#device"/></svg></div>
+            <div>
+              <div class="tier-name">CipherMail client</div>
+              <div class="tier-sub">desktop · mobile · web — local-first</div>
+            </div>
+            <div class="tier-flag">plaintext lives only here</div>
+          </div>
+          <div class="chips">
+            <div class="chip"><div class="chip-t"><svg class="i"><use href="#ui"/></svg> UI layer</div>
+              <div class="chip-d">inbox · compose · trust indicators</div></div>
+            <div class="chip anchor"><div class="chip-t"><svg class="i"><use href="#cpu"/></svg> Crypto core</div>
+              <div class="chip-d">encrypt · decrypt · sign · verify</div></div>
+            <div class="chip"><div class="chip-t"><svg class="i"><use href="#key"/></svg> Keyring</div>
+              <div class="chip-d">contacts' public keys + trust</div></div>
+            <div class="chip"><div class="chip-t"><svg class="i"><use href="#plug"/></svg> Provider connectors</div>
+              <div class="chip-d">IMAP/SMTP · Gmail · Graph</div></div>
+            <div class="chip"><div class="chip-t"><svg class="i"><use href="#db"/></svg> Local store</div>
+              <div class="chip-d">SQLite + SQLCipher, encrypted</div></div>
+            <div class="chip lock"><div class="chip-t"><svg class="i"><use href="#lock"/></svg> OS keychain</div>
+              <div class="chip-d">wrapped private key at rest</div></div>
+          </div>
+        </div>
+
+        <!-- branch connectors -->
+        <div class="branch">
+          <div class="band"><div class="band-inner">
+            <div class="band-line"></div>
+            <span class="band-lbl"><svg class="i"><use href="#lock"/></svg> OAuth 2.0 · IMAP/SMTP · Gmail / Graph API</span>
+            <span class="band-dir">↓ send ciphertext&nbsp;&nbsp;·&nbsp;&nbsp;↑ fetch ciphertext</span>
+          </div></div>
+          <div class="band"><div class="band-inner">
+            <div class="band-line"></div>
+            <span class="band-lbl mint"><svg class="i"><use href="#shield"/></svg> HTTPS — public keys &amp; opaque backups</span>
+            <span class="band-dir">↕ publish / look up keys&nbsp;&nbsp;·&nbsp;&nbsp;↕ push pings</span>
+          </div></div>
+        </div>
+
+        <!-- provider + backend tiers -->
+        <div class="cols2">
+          <div class="tier">
+            <div class="tier-head">
+              <div class="tier-ic provider"><svg class="i"><use href="#mail"/></svg></div>
+              <div>
+                <div class="tier-name">Mail provider</div>
+                <div class="tier-sub">the account you already own</div>
+              </div>
+            </div>
+            <div class="chips">
+              <div class="chip"><div class="chip-t">Gmail / Workspace</div>
+                <div class="chip-d">stores &amp; transports ciphertext</div></div>
+              <div class="chip"><div class="chip-t">Outlook / M365</div>
+                <div class="chip-d">shows an encrypted blob in its UI</div></div>
+              <div class="chip"><div class="chip-t">iCloud · Yahoo · IMAP</div>
+                <div class="chip-d">any standards-based host</div></div>
+            </div>
+          </div>
+
+          <div class="tier">
+            <div class="tier-head">
+              <div class="tier-ic backend"><svg class="i"><use href="#shield"/></svg></div>
+              <div>
+                <div class="tier-name">CipherMail service</div>
+                <div class="tier-sub">optional · zero-knowledge</div>
+              </div>
+              <div class="tier-flag">never sees plaintext</div>
+            </div>
+            <div class="chips">
+              <div class="chip"><div class="chip-t"><svg class="i"><use href="#key"/></svg> Key directory</div>
+                <div class="chip-d">email → public key</div></div>
+              <div class="chip"><div class="chip-t"><svg class="i"><use href="#lock"/></svg> Encrypted backup</div>
+                <div class="chip-d">opaque wrapped private key</div></div>
+              <div class="chip"><div class="chip-t"><svg class="i"><use href="#bell"/></svg> Push relay</div>
+                <div class="chip-d">"new mail" — no content</div></div>
+              <div class="chip"><div class="chip-t"><svg class="i"><use href="#link"/></svg> Secure-link store</div>
+                <div class="chip-d">fallback ciphertext, TTL'd</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="swatch sw-cipher"></span> Ciphertext (content — unreadable off-device)</div>
+        <div class="legend-item"><span class="swatch sw-keys"></span> Public keys &amp; discovery</div>
+        <div class="legend-item"><span class="swatch sw-meta"></span> Metadata / envelope (visible to provider)</div>
+      </div>
+
+      <div class="boundary">
+        <svg class="i"><use href="#shield"/></svg>
+        <p><b>Trust boundary.</b> Cross either connector and you find only ciphertext, public
+          keys, and passphrase-wrapped blobs. Neither the mail provider nor the CipherMail
+          service can read message content or reconstruct a usable private key.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DATA FLOWS ================= -->
+  <section class="section" id="flows">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Data flows</p>
+        <h2>What happens on send, receive, key exchange &amp; recovery</h2>
+        <p class="sub">Four sequences that define the product. Note how the mail provider is
+          only ever handed — or asked for — ciphertext, and the service only ever touches
+          public keys or opaque blobs.</p>
+      </div>
+
+      <div class="flows">
+        <div class="flow-card">
+          <div class="flow-head"><span class="flow-n">FLOW A</span><span class="flow-t">Sending an encrypted message</span></div>
+          <p class="flow-d">Keys are resolved locally; a missing key never becomes silent plaintext.</p>
+          <div class="flow-diagram">
+<pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'darkMode':true,'background':'#141A22','primaryColor':'#EBB863','primaryTextColor':'#E8ECF3','primaryBorderColor':'#33404F','lineColor':'#9AA6B6','secondaryColor':'#1B2430','tertiaryColor':'#1B2430','actorBkg':'#1B2430','actorBorder':'#3A4757','actorTextColor':'#E8ECF3','actorLineColor':'#39424F','signalColor':'#9AA6B6','signalTextColor':'#C4CDDA','noteBkgColor':'#2A2314','noteBorderColor':'#EBB863','noteTextColor':'#F0CE92','labelBoxBkgColor':'#1B2430','labelBoxBorderColor':'#EBB863','labelTextColor':'#E8ECF3','loopTextColor':'#C4CDDA','activationBkgColor':'#EBB863','activationBorderColor':'#C99A4E','sequenceNumberColor':'#241A08','fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','fontSize':'13px'},'sequence':{'showSequenceNumbers':true,'wrap':true,'actorMargin':30,'width':118}}}%%
+sequenceDiagram
+participant U as You
+participant CC as Crypto core
+participant PC as Connector
+participant MP as Provider
+U->>CC: Compose + Send
+CC->>CC: Resolve keys — keyring, Autocrypt, directory, WKD
+alt Every recipient has a key
+CC->>CC: Encrypt to all + sign, hide real subject
+CC->>PC: Hand off PGP/MIME
+PC->>MP: SMTP / API send
+MP-->>U: Sent copy (ciphertext)
+else A recipient has no key
+CC-->>U: Warn — secure link / plaintext / invite
+end
+</pre>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <div class="flow-head"><span class="flow-n">FLOW B</span><span class="flow-t">Receiving &amp; decrypting</span></div>
+          <p class="flow-d">Decryption and verification happen on-device; the provider stays blind.</p>
+          <div class="flow-diagram">
+<pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'darkMode':true,'background':'#141A22','primaryColor':'#EBB863','primaryTextColor':'#E8ECF3','primaryBorderColor':'#33404F','lineColor':'#9AA6B6','secondaryColor':'#1B2430','tertiaryColor':'#1B2430','actorBkg':'#1B2430','actorBorder':'#3A4757','actorTextColor':'#E8ECF3','actorLineColor':'#39424F','signalColor':'#9AA6B6','signalTextColor':'#C4CDDA','noteBkgColor':'#2A2314','noteBorderColor':'#EBB863','noteTextColor':'#F0CE92','labelBoxBkgColor':'#1B2430','labelBoxBorderColor':'#EBB863','labelTextColor':'#E8ECF3','loopTextColor':'#C4CDDA','activationBkgColor':'#EBB863','activationBorderColor':'#C99A4E','sequenceNumberColor':'#241A08','fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','fontSize':'13px'},'sequence':{'showSequenceNumbers':true,'wrap':true,'actorMargin':30,'width':118}}}%%
+sequenceDiagram
+participant MP as Provider
+participant PC as Connector
+participant CC as Crypto core
+participant UI as Inbox
+MP-->>PC: New mail (IDLE / watch / push)
+PC->>CC: Fetch raw message
+CC->>CC: Detect PGP/MIME
+CC->>CC: Decrypt + verify signature
+CC->>CC: Cache sender key (Autocrypt)
+CC->>UI: Render plaintext + trust state
+Note over MP: Provider still holds only ciphertext
+</pre>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <div class="flow-head"><span class="flow-n">FLOW C</span><span class="flow-t">Automatic key exchange</span></div>
+          <p class="flow-d">Autocrypt headers + the directory mean no manual "paste my key" step.</p>
+          <div class="flow-diagram">
+<pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'darkMode':true,'background':'#141A22','primaryColor':'#EBB863','primaryTextColor':'#E8ECF3','primaryBorderColor':'#33404F','lineColor':'#9AA6B6','secondaryColor':'#1B2430','tertiaryColor':'#1B2430','actorBkg':'#1B2430','actorBorder':'#3A4757','actorTextColor':'#E8ECF3','actorLineColor':'#39424F','signalColor':'#9AA6B6','signalTextColor':'#C4CDDA','noteBkgColor':'#2A2314','noteBorderColor':'#EBB863','noteTextColor':'#F0CE92','labelBoxBkgColor':'#1B2430','labelBoxBorderColor':'#EBB863','labelTextColor':'#E8ECF3','loopTextColor':'#C4CDDA','activationBkgColor':'#EBB863','activationBorderColor':'#C99A4E','sequenceNumberColor':'#241A08','fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','fontSize':'13px'},'sequence':{'showSequenceNumbers':true,'wrap':true,'actorMargin':26,'width':116}}}%%
+sequenceDiagram
+participant A as Alice
+participant DIR as Directory
+participant MP as Provider
+participant B as Bob
+A->>DIR: Publish public key (after address proof)
+A->>MP: First email — Autocrypt header
+MP-->>B: Delivered (ciphertext + header)
+B->>B: Cache Alice's key
+Note over A,B: Bob can now encrypt back
+B->>DIR: Fallback lookup
+DIR-->>B: Alice's public key
+</pre>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <div class="flow-head"><span class="flow-n">FLOW D</span><span class="flow-t">Recovery on a new device</span></div>
+          <p class="flow-d">The recovery code unwraps the backup locally — the server can't.</p>
+          <div class="flow-diagram">
+<pre class="mermaid">
+%%{init: {'theme':'base','themeVariables':{'darkMode':true,'background':'#141A22','primaryColor':'#EBB863','primaryTextColor':'#E8ECF3','primaryBorderColor':'#33404F','lineColor':'#9AA6B6','secondaryColor':'#1B2430','tertiaryColor':'#1B2430','actorBkg':'#1B2430','actorBorder':'#3A4757','actorTextColor':'#E8ECF3','actorLineColor':'#39424F','signalColor':'#9AA6B6','signalTextColor':'#C4CDDA','noteBkgColor':'#2A2314','noteBorderColor':'#EBB863','noteTextColor':'#F0CE92','labelBoxBkgColor':'#1B2430','labelBoxBorderColor':'#EBB863','labelTextColor':'#E8ECF3','loopTextColor':'#C4CDDA','activationBkgColor':'#EBB863','activationBorderColor':'#C99A4E','sequenceNumberColor':'#241A08','fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','fontSize':'13px'},'sequence':{'showSequenceNumbers':true,'wrap':true,'actorMargin':30,'width':120}}}%%
+sequenceDiagram
+participant ND as New device
+participant BK as Backup store
+participant U as You
+ND->>ND: Sign in (OAuth)
+ND->>BK: Request encrypted backup
+BK-->>ND: Wrapped blob + KDF params
+U->>ND: Enter recovery code
+ND->>ND: Argon2id → unwrap key
+ND-->>U: History readable again
+Note over BK: Server never sees a usable key
+</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SCREENS ================= -->
+  <section class="section" id="screens">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="kicker">Screen designs</p>
+        <h2>The interface, from first sign-in to secure send</h2>
+        <p class="sub">Every screen keeps one promise visible: you always know whether a message
+          is encrypted, who it's verified against, and what happens when it can't be.</p>
+      </div>
+
+      <div class="screens">
+
+        <!-- connect -->
+        <div class="screen">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#lock"/></svg> Connect account</span></div>
+            <div class="win-body">
+              <h3 class="win-h">Connect your inbox</h3>
+              <p class="muted">Keep your address. We layer encryption on top.</p>
+              <button class="provider-btn"><span class="g gmail">G</span> Continue with Gmail <span class="arrow">›</span></button>
+              <button class="provider-btn"><span class="g ms">⊞</span> Continue with Outlook <span class="arrow">›</span></button>
+              <button class="provider-btn"><span class="g imap">@</span> Other (IMAP / SMTP) <span class="arrow">›</span></button>
+              <div class="reassure"><svg class="i"><use href="#shield"/></svg>
+                <span>Sign-in uses OAuth — we never see your password, and your private key never leaves this device.</span></div>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Onboarding.</b> Provider OAuth, least-privilege scopes.</p>
+        </div>
+
+        <!-- inbox -->
+        <div class="screen">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#mail"/></svg> Inbox — you@gmail.com</span></div>
+            <div class="win-body">
+              <div class="field" style="display:flex;align-items:center;gap:9px;margin-bottom:14px;">
+                <svg class="i" style="color:var(--ink-faint)"><use href="#search"/></svg>
+                <span class="field-txt">Search encrypted mail</span></div>
+              <div class="mailrow">
+                <div class="av a">AK</div>
+                <div class="mail-main">
+                  <div class="mail-top"><span class="mail-from">Anya Kessler</span>
+                    <span class="mail-time">09:41</span></div>
+                  <div class="mail-sub">Q3 board deck — final numbers</div>
+                  <div class="mail-snip">Decrypted just for you · signature checks out…</div>
+                </div>
+              </div>
+              <div style="margin:-6px 0 8px 46px;"><span class="badge badge--enc"><svg class="i"><use href="#lock"/></svg> Encrypted · verified</span></div>
+              <div class="mailrow">
+                <div class="av c">JL</div>
+                <div class="mail-main">
+                  <div class="mail-top"><span class="mail-from">Jordan Lee</span>
+                    <span class="mail-time">08:12</span></div>
+                  <div class="mail-sub">Re: contract redlines</div>
+                  <div class="mail-snip">Thanks — one more change on clause 4…</div>
+                </div>
+              </div>
+              <div style="margin:-6px 0 8px 46px;"><span class="badge badge--warn"><svg class="i"><use href="#alert"/></svg> Encrypted · key unverified</span></div>
+              <div class="mailrow">
+                <div class="av d">NO</div>
+                <div class="mail-main">
+                  <div class="mail-top"><span class="mail-from">Newsletter</span>
+                    <span class="mail-time">Tue</span></div>
+                  <div class="mail-sub">Your weekly digest</div>
+                  <div class="mail-snip">Not encrypted — sent by a non-user.</div>
+                </div>
+              </div>
+              <div style="margin:-6px 0 0 46px;"><span class="badge badge--plain">Not encrypted</span></div>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Inbox.</b> Encryption state on every row, at a glance.</p>
+        </div>
+
+        <!-- reading -->
+        <div class="screen">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#lock"/></svg> Message</span></div>
+            <div class="win-body">
+              <div class="banner ok"><svg class="i"><use href="#shield"/></svg>
+                Encrypted end-to-end · signature verified</div>
+              <h3 class="win-h">Q3 board deck — final numbers</h3>
+              <div class="kv" style="margin-top:12px;">
+                <div class="av a">AK</div>
+                <div><div class="kv-name">Anya Kessler &lt;anya@partner.com&gt;</div>
+                  <div class="kv-key">verified · key 4F2A · 9C71 · E308</div></div>
+              </div>
+              <div class="msg-body">
+                <p>Numbers are locked — revenue is up 18% QoQ and we're ahead on net retention.</p>
+                <p>Deck attached. Let's keep this one between us until Thursday.</p>
+              </div>
+              <span class="attach"><svg class="i"><use href="#lock"/></svg> board-q3.pdf <small>decrypted</small></span>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Reading.</b> Restored subject, trust chip, decrypted attachment.</p>
+        </div>
+
+        <!-- compose (wide) -->
+        <div class="screen wide">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#mail"/></svg> New message</span></div>
+            <div class="win-body">
+              <div class="field">
+                <div class="field-l">To</div>
+                <span class="recip">bob@outlook.com <span class="badge badge--enc"><svg class="i"><use href="#lock"/></svg> key found</span></span>
+                <span class="recip">anya@partner.com <span class="badge badge--enc"><svg class="i"><use href="#lock"/></svg> verified</span></span>
+                <span class="recip">carol@acme.co <span class="badge badge--warn"><svg class="i"><use href="#alert"/></svg> no key</span></span>
+              </div>
+              <div class="field">
+                <div class="field-l">Subject</div>
+                <div class="field-txt">Pricing for the Q3 renewal</div>
+              </div>
+              <div class="field">
+                <div class="field-l">Message</div>
+                <div class="field-txt big">Here's the proposal we discussed. Numbers are firm through
+                  end of quarter — happy to walk through it on a call.</div>
+              </div>
+              <div class="sendbar warn">
+                <div class="send-status"><svg class="i"><use href="#alert"/></svg>
+                  Encrypted for 2 of 3 recipients — <b>carol@acme.co has no key</b>. Choose how to reach them:</div>
+                <div class="fallbacks">
+                  <button class="fb primary"><svg class="i"><use href="#link"/></svg> Send secure link</button>
+                  <button class="fb">Send plaintext to Carol</button>
+                  <button class="fb">Invite Carol &amp; hold</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Compose — the fail-safe moment.</b> A missing key is surfaced before send; it never silently downgrades to plaintext.</p>
+        </div>
+
+        <!-- comparison (wide) -->
+        <div class="screen wide">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title">The same message, two apps</span></div>
+            <div class="cmp-grid">
+              <div>
+                <p class="cmp-tag bad"><svg class="i"><use href="#mail"/></svg> What Gmail / Outlook shows</p>
+                <div class="ghost-sub">Subject: [Encrypted message]</div>
+                <pre class="cipher">-----BEGIN PGP MESSAGE-----
+
+hQIMA4z7Kd2vL1nQAQ//X2p8mQ9rT4bYc6Vn
+Jf3sZ0oR1wL8kD5eH2aP9uG7iC4xN6mB1vK0
+tY3wS8dQ2rF7hJ5nE9cA0bX4zL6pM3oI1uD8
+kR7yT2sV5wQ9nB3xH6mC0aP4eG8iJ1oL5dF2
+...  (416 more lines)  ...
+=Ab3D
+-----END PGP MESSAGE-----</pre>
+              </div>
+              <div>
+                <p class="cmp-tag good"><svg class="i"><use href="#lock"/></svg> What CipherMail shows</p>
+                <div class="banner ok" style="margin-bottom:12px;"><svg class="i"><use href="#shield"/></svg> Verified · end-to-end encrypted</div>
+                <h3 class="win-h" style="font-size:1rem;">Pricing for the Q3 renewal</h3>
+                <div class="msg-body" style="margin-top:8px;">
+                  <p>Here's the proposal we discussed. Numbers are firm through end of quarter —
+                    happy to walk through it on a call.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="screen-cap"><b>The whole thesis in one view.</b> Identical bytes in the mailbox — ciphertext to the provider, readable in CipherMail.</p>
+        </div>
+
+        <!-- verify -->
+        <div class="screen">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#shield"/></svg> Verify contact</span></div>
+            <div class="win-body">
+              <h3 class="win-h">Verify Anya's key</h3>
+              <p class="muted">Compare these numbers in person or on a call. If they match, the channel is safe from tampering.</p>
+              <div class="fp">
+                <span>4F2A</span><span>9C71</span><span>E308</span><span>1BD5</span>
+                <span>77A0</span><span>3E6C</span><span>B294</span><span>0F8A</span>
+                <span>D5C3</span><span>6A19</span><span>82EF</span><span>4471</span>
+              </div>
+              <div class="verify-row">
+                <div class="qr"></div>
+                <div>
+                  <p class="muted" style="margin:0 0 10px;">Or scan their code in person for instant verification.</p>
+                  <button class="fb primary"><svg class="i"><use href="#check"/></svg> They match — mark verified</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Verification.</b> Safety numbers defeat key-substitution attacks.</p>
+        </div>
+
+        <!-- recovery -->
+        <div class="screen">
+          <div class="win">
+            <div class="win-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="win-title"><svg class="i"><use href="#key"/></svg> Recovery code</span></div>
+            <div class="win-body">
+              <h3 class="win-h">Save your recovery code</h3>
+              <p class="muted">These 12 words can restore your encrypted mail on a new device.</p>
+              <div class="code-grid">
+                <div class="word"><i>1</i><b>harbor</b></div><div class="word"><i>2</i><b>cinder</b></div><div class="word"><i>3</i><b>violet</b></div>
+                <div class="word"><i>4</i><b>anchor</b></div><div class="word"><i>5</i><b>quartz</b></div><div class="word"><i>6</i><b>meadow</b></div>
+                <div class="word"><i>7</i><b>tundra</b></div><div class="word"><i>8</i><b>lumen</b></div><div class="word"><i>9</i><b>falcon</b></div>
+                <div class="word"><i>10</i><b>oxide</b></div><div class="word"><i>11</i><b>willow</b></div><div class="word"><i>12</i><b>ember</b></div>
+              </div>
+              <div class="callout"><svg class="i"><use href="#alert"/></svg>
+                <span>This is the <b>only</b> way to recover your mail. We can't reset it — store it somewhere safe and offline.</span></div>
+              <div class="check-row"><span class="cb"><svg class="i"><use href="#check"/></svg></span>
+                I've saved my recovery code</div>
+              <button class="btn-primary"><svg class="i"><use href="#shield"/></svg> Finish setup</button>
+            </div>
+          </div>
+          <p class="screen-cap"><b>Recovery.</b> Zero-knowledge — the limitation is stated plainly, not buried.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p>Companion to the written spec in <span class="files">/docs</span> —
+        architecture, encryption, key-management, providers, message-format, security &amp; roadmap.
+        Presented in a single dark theme, a deliberate choice for a security product.</p>
+    </div>
+  </footer>
+
+</div>
