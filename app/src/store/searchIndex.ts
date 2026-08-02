@@ -9,11 +9,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { SearchIndex } from '../search/search';
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 
-const STORE_KEY = 'ciphermail.searchindex.v1';
+const STORE_KEY = 'cryptmail.searchindex.v1';
 
 export async function loadSearchIndex(): Promise<SearchIndex> {
-  const stored = await AsyncStorage.getItem(STORE_KEY);
+  const stored = await getAsyncItemMigrating(STORE_KEY);
   return stored ? (JSON.parse(stored) as SearchIndex) : {};
 }
 

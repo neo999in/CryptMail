@@ -1,7 +1,7 @@
 /**
  * A minimal, dependency-free reader for **real** armored OpenPGP public keys.
  *
- * The demo core (`demoCore.importPublicKey`) can only read CipherMail's own
+ * The demo core (`demoCore.importPublicKey`) can only read CryptMail's own
  * demo keys, which carry the address + fingerprint in armor headers. A key
  * exported from GnuPG, Proton Mail, or any other OpenPGP tool keeps those in
  * the *binary packet stream* instead — so this module dearmors the block, walks

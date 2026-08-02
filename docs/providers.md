@@ -1,6 +1,6 @@
 # Provider Integration
 
-CipherMail is a client for accounts users already have. This describes how it
+CryptMail is a client for accounts users already have. This describes how it
 authenticates and moves mail for each provider class. All connectors implement
 one internal interface so the rest of the app is provider-agnostic.
 
@@ -26,7 +26,7 @@ core.
 ## Gmail / Google Workspace
 
 **Auth:** OAuth 2.0 (Authorization Code + PKCE). Users never type their Google
-password into CipherMail.
+password into CryptMail.
 
 - Scopes (principle of least privilege):
   - `https://www.googleapis.com/auth/gmail.modify` — read, send, modify labels

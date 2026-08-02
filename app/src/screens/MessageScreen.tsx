@@ -244,7 +244,7 @@ function StatusBanner({ opened }: { opened: OpenedMessage }) {
       <View style={{ marginBottom: 15 }}>
         <View style={s.plainBanner}>
           <Badge tone="plain">Not encrypted</Badge>
-          <Text style={s.plainText}>Sent by someone who is not a CipherMail user.</Text>
+          <Text style={s.plainText}>Sent by someone who is not a CryptMail user.</Text>
         </View>
       </View>
     );

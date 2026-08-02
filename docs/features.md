@@ -1,6 +1,6 @@
 # Feature Register
 
-Every feature CipherMail could plausibly build next, written against **what the
+Every feature CryptMail could plausibly build next, written against **what the
 code actually does today**.
 
 This is the implementation-oriented companion to [roadmap.md](roadmap.md).
@@ -21,7 +21,7 @@ no backend:
 | Tag | Meaning |
 |---|---|
 | 🟢 **Ready** | Buildable today, in TypeScript, against the existing demo core. No new native code, no server. |
-| 🟡 **Needs core** | Blocked on the real Rust `ciphermail-core` (M1/M2 of [prototype-plan.md](prototype-plan.md)). |
+| 🟡 **Needs core** | Blocked on the real Rust `cryptmail-core` (M1/M2 of [prototype-plan.md](prototype-plan.md)). |
 | 🔵 **Needs backend** | Blocked on the optional service in [api.md](api.md) (key directory / push relay / secure links). |
 | 🟣 **Needs surface** | Blocked on a new platform target (desktop, iOS, browser extension). |
 | ⚫ **Debt** | Not a feature — something already wrong that gates shipping to real users. |
@@ -241,7 +241,7 @@ written down before the relay exists.
 the app hard-codes a single session. Retrofitting this later touches every
 store, so doing it earlier is cheaper.
 
-**Build sketch.** Key every store by account (`ciphermail.<store>.v1.<account>`),
+**Build sketch.** Key every store by account (`cryptmail.<store>.v1.<account>`),
 make `AppState` hold `accounts[]` + `activeAccount`, and give each its own
 `MailClient`. Identity and keyring stay per-account.
 
@@ -307,7 +307,7 @@ reader, and every trust state has a text equivalent.
 
 ## Tier 1 — 🟡 Needs the real crypto core
 
-These are gated on `ciphermail-core` (M1/M2). Several have their *UI* buildable
+These are gated on `cryptmail-core` (M1/M2). Several have their *UI* buildable
 now against the demo core, with the crypto swapped in later.
 
 | Feature | Impact | Effort | Notes |

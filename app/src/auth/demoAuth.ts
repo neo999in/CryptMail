@@ -1,10 +1,11 @@
 /** Demo sign-in: no network, no tokens, one fixed identity. */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 import { DEMO_ADDRESS } from '../mail/demoMail';
 import { AuthProvider, Session } from './types';
 
-const STORE_KEY = 'ciphermail.session.demo';
+const STORE_KEY = 'cryptmail.session.demo';
 
 const session: Session = {
   provider: 'demo',
@@ -23,7 +24,7 @@ export const demoAuth: AuthProvider = {
   },
 
   async restore() {
-    const stored = await AsyncStorage.getItem(STORE_KEY);
+    const stored = await getAsyncItemMigrating(STORE_KEY);
     return stored ? (JSON.parse(stored) as Session) : null;
   },
 

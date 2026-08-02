@@ -1,8 +1,8 @@
 # Message Format on the Wire
 
-This shows exactly what an encrypted CipherMail message looks like as it sits in
+This shows exactly what an encrypted CryptMail message looks like as it sits in
 a mailbox — the thing that renders as ciphertext in Gmail/Outlook and as normal
-mail in CipherMail. Format is **PGP/MIME** (RFC 3156) with **protected headers**.
+mail in CryptMail. Format is **PGP/MIME** (RFC 3156) with **protected headers**.
 
 ## Anatomy of an encrypted message
 
@@ -75,18 +75,18 @@ JVBERi0xLjQKJ... (encrypted-at-rest because the whole tree was encrypted) ...
 --inner-boundary--
 ```
 
-After decryption CipherMail reads the inner `Subject` and restores it in the UI,
+After decryption CryptMail reads the inner `Subject` and restores it in the UI,
 so the user sees "Lunch on Friday?" while Gmail only ever saw
 `[Encrypted message]`.
 
 ## Signed + encrypted
 
 The inner content is **signed then encrypted** (OpenPGP combined
-sign+encrypt operation). On decrypt, CipherMail verifies the signature against
+sign+encrypt operation). On decrypt, CryptMail verifies the signature against
 the sender's known public key and shows the trust state
 ([key-management.md](key-management.md)).
 
-## How non-CipherMail clients render this
+## How non-CryptMail clients render this
 
 - **Gmail / Outlook web:** show the placeholder subject and, in the body, either
   the raw `-----BEGIN PGP MESSAGE-----` text or an `encrypted.asc` attachment they
@@ -99,7 +99,7 @@ the sender's known public key and shows the trust state
 For a recipient with no key, we don't produce PGP/MIME. Instead:
 
 - The body is a normal `text/html`/`text/plain` message containing a link:
-  `https://read.ciphermail.app/m/<id>#<optional-key-fragment>`.
+  `https://read.cryptmail.app/m/<id>#<optional-key-fragment>`.
 - The ciphertext is stored on the backend (or attached, encrypted to a random
   passphrase). The decryption passphrase travels **out-of-band** (never in the
   email).

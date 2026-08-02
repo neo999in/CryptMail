@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-CipherMail — a cross-platform email client that signs into an existing Gmail/IMAP
+CryptMail — a cross-platform email client that signs into an existing Gmail/IMAP
 account and end-to-end encrypts outgoing mail (PGP/MIME), so the provider's own
-apps show ciphertext while CipherMail shows the message. It is a client, never a
+apps show ciphertext while CryptMail shows the message. It is a client, never a
 mail provider.
 
 The repo currently holds **design docs + a Phase 0 prototype frontend**. The Rust
@@ -74,8 +74,8 @@ drop-in.
 
 Two interfaces define the swappable edges:
 
-- [app/src/core/types.ts](app/src/core/types.ts) — `CipherCore`. The exact surface
-  the Rust `ciphermail-core` will expose via UniFFI → Kotlin → turbo module.
+- [app/src/core/types.ts](app/src/core/types.ts) — `CryptCore`. The exact surface
+  the Rust `cryptmail-core` will expose via UniFFI → Kotlin → turbo module.
 - [app/src/mail/types.ts](app/src/mail/types.ts) — `MailClient`. Everything above
   this line is provider-agnostic.
 
@@ -91,10 +91,10 @@ and `demoReason()` explains a downgrade to the user rather than hiding it.
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
 
 To reach live mode: build the native core (M2), register the Kotlin module as
-`CipherMailCore` with the five methods in
+`CryptMailCore` with the five methods in
 [app/src/core/nativeCore.ts](app/src/core/nativeCore.ts) — nothing else changes —
 then `cp app/.env.example app/.env` and fill in `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
-Redirect scheme is `ciphermail://oauth`, set in [app/app.json](app/app.json).
+Redirect scheme is `cryptmail://oauth`, set in [app/app.json](app/app.json).
 
 [app/src/core/mime.ts](app/src/core/mime.ts) implements
 [docs/message-format.md](docs/message-format.md) exactly — `multipart/encrypted`,

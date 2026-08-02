@@ -1,4 +1,4 @@
-<title>CipherMail — Architecture & Screen Designs</title>
+<title>CryptMail — Architecture & Screen Designs</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -397,7 +397,7 @@
 
   <nav class="nav">
     <div class="nav-in">
-      <div class="brand"><span class="lk"><svg class="i"><use href="#lock"/></svg></span> <b>CipherMail</b> <span>design</span></div>
+      <div class="brand"><span class="lk"><svg class="i"><use href="#lock"/></svg></span> <b>CryptMail</b> <span>design</span></div>
       <div class="nav-links">
         <a href="#arch">Architecture</a>
         <a href="#flows">Data flows</a>
@@ -412,7 +412,7 @@
       <h1>Encrypted mail, on the inbox you <em>already have</em>.</h1>
       <p class="lede">The architecture, the data flows, and the screens for a client that
         end-to-end encrypts mail over your existing Gmail or Outlook account — so it reads
-        normally in CipherMail and shows as ciphertext everywhere else.</p>
+        normally in CryptMail and shows as ciphertext everywhere else.</p>
       <div class="meta-row">
         <span class="meta"><svg class="i"><use href="#key"/></svg> OpenPGP / PGP-MIME</span>
         <span class="meta mint"><svg class="i"><use href="#shield"/></svg> Zero-knowledge backend</span>
@@ -428,7 +428,7 @@
         <p class="kicker">System architecture</p>
         <h2>One client, two backends it never has to trust</h2>
         <p class="sub">All cryptography happens on the device. The client talks to the user's
-          mail provider (which only ever holds ciphertext) and to a thin CipherMail service
+          mail provider (which only ever holds ciphertext) and to a thin CryptMail service
           (which only ever holds public keys and opaque backups).</p>
       </div>
 
@@ -438,7 +438,7 @@
           <div class="tier-head">
             <div class="tier-ic client"><svg class="i"><use href="#device"/></svg></div>
             <div>
-              <div class="tier-name">CipherMail client</div>
+              <div class="tier-name">CryptMail client</div>
               <div class="tier-sub">desktop · mobile · web — local-first</div>
             </div>
             <div class="tier-flag">plaintext lives only here</div>
@@ -497,7 +497,7 @@
             <div class="tier-head">
               <div class="tier-ic backend"><svg class="i"><use href="#shield"/></svg></div>
               <div>
-                <div class="tier-name">CipherMail service</div>
+                <div class="tier-name">CryptMail service</div>
                 <div class="tier-sub">optional · zero-knowledge</div>
               </div>
               <div class="tier-flag">never sees plaintext</div>
@@ -525,7 +525,7 @@
       <div class="boundary">
         <svg class="i"><use href="#shield"/></svg>
         <p><b>Trust boundary.</b> Cross either connector and you find only ciphertext, public
-          keys, and passphrase-wrapped blobs. Neither the mail provider nor the CipherMail
+          keys, and passphrase-wrapped blobs. Neither the mail provider nor the CryptMail
           service can read message content or reconstruct a usable private key.</p>
       </div>
     </div>
@@ -789,7 +789,7 @@ kR7yT2sV5wQ9nB3xH6mC0aP4eG8iJ1oL5dF2
 -----END PGP MESSAGE-----</pre>
               </div>
               <div>
-                <p class="cmp-tag good"><svg class="i"><use href="#lock"/></svg> What CipherMail shows</p>
+                <p class="cmp-tag good"><svg class="i"><use href="#lock"/></svg> What CryptMail shows</p>
                 <div class="banner ok" style="margin-bottom:12px;"><svg class="i"><use href="#shield"/></svg> Verified · end-to-end encrypted</div>
                 <h3 class="win-h" style="font-size:1rem;">Pricing for the Q3 renewal</h3>
                 <div class="msg-body" style="margin-top:8px;">
@@ -799,7 +799,7 @@ kR7yT2sV5wQ9nB3xH6mC0aP4eG8iJ1oL5dF2
               </div>
             </div>
           </div>
-          <p class="screen-cap"><b>The whole thesis in one view.</b> Identical bytes in the mailbox — ciphertext to the provider, readable in CipherMail.</p>
+          <p class="screen-cap"><b>The whole thesis in one view.</b> Identical bytes in the mailbox — ciphertext to the provider, readable in CryptMail.</p>
         </div>
 
         <!-- verify -->

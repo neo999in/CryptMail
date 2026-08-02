@@ -112,7 +112,7 @@ async function seed(address: string): Promise<Stored[]> {
     from: 'Newsletter <digest@weekly.example>',
     to: [address],
     subject: 'Your weekly digest',
-    body: 'This one is not encrypted — it was sent by someone who is not a CipherMail user.',
+    body: 'This one is not encrypted — it was sent by someone who is not a CryptMail user.',
   });
 
   return [

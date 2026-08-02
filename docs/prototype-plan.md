@@ -5,8 +5,8 @@ Concrete build plan for **Phase 0** ([roadmap.md](roadmap.md)), revised for a
 
 ## The one thing this prototype must prove
 
-> Alice sends from CipherMail on Android to Bob. Gmail's web UI shows Bob
-> `-----BEGIN PGP MESSAGE-----`. CipherMail on Bob's phone shows
+> Alice sends from CryptMail on Android to Bob. Gmail's web UI shows Bob
+> `-----BEGIN PGP MESSAGE-----`. CryptMail on Bob's phone shows
 > "Hey, are we still on for lunch?"
 
 Everything below exists to reach that sentence. Anything that doesn't serve it is
@@ -26,7 +26,7 @@ cut — see [Deliberately out of scope](#deliberately-out-of-scope).
 └───────────────────┬─────────────────────────┘
                     │  UniFFI-generated Kotlin → RN turbo module
 ┌───────────────────▼─────────────────────────┐
-│  ciphermail-core (Rust)                     │
+│  cryptmail-core (Rust)                     │
 │  · keygen / keyring   (rpgp)                │
 │  · encrypt+sign / decrypt+verify            │
 │  · PGP/MIME build + parse  (mail-builder,   │
@@ -76,7 +76,7 @@ producing a debug APK that boots on a device.
 **Check:** blank app launches on a physical Android phone.
 
 ### M1 — Crypto core, headless
-`ciphermail-core` as a plain Rust library, tested with `cargo test` and no app
+`cryptmail-core` as a plain Rust library, tested with `cargo test` and no app
 involved:
 - Generate a Curve25519 keypair (EdDSA sign + X25519 encrypt subkey).
 - Export/import ASCII-armored public keys.
@@ -127,7 +127,7 @@ with an explanation. No silent plaintext, ever — that rule from
 **Check:** the sentence at the top of this document, on two real phones.
 
 ### M7 — Capture the proof
-Screenshots: Gmail web showing ciphertext beside CipherMail showing plaintext.
+Screenshots: Gmail web showing ciphertext beside CryptMail showing plaintext.
 This is your demo, your README hero image, and your regression baseline.
 
 ---
@@ -153,7 +153,7 @@ works.
 | **Rust ⇄ Android NDK cross-compilation** | Historically the biggest time sink. Use `cargo-ndk`; pin NDK version. Solve it in M0 while the surface is trivial |
 | **Gmail restricted scopes** | `gmail.readonly` is restricted. Testing mode caps you at 100 users — fine for the prototype, but verification + CASA gates public launch. Start that clock early |
 | **Large attachments over the bridge** | Prototype: text bodies only, cap at ~1MB. Real fix (file paths, streaming in Rust) is Phase 1 |
-| **Protected-headers interop** | Non-CipherMail PGP clients vary in support. Prototype only needs CipherMail↔CipherMail; note deviations, don't chase them |
+| **Protected-headers interop** | Non-CryptMail PGP clients vary in support. Prototype only needs CryptMail↔CryptMail; note deviations, don't chase them |
 
 ---
 
@@ -194,7 +194,7 @@ Things the prototype does wrong on purpose, to be paid down in Phase 1:
 The prototype is done when all of the following hold:
 
 1. Two Gmail accounts on two Android phones exchange an encrypted message.
-2. Gmail web shows ciphertext for that message; CipherMail shows plaintext and a
+2. Gmail web shows ciphertext for that message; CryptMail shows plaintext and a
    valid signature.
 3. Sending to a recipient with no known key is blocked with a clear explanation.
 4. The private key is never present in JavaScript memory and never written

@@ -1,4 +1,4 @@
-# CipherMail — prototype frontend
+# CryptMail — prototype frontend
 
 The React Native (Expo, TypeScript) client for the Phase 0 prototype described
 in [../docs/prototype-plan.md](../docs/prototype-plan.md). Visual language is
@@ -57,7 +57,7 @@ provider or the core directly.
 [src/core/types.ts](src/core/types.ts) is the contract the Rust library will
 implement through UniFFI → Kotlin → turbo module. Only strings cross it, and no
 private key is ever returned. When M2 lands, register the Kotlin module as
-`CipherMailCore` with the five methods in
+`CryptMailCore` with the five methods in
 [src/core/nativeCore.ts](src/core/nativeCore.ts) — nothing else changes.
 
 Until then [src/core/demoCore.ts](src/core/demoCore.ts) stands in. **It is not
@@ -87,7 +87,7 @@ client id:
 cp .env.example .env     # then fill in EXPO_PUBLIC_GOOGLE_CLIENT_ID
 ```
 
-The redirect scheme is `ciphermail://oauth` (set in [app.json](app.json)).
+The redirect scheme is `cryptmail://oauth` (set in [app.json](app.json)).
 
 ## The fail-safe
 

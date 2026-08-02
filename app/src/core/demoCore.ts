@@ -1,7 +1,7 @@
 /**
  * ⚠️  NOT CRYPTOGRAPHY.
  *
- * A stand-in for `ciphermail-core` (Rust/rPGP) so the frontend can be built,
+ * A stand-in for `cryptmail-core` (Rust/rPGP) so the frontend can be built,
  * demoed and reviewed before M1/M2 land. It produces byte-correct PGP/MIME
  * envelopes (docs/message-format.md) whose "ciphertext" is *encoded*, not
  * encrypted — anyone can read it.
@@ -23,13 +23,16 @@ import {
   parseProtectedInner,
   parseRfc822,
 } from './mime';
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 import { parseArmoredPublicKey } from '../pgp/parseArmoredKey';
-import { BuildRequest, CipherCore, CoreError, DecryptedMessage, Identity, PublicKeyInfo } from './types';
+import { BuildRequest, CryptCore, CoreError, DecryptedMessage, Identity, PublicKeyInfo } from './types';
 
-const IDENTITY_KEY = 'ciphermail.demo.identity';
-const DEMO_ARMOR_TAG = 'CIPHERMAIL-DEMO-V1:';
+const IDENTITY_KEY = 'cryptmail.demo.identity';
+const DEMO_ARMOR_TAG = 'CRYPTMAIL-DEMO-V1:';
+/** Demo messages built before the rename; read-only, never emitted. */
+const LEGACY_ARMOR_TAG = 'CIPHERMAIL-DEMO-V1:';
 
-export const demoCore: CipherCore = {
+export const demoCore: CryptCore = {
   kind: 'demo',
 
   async generateIdentity(email: string): Promise<Identity> {
@@ -45,7 +48,7 @@ export const demoCore: CipherCore = {
   },
 
   async loadIdentity(email: string): Promise<Identity | null> {
-    const stored = await AsyncStorage.getItem(`${IDENTITY_KEY}.${email}`);
+    const stored = await getAsyncItemMigrating(`${IDENTITY_KEY}.${email}`);
     return stored ? (JSON.parse(stored) as Identity) : null;
   },
 
@@ -54,7 +57,7 @@ export const demoCore: CipherCore = {
     if (!trimmed.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
       throw new CoreError('That does not look like an armored public key block.', 'malformed');
     }
-    // Fast path for CipherMail's own demo keys, which put the address and
+    // Fast path for CryptMail's own demo keys, which put the address and
     // fingerprint in armor headers. Real OpenPGP keys don't — they keep them in
     // the binary packets, so those fall through to the packet reader below.
     const comment = trimmed.match(/^Comment:\s*(.+)$/m)?.[1] ?? '';
@@ -95,14 +98,15 @@ export const demoCore: CipherCore = {
     if (!block) throw new CoreError('No PGP message block found.', 'malformed');
 
     const decoded = decodeUtf8Base64(dearmor(block));
-    if (!decoded.startsWith(DEMO_ARMOR_TAG)) {
+    const tag = [DEMO_ARMOR_TAG, LEGACY_ARMOR_TAG].find((t) => decoded.startsWith(t));
+    if (!tag) {
       // Real OpenPGP ciphertext: only the native core can open this.
       throw new CoreError(
         'This message needs the real crypto core to decrypt (demo mode is running).',
         'decrypt-failed',
       );
     }
-    const rest = decoded.slice(DEMO_ARMOR_TAG.length);
+    const rest = decoded.slice(tag.length);
     const sep = rest.indexOf(':');
     const signerFingerprint = rest.slice(0, sep);
     const { subject, body } = parseProtectedInner(decodeUtf8Base64(rest.slice(sep + 1)));
@@ -131,11 +135,11 @@ function randomFingerprint(): string {
 
 /** Armor-shaped, with the metadata the demo importer reads back. */
 export function fakePublicKey(email: string, fingerprint: string): string {
-  const filler = encodeUtf8Base64(`ciphermail-demo-key:${email}:${fingerprint}`).repeat(6);
+  const filler = encodeUtf8Base64(`cryptmail-demo-key:${email}:${fingerprint}`).repeat(6);
   const lines = (filler.match(/.{1,64}/g) ?? []).slice(0, 8);
   return [
     '-----BEGIN PGP PUBLIC KEY BLOCK-----',
-    `Comment: CipherMail demo key <${email}>`,
+    `Comment: CryptMail demo key <${email}>`,
     `Fingerprint: ${fingerprint}`,
     '',
     ...lines,

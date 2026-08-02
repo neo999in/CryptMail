@@ -294,10 +294,10 @@ export function ComposeScreen({ route, navigation }: Props) {
   );
 
   function statusLine(): string {
-    if (to.length === 0) return 'Add a recipient. CipherMail only sends to people you hold a key for.';
+    if (to.length === 0) return 'Add a recipient. CryptMail only sends to people you hold a key for.';
     if (missing.length > 0) {
       const names = missing.map((r) => r.email).join(', ');
-      return `${names} ${missing.length > 1 ? 'have' : 'has'} no key — CipherMail will not send this as plaintext.`;
+      return `${names} ${missing.length > 1 ? 'have' : 'has'} no key — CryptMail will not send this as plaintext.`;
     }
     if (changed.length > 0) {
       return `${changed[0].email}'s key changed since you last saw it. Verify it before sending.`;

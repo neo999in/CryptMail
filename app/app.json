@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "CipherMail",
-    "slug": "ciphermail",
-    "scheme": "ciphermail",
+    "name": "CryptMail",
+    "slug": "cryptmail",
+    "scheme": "cryptmail",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -12,7 +12,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "app.ciphermail.prototype",
+      "package": "app.cryptmail.prototype",
       "adaptiveIcon": {
         "backgroundColor": "#0C0F14",
         "foregroundImage": "./assets/android-icon-foreground.png",

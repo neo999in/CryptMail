@@ -1,12 +1,12 @@
 # Security Model & Threat Analysis
 
-Honesty is a feature. This documents what CipherMail protects, what it does not,
+Honesty is a feature. This documents what CryptMail protects, what it does not,
 and the assumptions behind each guarantee.
 
 ## What we protect
 
 - **Message content** (subject, body, attachments) is end-to-end encrypted.
-  Neither the mail provider, network observers, nor the CipherMail backend can
+  Neither the mail provider, network observers, nor the CryptMail backend can
   read it.
 - **Authenticity:** messages are signed; recipients can verify the sender's key.
 - **Private keys at rest** are wrapped (Argon2id + AES-256-GCM) and held in the OS
@@ -31,8 +31,8 @@ and the assumptions behind each guarantee.
 |-----------|------------------------|-------|
 | Mail provider (Google/MS) | ❌ | Stores/serves only ciphertext |
 | Passive network observer | ❌ | TLS + E2EE |
-| CipherMail backend operator | ❌ | Sees public keys + opaque backups only |
-| Malicious CipherMail backend | ⚠️ *key substitution* | See below — defeated by verification |
+| CryptMail backend operator | ❌ | Sees public keys + opaque backups only |
+| Malicious CryptMail backend | ⚠️ *key substitution* | See below — defeated by verification |
 | Attacker with the device, locked | ❌ (if keychain/passphrase strong) | Wrapped key |
 | Attacker with the device, unlocked | ✅ | Endpoint compromise |
 | Attacker with provider password only | ❌ | Gets ciphertext, not the private key |
@@ -43,7 +43,7 @@ Any system with automatic key discovery has one core attack: the discovery sourc
 lies about someone's public key, handing you the attacker's key instead. Then the
 attacker can decrypt/re-encrypt in the middle.
 
-CipherMail's discovery sources (directory, Autocrypt, WKD) are all trust-on-
+CryptMail's discovery sources (directory, Autocrypt, WKD) are all trust-on-
 first-use by default. Mitigations, strongest last:
 
 1. **Fingerprint verification.** Users can compare a key's fingerprint / safety

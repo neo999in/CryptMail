@@ -6,7 +6,7 @@ rotation.
 
 ## The user's keypair
 
-On first setup, CipherMail generates an OpenPGP keypair **on the device**:
+On first setup, CryptMail generates an OpenPGP keypair **on the device**:
 
 - Primary key: Ed25519 (certification + signing).
 - Encryption subkey: X25519 (Curve25519 ECDH).
@@ -41,11 +41,11 @@ Resolved in priority order at send time:
 1. **Local keyring** — keys already cached from prior messages/verification.
 2. **Autocrypt cache** — keys learned from `Autocrypt` headers on received mail
    (see [encryption.md](encryption.md)).
-3. **CipherMail key directory** — backend service mapping `email → public key(s)`
+3. **CryptMail key directory** — backend service mapping `email → public key(s)`
    for registered users (see [api.md](api.md)).
 4. **WKD (Web Key Directory)** — RFC-standard lookup at the recipient's domain
    (`https://openpgpkey.<domain>/.well-known/openpgpkey/...`). Enables interop
-   with non-CipherMail PGP users.
+   with non-CryptMail PGP users.
 5. **Manual import** — paste/scan a key or fingerprint.
 
 If none resolve, the recipient is treated as "no key" and fallbacks apply.

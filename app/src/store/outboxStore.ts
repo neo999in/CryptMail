@@ -7,11 +7,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ScheduledOutbox } from '../outbox/outbox';
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 
-const STORE_KEY = 'ciphermail.outbox.v1';
+const STORE_KEY = 'cryptmail.outbox.v1';
 
 export async function loadOutbox(): Promise<ScheduledOutbox> {
-  const stored = await AsyncStorage.getItem(STORE_KEY);
+  const stored = await getAsyncItemMigrating(STORE_KEY);
   return stored ? (JSON.parse(stored) as ScheduledOutbox) : {};
 }
 

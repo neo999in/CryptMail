@@ -5,7 +5,7 @@ discovery, encrypted key backup, and push. It never sees plaintext, private keys
 passphrases, or OAuth tokens. A pure peer-to-peer variant is possible using only
 Autocrypt + WKD, but the directory greatly improves the "just works" experience.
 
-Base URL: `https://api.ciphermail.app/v1`
+Base URL: `https://api.cryptmail.app/v1`
 Auth: bearer token from account sign-in (proves control of the email address).
 
 ## Address ownership verification

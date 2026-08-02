@@ -83,7 +83,7 @@ describe('userIdDisplayName', () => {
     expect(userIdDisplayName('ada@example.com')).toBeUndefined();
   });
 
-  it('ignores the CipherMail demo comment so demo keys are not misnamed', () => {
-    expect(userIdDisplayName('CipherMail demo key <ada@example.com>')).toBeUndefined();
+  it('ignores the CryptMail demo comment so demo keys are not misnamed', () => {
+    expect(userIdDisplayName('CryptMail demo key <ada@example.com>')).toBeUndefined();
   });
 });

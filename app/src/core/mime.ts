@@ -75,9 +75,9 @@ export function buildEncryptedEnvelope(args: {
   autocryptKeydata?: string;
   messageId?: string;
 }): string {
-  const boundary = `=-=-=ciphermail-${Math.random().toString(36).slice(2, 10)}=-=-=`;
+  const boundary = `=-=-=cryptmail-${Math.random().toString(36).slice(2, 10)}=-=-=`;
   const date = (args.date ?? new Date()).toUTCString();
-  const messageId = args.messageId ?? `<${Math.random().toString(36).slice(2)}@ciphermail>`;
+  const messageId = args.messageId ?? `<${Math.random().toString(36).slice(2)}@cryptmail>`;
 
   const headers = [
     `From: ${args.from}`,

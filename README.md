@@ -1,23 +1,23 @@
-# CipherMail (working title)
+# CryptMail (working title)
 
 A cross-platform email client that connects to your **existing** Gmail, Outlook,
 or any IMAP/SMTP account and transparently **end-to-end encrypts** the mail you
 send through it.
 
-The key idea: mail you send from CipherMail to another CipherMail user is
+The key idea: mail you send from CryptMail to another CryptMail user is
 encrypted on your device and only ever decrypted on the recipient's device.
 The encrypted message physically lives in the recipient's normal mailbox — so
 if they open Gmail, Outlook, or any other client, they see an unreadable
-ciphertext block. Inside CipherMail, it reads as a normal message.
+ciphertext block. Inside CryptMail, it reads as a normal message.
 
 ```
-You (CipherMail)  ──encrypt──▶  [ciphertext email]  ──▶  Recipient's Gmail inbox
+You (CryptMail)  ──encrypt──▶  [ciphertext email]  ──▶  Recipient's Gmail inbox
                                         │
                     Gmail web UI shows: "-----BEGIN PGP MESSAGE----- ..."
-                    CipherMail shows:   "Hey, are we still on for lunch?"
+                    CryptMail shows:   "Hey, are we still on for lunch?"
 ```
 
-CipherMail is a **client**, not a mail provider. It never runs your mailbox; it
+CryptMail is a **client**, not a mail provider. It never runs your mailbox; it
 signs into the one you already have. That is exactly why the ciphertext shows up
 in the provider's own apps — it's a real email sitting in a real inbox.
 
@@ -79,11 +79,11 @@ New here? Read [docs/overview.md](docs/overview.md), then
 
 ## The one-paragraph summary for skeptics
 
-There is no magic. CipherMail generates an OpenPGP-style keypair on your device,
+There is no magic. CryptMail generates an OpenPGP-style keypair on your device,
 publishes your **public** key so other users can find it, and uses recipients'
 public keys to encrypt outgoing mail (PGP/MIME). Only the matching private key —
 which never leaves your device unencrypted — can decrypt it. Providers store and
 transport the ciphertext exactly like any other email, which is why their apps
-display gibberish. If a recipient isn't a CipherMail user and has no published
-key, CipherMail tells you before you send and offers a passphrase-protected
+display gibberish. If a recipient isn't a CryptMail user and has no published
+key, CryptMail tells you before you send and offers a passphrase-protected
 "secure link" fallback instead of silently sending plaintext.

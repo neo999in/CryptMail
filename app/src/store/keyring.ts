@@ -8,6 +8,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { PublicKeyInfo, Trust } from '../core';
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 
 export type ContactKey = PublicKeyInfo & {
   name?: string;
@@ -17,12 +18,12 @@ export type ContactKey = PublicKeyInfo & {
   lastSeen: string;
 };
 
-const STORE_KEY = 'ciphermail.keyring.v1';
+const STORE_KEY = 'cryptmail.keyring.v1';
 
 export type Keyring = Record<string, ContactKey>;
 
 export async function loadKeyring(): Promise<Keyring> {
-  const stored = await AsyncStorage.getItem(STORE_KEY);
+  const stored = await getAsyncItemMigrating(STORE_KEY);
   return stored ? (JSON.parse(stored) as Keyring) : {};
 }
 

@@ -144,7 +144,7 @@ export function KeysScreen() {
           <EmptyState
             icon="key"
             title="No contact keys yet"
-            hint="Without a key, CipherMail will not send to that address at all."
+            hint="Without a key, CryptMail will not send to that address at all."
           />
         </Card>
       ) : (

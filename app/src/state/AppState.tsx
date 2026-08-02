@@ -395,7 +395,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const missing = recipients.filter((r) => r.status === 'missing');
       if (missing.length > 0) {
         throw new CoreError(
-          `No key for ${missing.map((r) => r.email).join(', ')} — CipherMail will not send this as plaintext.`,
+          `No key for ${missing.map((r) => r.email).join(', ')} — CryptMail will not send this as plaintext.`,
           'no-key',
         );
       }
@@ -432,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const missing = resolveRecipients(input.to).filter((r) => r.status === 'missing');
       if (missing.length > 0) {
         throw new CoreError(
-          `No key for ${missing.map((r) => r.email).join(', ')} — CipherMail will not schedule this as plaintext.`,
+          `No key for ${missing.map((r) => r.email).join(', ')} — CryptMail will not schedule this as plaintext.`,
           'no-key',
         );
       }

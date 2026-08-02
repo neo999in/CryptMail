@@ -13,11 +13,11 @@ Goal: prove the core claim end-to-end on one platform, one provider.
 - [ ] Manual public-key import (paste) to unblock testing between two accounts.
 
 **Done when:** you send from account A to account B, Gmail's web UI shows
-ciphertext, and CipherMail on B shows the plaintext.
+ciphertext, and CryptMail on B shows the plaintext.
 
 ## Phase 1 — MVP
 
-Goal: the seamless experience for two CipherMail users.
+Goal: the seamless experience for two CryptMail users.
 
 - [ ] Autocrypt headers on send; auto-cache received keys.
 - [ ] Backend **key directory** (publish/lookup) with address ownership proof.
@@ -108,7 +108,7 @@ worthless if the envelope or key exchange is wrong. But two honest gaps sit
    or drafts. Enthusiasts will tolerate a bare client to get encryption; nobody
    else will.
 2. **Adoption is the existential risk, not the crypto.** The entire design
-   assumes both people run CipherMail. Getting the *second* person there is
+   assumes both people run CryptMail. Getting the *second* person there is
    still unsolved.
 
 If I could add only five things after the Phase 0 proof, in this order:
@@ -145,7 +145,7 @@ If I could add only five things after the Phase 0 proof, in this order:
   model). Not "next," but the thing to prototype the moment the core is stable.
 - **Remote-content / tracking-pixel blocking + image proxy** (🆕). A privacy
   client that silently loads tracking pixels undercuts its own promise. Table
-  stakes for the audience CipherMail is courting; modest effort.
+  stakes for the audience CryptMail is courting; modest effort.
 
 ## The full catalogue
 

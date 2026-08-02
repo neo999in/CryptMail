@@ -9,10 +9,18 @@ import * as SecureStore from 'expo-secure-store';
 
 import { GMAIL_SCOPES, GOOGLE_CLIENT_ID, hasGoogleClient } from '../config';
 import { decodeUtf8Base64, fromBase64Url } from '../lib/base64';
+import { getItemMigrating, KeyValueStore } from '../lib/legacyStorageKey';
 import { AuthError, AuthProvider, Session } from './types';
 
-const STORE_KEY = 'ciphermail.session.gmail';
+const STORE_KEY = 'cryptmail.session.gmail';
 const EXPIRY_SKEW_MS = 60_000;
+
+/** expo-secure-store behind the shared `KeyValueStore` shape, for the key migration. */
+const secureStore: KeyValueStore = {
+  getItem: (key) => SecureStore.getItemAsync(key),
+  setItem: (key, value) => SecureStore.setItemAsync(key, value),
+  removeItem: (key) => SecureStore.deleteItemAsync(key),
+};
 
 const discovery: AuthSession.DiscoveryDocument = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -20,7 +28,7 @@ const discovery: AuthSession.DiscoveryDocument = {
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 };
 
-const redirectUri = AuthSession.makeRedirectUri({ scheme: 'ciphermail', path: 'oauth' });
+const redirectUri = AuthSession.makeRedirectUri({ scheme: 'cryptmail', path: 'oauth' });
 
 let cached: Session | null = null;
 
@@ -72,7 +80,7 @@ export const googleAuth: AuthProvider = {
 
   async restore(): Promise<Session | null> {
     if (cached) return cached;
-    const stored = await SecureStore.getItemAsync(STORE_KEY);
+    const stored = await getItemMigrating(secureStore, STORE_KEY);
     cached = stored ? (JSON.parse(stored) as Session) : null;
     return cached;
   },

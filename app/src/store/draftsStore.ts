@@ -8,11 +8,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { Drafts } from '../drafts/drafts';
+import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 
-const STORE_KEY = 'ciphermail.drafts.v1';
+const STORE_KEY = 'cryptmail.drafts.v1';
 
 export async function loadDrafts(): Promise<Drafts> {
-  const stored = await AsyncStorage.getItem(STORE_KEY);
+  const stored = await getAsyncItemMigrating(STORE_KEY);
   return stored ? (JSON.parse(stored) as Drafts) : {};
 }
 

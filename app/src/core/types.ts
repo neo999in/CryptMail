@@ -1,7 +1,7 @@
 /**
  * The crypto core contract.
  *
- * This is the exact surface the Rust `ciphermail-core` library will expose
+ * This is the exact surface the Rust `cryptmail-core` library will expose
  * through UniFFI → Kotlin → turbo module (prototype-plan.md, M2/M5). Nothing
  * but strings crosses this boundary, and a private key never appears in any
  * return value.
@@ -57,7 +57,7 @@ export type DecryptedMessage = {
   autocryptKey?: string;
 };
 
-export interface CipherCore {
+export interface CryptCore {
   readonly kind: CoreKind;
 
   /** M2: generate an identity keypair; private half is stored Keystore-wrapped. */

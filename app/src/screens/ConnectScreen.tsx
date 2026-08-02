@@ -44,7 +44,7 @@ export function ConnectScreen() {
             <Icon name="lock" size={18} color={color.brassInk} strokeWidth={2.1} />
           </View>
           <Text style={s.brandText}>
-            Cipher<Text style={{ fontFamily: font.displayBold }}>Mail</Text>
+            Crypt<Text style={{ fontFamily: font.displayBold }}>Mail</Text>
           </Text>
         </View>
 
@@ -94,7 +94,7 @@ export function ConnectScreen() {
         <View style={s.guarantees}>
           <Guarantee icon="key" text="Your private key is generated here and never leaves this device." />
           <Guarantee icon="mail" text="Encrypted mail lands in your normal mailbox — as ciphertext." />
-          <Guarantee icon="alert" text="No key for a recipient? CipherMail refuses to send, never downgrades." />
+          <Guarantee icon="alert" text="No key for a recipient? CryptMail refuses to send, never downgrades." />
         </View>
       </Reveal>
 

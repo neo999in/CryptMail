@@ -1,5 +1,5 @@
 /**
- * Binding to the real `ciphermail-core` (Rust → UniFFI → Kotlin → turbo module).
+ * Binding to the real `cryptmail-core` (Rust → UniFFI → Kotlin → turbo module).
  *
  * The native module does not exist yet: it arrives with M2 of
  * docs/prototype-plan.md. Until then `getNativeCore()` returns null and the app
@@ -11,9 +11,9 @@
 import { NativeModules } from 'react-native';
 
 import { isPgpMime } from './mime';
-import { BuildRequest, CipherCore, DecryptedMessage, Identity, PublicKeyInfo } from './types';
+import { BuildRequest, CryptCore, DecryptedMessage, Identity, PublicKeyInfo } from './types';
 
-export const NATIVE_MODULE_NAME = 'CipherMailCore';
+export const NATIVE_MODULE_NAME = 'CryptMailCore';
 
 type NativeBridge = {
   generateIdentity(email: string): Promise<string>;
@@ -23,7 +23,7 @@ type NativeBridge = {
   parseEncrypted(rfc822: string): Promise<string>;
 };
 
-export function getNativeCore(): CipherCore | null {
+export function getNativeCore(): CryptCore | null {
   const bridge = (NativeModules as Record<string, NativeBridge | undefined>)[NATIVE_MODULE_NAME];
   if (!bridge) return null;
 

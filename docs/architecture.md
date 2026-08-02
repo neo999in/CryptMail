@@ -2,14 +2,14 @@
 
 ## 10,000-foot view
 
-CipherMail is a **local-first client** plus a **thin optional backend**. The
+CryptMail is a **local-first client** plus a **thin optional backend**. The
 client does all cryptography and talks directly to the user's mail provider. The
 backend exists only for things a pure client can't do well: publishing/finding
 public keys, encrypted key backup, and push notifications.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                          CipherMail client                         │
+│                          CryptMail client                         │
 │  (Desktop: Electron/Tauri · Mobile: native/RN · Web: PWA)          │
 │                                                                    │
 │  ┌────────────┐  ┌───────────────┐  ┌────────────────────────┐    │
@@ -28,7 +28,7 @@ public keys, encrypted key backup, and push notifications.
                keys + backup)   │                   │
                                 ▼                   ▼
                    ┌──────────────────────┐   ┌──────────────────────┐
-                   │  CipherMail backend  │   │  Mail provider        │
+                   │  CryptMail backend  │   │  Mail provider        │
                    │  · Key directory     │   │  (Gmail, Outlook,     │
                    │  · Encrypted key     │   │   IMAP host, …)       │
                    │    backup store      │   │                       │

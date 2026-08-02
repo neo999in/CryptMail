@@ -22,7 +22,7 @@ We chose **OpenPGP** (RFC 4880 / RFC 9580) delivered as **PGP/MIME** (RFC 3156):
 - Mature, audited libraries exist on every platform (Sequoia, rPGP, OpenPGP.js,
   gopenpgp).
 - **Autocrypt** (see below) standardizes automatic key exchange over email — this
-  is what makes CipherMail "just work" without manual key pasting.
+  is what makes CryptMail "just work" without manual key pasting.
 - It interoperates: a technical recipient using Thunderbird/Proton/GnuPG can
   still read our mail, and vice versa.
 
@@ -64,7 +64,7 @@ subject:
 - The visible header is set to a placeholder: `Subject: [Encrypted message]`
   (i.e. the "memory hole" / RFC-draft *protected headers* technique).
 - The **real** subject is included inside the encrypted MIME part as a
-  `Subject:` header, so CipherMail restores it after decryption.
+  `Subject:` header, so CryptMail restores it after decryption.
 
 Sender, recipients, date, and message size remain visible — that's metadata SMTP
 inherently exposes (see [security.md](security.md)).
@@ -80,7 +80,7 @@ Autocrypt: addr=alice@gmail.com; prefer-encrypt=mutual;
 ```
 
 - Every outgoing message includes the sender's `Autocrypt` header.
-- On receipt, CipherMail caches the sender's public key in the local ring, keyed
+- On receipt, CryptMail caches the sender's public key in the local ring, keyed
   by address.
 - After two people have exchanged **one** message each, both can encrypt to the
   other automatically — no manual step.
@@ -113,7 +113,7 @@ explicit choice.
    web reader. Deliver the passphrase out-of-band (the sender shares it via
    another channel). The provider only ever sees the link + ciphertext.
 2. **Plaintext (explicit):** the user consciously downgrades this one message.
-3. **Invite:** send a normal email inviting them to install CipherMail; encrypt
+3. **Invite:** send a normal email inviting them to install CryptMail; encrypt
    future mail once they publish a key.
 
 ## Signing and verification
