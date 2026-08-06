@@ -5,9 +5,15 @@ How CryptMail becomes quantum-safe, in what order, and what it costs.
 Read alongside [encryption.md](encryption.md) (the scheme this modifies) and
 [key-management.md](key-management.md) (the keys this changes the shape of).
 
-Status: **proposed**. Nothing here is implemented. The decision it asks for is
-due before M2 of [prototype-plan.md](prototype-plan.md) generates its first real
-keypair.
+Status: **proposed**, with the library question **answered by a working spike**
+(see [PQ.1](#pq1-library-spike--done--rpgp-only)). Nothing here is implemented in
+the app. The decision it asks for is due before M2 of
+[prototype-plan.md](prototype-plan.md) generates its first real keypair.
+
+> **Headline finding:** of the three candidate libraries, only **rPGP**
+> implements RFC 9980. OpenPGP.js and Bouncy Castle do not. If CryptMail wants
+> post-quantum encryption, the Rust core is not a preference — it is the only
+> available path.
 
 ---
 
@@ -133,15 +139,22 @@ This matters because signatures are what make PQ certificates enormous, and
 CryptMail's key distribution runs through **Autocrypt headers on every message**
 ([encryption.md](encryption.md)) — a size-sensitive channel:
 
-| Certificate shape | Approx. armored size | Autocrypt viable? |
-|---|---|---|
-| Today — Ed25519 + X25519 | ~1 KB | yes |
-| **Stage 1** — Ed25519 primary + ML-KEM-768/X25519 encryption subkey | ~2.5 KB | yes |
-| Stage 2 — ML-DSA-65 primary + ML-KEM composite subkey | ~17 KB | doubtful |
+Sizes below are **measured**, not estimated — generated with rPGP 0.20 on V6
+keys and armored (see PQ.1):
 
-The bulk of Stage 2 is ML-DSA: a 1952-byte public key plus a 3309-byte signature
-on *each* self-signature, binding signature and UID signature. Stage 1 pays only
-for the 1184-byte ML-KEM encapsulation key.
+| Certificate shape | Armored cert | Ciphertext (short message) | Autocrypt viable? |
+|---|---|---|---|
+| Today — Ed25519 + X25519 | ~1 KB | ~0.7 KB | yes |
+| **Stage 1** — Ed25519 primary + ML-KEM-768/X25519 subkey | **2,432 B** | 2,125 B | yes |
+| Stage 2 — ML-DSA-65+Ed25519 primary + same subkey | **18,523 B** | 6,606 B | no |
+
+**7.6× between the stages.** The bulk of Stage 2 is ML-DSA: a 1952-byte public
+key plus a 3309-byte signature on *each* self-signature, binding signature and
+UID signature. Stage 1 pays only for the 1184-byte ML-KEM encapsulation key.
+
+An 18.5 KB `Autocrypt:` header on **every outgoing message** is not viable, so
+the staging here is not a hedge — it is what keeps Autocrypt, and therefore the
+product's "it just works" property, functioning at all.
 
 RFC 9980 makes Stage 1 legal explicitly. All new algorithms require v6 keys with
 one exception — **ML-KEM-768 + X25519 may be carried on a v4 encryption subkey**,
@@ -157,20 +170,32 @@ doesn't.** Do them in that order.
 
 Tagged with the readiness scheme from [features.md](features.md).
 
-### PQ.1 Library spike · 🟡 Needs core · Impact L · Effort S
+### PQ.1 Library spike · ✅ DONE — rPGP only
 
-**What.** Determine whether rPGP or Sequoia implements RFC 9980 today, at what
-maturity, and whether it exposes the v4-subkey path Stage 1 depends on.
+Run against all three candidate libraries. Reproduce with
+[`spike/pqc-rpgp/`](../spike/pqc-rpgp/).
 
-**Why.** This is the only true unknown in the plan and it gates every other item.
-It is also the cheapest thing here — a day of reading and a Rust binary that
-generates one hybrid key and round-trips one message. [prototype-plan.md](prototype-plan.md)
-already flags rPGP API churn as the top M1 risk; this folds into that risk
-budget rather than adding to it.
+| Library | Version | RFC 9980 | Evidence |
+|---|---|---|---|
+| OpenPGP.js | 6.3.1 | **none** | `enums.publicKey` ends at `ed448`. No ML-KEM / ML-DSA / SLH-DSA. Has `v6Keys` (the prerequisite) only. |
+| Bouncy Castle `bcpg` | 1.85 | **none** | `PublicKeyAlgorithmTags` stops at `Ed448 = 28`; IDs 35–41 absent. ML-KEM exists in `bcprov` but is not wired into the OpenPGP layer. |
+| **rPGP** (`pgp`) | 0.20 | **full** | `MlKem768X25519 = 35`, `MlKem1024X448 = 36`, ML-DSA-65/87, SLH-DSA. Working keygen → encrypt → decrypt → re-parse. |
 
-**Done when.** A standalone Rust program generates an `Ed25519 + ML-KEM-768/X25519`
-certificate, encrypts to it, decrypts it, and GnuPG can at minimum parse the
-public key without erroring.
+**Consequences.**
+
+1. **The Rust core is required for post-quantum**, not merely recommended. This
+   supersedes the "OpenPGP.js *or* Sequoia/rPGP" equivalence in
+   [architecture.md](architecture.md) — that choice is only free if you are
+   content with classical crypto.
+2. An Android-only target does **not** open a Kotlin/Bouncy Castle shortcut.
+   `bcpg` has not reserved the algorithm IDs, so this is not a version bump away.
+3. rPGP gates the work behind a feature named **`draft-pqc`** and requires
+   **V6 keys**. The algorithm IDs match the published RFC, but the feature name
+   reflects a pre-RFC implementation.
+
+**Residual risk.** Interop is unverified — the round-trip was rPGP-to-itself. Before
+production, confirm against a second RFC 9980 implementation. This replaces the
+old M1 "cross-check against GnuPG" step, which cannot cover PQC until GnuPG ships it.
 
 ### PQ.2 Adopt hybrid in the core · 🟡 Needs core · Impact L · Effort M
 
@@ -244,13 +269,14 @@ verify.
 
 ## Open questions
 
-1. **rPGP maturity.** PQ.1 answers this. If neither library is ready, the
-   fallback is Sequoia or a delay — not hand-rolled lattice code. No custom
-   primitives, per [security.md](security.md).
-2. **Interop reality.** RFC 9980 is new. Thunderbird/Proton/GnuPG support is a
-   moving target, and a hybrid key that older clients reject would undercut the
-   interop argument for choosing OpenPGP in the first place. Feed results into
-   the Tier 4 interop suite.
+1. ~~**rPGP maturity.**~~ **Answered by PQ.1:** rPGP 0.20 implements RFC 9980 and
+   round-trips correctly. The remaining unknown is the `draft-pqc` feature's
+   fidelity to the final RFC, which interop testing settles.
+2. **Interop reality.** RFC 9980 is new and this is now the *largest* open risk,
+   since PQ.1 could only test rPGP against itself. Thunderbird/Proton/GnuPG
+   support is a moving target, and a hybrid key that older clients reject would
+   undercut the interop argument for choosing OpenPGP in the first place. Feed
+   results into the Tier 4 interop suite.
 3. **Migration for existing users.** Moot today — there are no real keys, because
    `demoCore` has never generated one. This is precisely the window in which the
    decision is free, and it closes when M2 ships.
