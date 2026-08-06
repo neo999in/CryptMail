@@ -39,6 +39,10 @@ in the provider's own apps — it's a real email sitting in a real inbox.
 | [docs/roadmap.md](docs/roadmap.md) | MVP scope, phased plan, and the candidate-feature backlog |
 | [docs/prototype-plan.md](docs/prototype-plan.md) | Concrete build plan for the Phase 0 prototype |
 | [docs/features.md](docs/features.md) | Feature register: everything buildable next, by what's blocking it |
+| **[docs/implementation-status.md](docs/implementation-status.md)** | **What is actually built and verified, plus every flagged issue and unverified claim** |
+| [docs/post-quantum.md](docs/post-quantum.md) | RFC 9980 hybrid migration plan, with measured certificate sizes |
+| [docs/running-it.md](docs/running-it.md) | Turning on real Gmail and real encryption — what you must do |
+| [docs/simple-ui-plan.md](docs/simple-ui-plan.md) | The four-screen UI and the plaintext-send decision |
 
 ## Repo layout
 
@@ -75,7 +79,9 @@ OpenPGP public keys — covered by 52 unit tests (`cd app && npm test`).
 
 New here? Read [docs/overview.md](docs/overview.md), then
 [docs/encryption.md](docs/encryption.md). Looking for what to build next?
-[docs/features.md](docs/features.md).
+[docs/features.md](docs/features.md). Wondering what actually works today, and
+what is merely written down? [docs/implementation-status.md](docs/implementation-status.md)
+— it is deliberately pessimistic and lists every unverified claim.
 
 ## The one-paragraph summary for skeptics
 
