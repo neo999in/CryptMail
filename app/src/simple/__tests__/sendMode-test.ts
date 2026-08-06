@@ -3,19 +3,11 @@ import { defaultSendMode, evaluateSendModes, SendModeInput } from '../sendMode';
 
 const rcpt = (email: string, status: RecipientState['status']): RecipientState => ({ email, status });
 
-/** Live mode with the real core linked — the configuration that ships. */
-const live = (recipients: RecipientState[]): SendModeInput => ({
-  recipients,
-  hasNativeCore: true,
-  appMode: 'live',
-});
+/** The real core is linked — the configuration that ships. */
+const live = (recipients: RecipientState[]): SendModeInput => ({ recipients, cryptoMode: 'real' });
 
-/** Today's configuration: no native core, demo fixtures. */
-const demo = (recipients: RecipientState[]): SendModeInput => ({
-  recipients,
-  hasNativeCore: false,
-  appMode: 'demo',
-});
+/** Today's configuration: the non-cryptographic stand-in core. */
+const demo = (recipients: RecipientState[]): SendModeInput => ({ recipients, cryptoMode: 'demo' });
 
 describe('evaluateSendModes — encrypted', () => {
   it('allows encryption when every recipient has a verified key', () => {
@@ -68,16 +60,6 @@ describe('evaluateSendModes — encrypted', () => {
     const { encrypted } = evaluateSendModes(demo([rcpt('a@x.com', 'ok')]));
     expect(encrypted.available).toBe(true);
     expect(encrypted.warning).toMatch(/encoded, not encrypted/i);
-  });
-
-  it('blocks encryption in live mode when the core is missing', () => {
-    const { encrypted } = evaluateSendModes({
-      recipients: [rcpt('a@x.com', 'ok')],
-      hasNativeCore: false,
-      appMode: 'live',
-    });
-    expect(encrypted.available).toBe(false);
-    expect(encrypted.blockedReason).toMatch(/core is not linked/i);
   });
 
   it('checks recipient keys before the core gate, so the actionable error wins', () => {

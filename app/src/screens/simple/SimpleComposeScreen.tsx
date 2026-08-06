@@ -14,7 +14,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { appMode, hasNativeCore } from '../../config';
+import { cryptoMode } from '../../config';
 import { isValidEmail } from '../../lib/format';
 import { RootStackParamList } from '../../navigation';
 import { defaultSendMode, evaluateSendModes, SendModeName } from '../../simple/sendMode';
@@ -63,7 +63,7 @@ export function SimpleComposeScreen() {
   const addresses = useMemo(() => parseRecipients(to), [to]);
   const recipients = useMemo(() => resolveRecipients(addresses), [addresses, resolveRecipients]);
   const modes = useMemo(
-    () => evaluateSendModes({ recipients, hasNativeCore, appMode }),
+    () => evaluateSendModes({ recipients, cryptoMode }),
     [recipients],
   );
 

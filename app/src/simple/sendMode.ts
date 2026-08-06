@@ -10,7 +10,7 @@
  * "never send plaintext the user believed was encrypted": the two modes are
  * independent, and `encrypted` being blocked never promotes `plain`.
  */
-import { AppMode } from '../config';
+import { CryptoMode } from '../config';
 import { RecipientState } from '../state/AppState';
 
 export type SendModeName = 'encrypted' | 'plain';
@@ -27,9 +27,8 @@ export type SendModes = Record<SendModeName, SendModeState>;
 
 export type SendModeInput = {
   recipients: RecipientState[];
-  /** Whether the real Rust core is linked (config.hasNativeCore). */
-  hasNativeCore: boolean;
-  appMode: AppMode;
+  /** Whether the real core is linked — `config.cryptoMode`. */
+  cryptoMode: CryptoMode;
 };
 
 /**
@@ -37,11 +36,11 @@ export type SendModeInput = {
  * matches `deliver()` in AppState: security.md treats an unexpected key change
  * as a possible key substitution, and a possible MITM is not a click-through.
  */
-export function evaluateSendModes({ recipients, hasNativeCore, appMode }: SendModeInput): SendModes {
-  return { encrypted: encryptedMode(recipients, hasNativeCore, appMode), plain: plainMode(recipients) };
+export function evaluateSendModes({ recipients, cryptoMode }: SendModeInput): SendModes {
+  return { encrypted: encryptedMode(recipients, cryptoMode), plain: plainMode(recipients) };
 }
 
-function encryptedMode(recipients: RecipientState[], hasNativeCore: boolean, appMode: AppMode): SendModeState {
+function encryptedMode(recipients: RecipientState[], cryptoMode: CryptoMode): SendModeState {
   if (recipients.length === 0) {
     return { available: false, blockedReason: 'Add a recipient first.' };
   }
@@ -62,13 +61,11 @@ function encryptedMode(recipients: RecipientState[], hasNativeCore: boolean, app
     };
   }
 
-  // The core gate. In demo mode the flow stays usable so the UI can be driven,
-  // but the caller must surface that the bytes are encoded, not encrypted.
-  if (!hasNativeCore) {
-    if (appMode === 'demo') {
-      return { available: true, warning: 'Demo mode — this message is encoded, not encrypted.' };
-    }
-    return { available: false, blockedReason: 'The crypto core is not linked; encrypted send is disabled.' };
+  // The core gate. The demo core keeps the flow usable so the UI can be driven
+  // before M2 lands, but the caller must surface that the bytes are only
+  // encoded. It is never silently treated as encryption (CLAUDE.md rule 2).
+  if (cryptoMode === 'demo') {
+    return { available: true, warning: 'Demo mode — this message is encoded, not encrypted.' };
   }
 
   const unverified = recipients.filter((r) => r.status === 'ok').length;
