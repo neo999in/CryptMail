@@ -36,7 +36,7 @@ do MIME; see [core/README.md](../core/README.md) for why.
 | Primary | `Ed25519` |
 | Encryption subkey | **`MlKem768X25519`** (RFC 9980 algorithm 35) |
 | Key version | `V6` |
-| Certificate size | 2,411 bytes armored |
+| Certificate size | ≈2.4 KB armored — 2,419 B for a 14-character address. Varies with address length, since the User ID is embedded; not a constant. |
 
 Asserted directly on algorithm IDs in `the_identity_is_stage_one_hybrid`. An
 earlier version of that test asserted only certificate *size* and inferred the
