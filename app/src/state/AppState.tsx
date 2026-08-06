@@ -1,8 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { auth, Session } from '../auth';
-import { appMode, hasNativeCore } from '../config';
-import { core, CoreError, DecryptedMessage, Identity, PLACEHOLDER_SUBJECT } from '../core';
+import { cryptoMode } from '../config';
+import { buildPlaintext, core, CoreError, DecryptedMessage, Identity, PLACEHOLDER_SUBJECT } from '../core';
 import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
 import { Draft, Drafts, removeDraft, upsertDraft } from '../drafts/drafts';
@@ -67,6 +67,12 @@ type Actions = {
   forgetKey(email: string): Promise<void>;
   markVerified(email: string): Promise<void>;
   sendEncrypted(input: { to: string[]; subject: string; body: string }): Promise<void>;
+  /**
+   * Send a normal, unencrypted email. Never called as a fallback when
+   * encryption fails — see `sendPlain` in the provider for why that distinction
+   * is the whole of rule 1.
+   */
+  sendPlain(input: { to: string[]; subject: string; body: string }): Promise<void>;
   canSendEncrypted(): { allowed: boolean; reason?: string };
   saveDraft(draft: Draft): Promise<void>;
   deleteDraft(id: string): Promise<void>;
@@ -334,9 +340,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * real wire (encryption.md: never silently downgrade to plaintext).
    */
   const canSendEncrypted = useCallback((): { allowed: boolean; reason?: string } => {
-    if (hasNativeCore) return { allowed: true };
-    if (appMode === 'demo') return { allowed: true, reason: 'Demo mode — the message is encoded, not encrypted.' };
-    return { allowed: false, reason: 'The crypto core is not linked; sending is disabled.' };
+    if (cryptoMode === 'real') return { allowed: true };
+    return { allowed: true, reason: 'Demo mode — the message is encoded, not encrypted.' };
   }, []);
 
   const saveDraft = useCallback(
@@ -424,6 +429,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await refreshInbox();
     },
     [deliver, refreshInbox],
+  );
+
+  /**
+   * Plaintext send (prototype-plan.md M4).
+   *
+   * This is *not* a downgrade path. encryption.md permits an explicit opt-out
+   * ("Requires an explicit, logged action") and features.md 0.14 asks for it,
+   * but only as a choice the user makes up front. So: nothing in `deliver` or
+   * `sendEncrypted` may ever call this, and this never inspects the keyring —
+   * consulting keys here would be the first step toward "encrypt if we can,
+   * send clear if we can't", which is exactly the behaviour rule 1 forbids.
+   */
+  const sendPlain = useCallback(
+    async (input: { to: string[]; subject: string; body: string }) => {
+      if (!mailRef.current || !state.session) throw new Error('Not connected.');
+      if (input.to.length === 0) throw new Error('Add a recipient first.');
+
+      await mailRef.current.send(
+        buildPlaintext({
+          from: state.session.email,
+          to: input.to,
+          subject: input.subject,
+          body: input.body,
+        }),
+      );
+      await refreshInbox();
+    },
+    [refreshInbox, state.session],
   );
 
   const scheduleSend = useCallback(
@@ -541,6 +574,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgetKey,
       markVerified,
       sendEncrypted,
+      sendPlain,
       canSendEncrypted,
       saveDraft,
       deleteDraft,
@@ -563,6 +597,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgetKey,
       markVerified,
       sendEncrypted,
+      sendPlain,
       canSendEncrypted,
       saveDraft,
       deleteDraft,

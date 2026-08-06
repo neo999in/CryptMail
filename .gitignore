@@ -78,3 +78,6 @@ Thumbs.db
 ehthumbs.db
 desktop.ini
 $RECYCLE.BIN/
+
+# Rust build output
+target/
