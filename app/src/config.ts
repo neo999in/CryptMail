@@ -24,6 +24,7 @@
  *   EXPO_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
  */
 import { core } from './core';
+import { protectionLevel } from './store/localCrypto';
 
 export const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
 
@@ -58,6 +59,25 @@ export const appMode: AppMode = mailMode === 'gmail' && cryptoMode === 'real' ? 
  * "fake mail, real crypto" are both useful configurations during the build and
  * mean very different things for the user's safety.
  */
+/**
+ * Why local data is not fully protected at rest, or null when it is.
+ *
+ * Separate from `demoReason()` because the two are independent: real crypto on
+ * a platform with no keystore still leaves the device key beside the data it
+ * protects. Reported for the same reason — a weakened guarantee the user cannot
+ * see is worse than one they can.
+ */
+export function storageReason(): string | null {
+  switch (protectionLevel()) {
+    case 'keystore':
+      return null;
+    case 'weak':
+      return 'This platform has no secure keystore, so the key protecting local data is stored beside it.';
+    default:
+      return 'Local storage encryption has not been initialised yet.';
+  }
+}
+
 export function demoReason(): string | null {
   if (appMode === 'live') return null;
   if (cryptoMode === 'demo' && mailMode === 'demo') {

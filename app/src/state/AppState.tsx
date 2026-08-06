@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { auth, Session } from '../auth';
+import { needsReauth } from '../auth/types';
 import { cryptoMode } from '../config';
 import { buildPlaintext, core, CoreError, DecryptedMessage, Identity, PLACEHOLDER_SUBJECT } from '../core';
 import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
@@ -10,11 +11,13 @@ import { applyFlagPatch } from '../mail/flags';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { dueScheduled, removeScheduled, Scheduled, ScheduledOutbox, upsertScheduled } from '../outbox/outbox';
 import { userIdDisplayName } from '../pgp/parseArmoredKey';
+import { normaliseFingerprint, safetyNumber } from '../pgp/safetyNumber';
 import { indexContent, SearchIndex } from '../search/search';
 import { loadDrafts, saveDrafts } from '../store/draftsStore';
 import { loadOutbox, saveOutbox } from '../store/outboxStore';
 import { ContactKey, findKey, Keyring, loadKeyring, removeKey, saveKeyring, upsertKey } from '../store/keyring';
 import { loadSearchIndex, saveSearchIndex } from '../store/searchIndex';
+import { initStorage } from '../store';
 
 /* --------------------------------------------------------------- types ---- */
 
@@ -65,7 +68,10 @@ type Actions = {
   resolveRecipients(emails: string[]): RecipientState[];
   importKey(armored: string, name?: string): Promise<ContactKey>;
   forgetKey(email: string): Promise<void>;
-  markVerified(email: string): Promise<void>;
+  /** Record an out-of-band verification. Fails if the key changed meanwhile. */
+  markVerified(email: string, confirmedFingerprint: string): Promise<void>;
+  /** The safety number to compare with this contact, out of band. */
+  safetyNumberFor(email: string): Promise<string>;
   sendEncrypted(input: { to: string[]; subject: string; body: string }): Promise<void>;
   /**
    * Send a normal, unencrypted email. Never called as a fallback when
@@ -126,7 +132,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const identity = (await core.loadIdentity(session.email)) ?? (await core.generateIdentity(session.email));
 
       let keyring = await loadKeyring();
-      if (session.provider === 'demo' && Object.keys(keyring).length === 0) {
+      // Seeded only for the demo core. `demoContactKeys` are `fakePublicKey()`
+      // armor, which a real OpenPGP parser rejects — feeding them to a native
+      // core throws, leaving an error banner and an *empty* keyring, so
+      // encrypted send would be blocked for every recipient. Demo mail with a
+      // real core is handled in `demoMail.ts`; see the note there.
+      if (session.provider === 'demo' && core.kind === 'demo' && Object.keys(keyring).length === 0) {
         // Seed the demo keyring so the inbox shows every trust state in the design:
         // Anya verified, Jordan trusted-on-first-use, the newsletter sender unknown.
         keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.anya), 'manual', demoContacts.anya.name);
@@ -148,6 +159,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
+        // Before anything reads a store. Every local store is encrypted at rest
+        // and none of them can be decrypted until the device key is loaded.
+        await initStorage();
+
         const session = await auth.restore();
         if (!session) {
           if (!cancelled) patch({ booting: false });
@@ -156,13 +171,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { identity, keyring, searchIndex, drafts, scheduled } = await attach(session);
         if (!cancelled) patch({ booting: false, session, identity, keyring, searchIndex, drafts, scheduled });
       } catch (e) {
-        if (!cancelled) patch({ booting: false, error: message(e) });
+        // A grant revoked while the app was closed shows up here. Land on the
+        // sign-in screen with the reason, not on a broken inbox.
+        if (!cancelled) patch({ booting: false, session: null, error: message(e) });
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [attach, patch]);
+
+  /**
+   * Drop a session Google will no longer honour.
+   *
+   * Returning to signed-out is the point: leaving a dead session in place shows
+   * an inbox that cannot refresh and a compose screen that cannot send, with an
+   * error the user has no way to act on. `signOut` has already cleared the
+   * stored tokens by the time this runs.
+   */
+  const handleAuthLoss = useCallback(
+    (e: unknown): boolean => {
+      if (!needsReauth(e)) return false;
+      mailRef.current = null;
+      patch({
+        session: null,
+        identity: null,
+        messages: [],
+        loadingInbox: false,
+        error: message(e),
+      });
+      return true;
+    },
+    [patch],
+  );
 
   const refreshInbox = useCallback(async () => {
     if (!mailRef.current) return;
@@ -171,9 +212,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const messages = await mailRef.current.listInbox(20);
       patch({ messages, loadingInbox: false });
     } catch (e) {
+      if (handleAuthLoss(e)) return;
       patch({ loadingInbox: false, error: message(e) });
     }
-  }, [patch]);
+  }, [handleAuthLoss, patch]);
 
   const signIn = useCallback(async () => {
     patch({ error: null });
@@ -323,15 +365,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [patch, state.keyring],
   );
 
+  /**
+   * Record that the user compared this contact's key out of band.
+   *
+   * Takes the fingerprint they actually verified rather than trusting the call
+   * site. Two things follow:
+   *
+   *  · A stale screen cannot certify the wrong key. If the contact's key
+   *    changed after the safety number was rendered, `confirmedFingerprint` no
+   *    longer matches what is stored, and verification fails instead of
+   *    marking the *new* key verified on the strength of the old one's check.
+   *  · `verified` always means a specific key was checked, not an address.
+   */
   const markVerified = useCallback(
-    async (email: string) => {
+    async (email: string, confirmedFingerprint: string) => {
       const existing = findKey(state.keyring, email);
-      if (!existing) return;
-      const keyring = { ...state.keyring, [email]: { ...existing, trust: 'verified' as const } };
+      if (!existing) {
+        throw new CoreError(`No key stored for ${email}.`, 'no-key');
+      }
+
+      if (normaliseFingerprint(existing.fingerprint) !== normaliseFingerprint(confirmedFingerprint)) {
+        throw new CoreError(
+          `${email}'s key changed while you were verifying it. Compare the new safety number before trusting it.`,
+          'malformed',
+        );
+      }
+
+      const keyring = {
+        ...state.keyring,
+        [existing.email]: { ...existing, trust: 'verified' as const, verifiedAt: new Date().toISOString() },
+      };
       await saveKeyring(keyring);
       patch({ keyring });
     },
     [patch, state.keyring],
+  );
+
+  /**
+   * The digits both people compare. Needs our identity, so it lives here rather
+   * than in the screen.
+   */
+  const safetyNumberFor = useCallback(
+    async (email: string): Promise<string> => {
+      const contact = findKey(state.keyring, email);
+      if (!contact) throw new CoreError(`No key stored for ${email}.`, 'no-key');
+      if (!state.identity) throw new CoreError('This device has no identity key yet.', 'no-key');
+      return safetyNumber(state.identity.fingerprint, contact.fingerprint);
+    },
+    [state.identity, state.keyring],
   );
 
   /**
@@ -520,7 +601,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         await deliver({ to: item.to, subject: item.subject, body: item.body });
         sent.push(item.id);
-      } catch {
+      } catch (e) {
+        // Rescued as a draft either way; but a revoked grant also has to stop
+        // the 15-second loop from retrying a send that cannot succeed.
+        if (needsReauth(e)) handleAuthLoss(e);
         rescued.push({
           id: item.id,
           to: item.to,
@@ -550,7 +634,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : {}),
     });
     if (sent.length > 0) await refreshInbox();
-  }, [deliver, patch, refreshInbox]);
+  }, [deliver, handleAuthLoss, patch, refreshInbox]);
 
   const schedulerRef = useRef(runScheduler);
   schedulerRef.current = runScheduler;
@@ -573,6 +657,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       importKey,
       forgetKey,
       markVerified,
+      safetyNumberFor,
       sendEncrypted,
       sendPlain,
       canSendEncrypted,
@@ -596,6 +681,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       importKey,
       forgetKey,
       markVerified,
+      safetyNumberFor,
       sendEncrypted,
       sendPlain,
       canSendEncrypted,

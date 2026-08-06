@@ -1,21 +1,18 @@
 /**
  * Persistence for the scheduled-send outbox (outbox/outbox.ts).
  *
- * AsyncStorage-backed JSON, like the drafts store. Holds unsent message text, so
- * it is plaintext at rest — the same "known debt" as the other local stores.
+ * Holds unsent message text, so like the drafts store it is encrypted at rest
+ * through `secureJson`.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { ScheduledOutbox } from '../outbox/outbox';
-import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
+import { loadJson, saveJson } from './secureJson';
 
-const STORE_KEY = 'cryptmail.outbox.v1';
+export const OUTBOX_STORE_KEY = 'cryptmail.outbox.v1';
 
 export async function loadOutbox(): Promise<ScheduledOutbox> {
-  const stored = await getAsyncItemMigrating(STORE_KEY);
-  return stored ? (JSON.parse(stored) as ScheduledOutbox) : {};
+  return loadJson<ScheduledOutbox>(OUTBOX_STORE_KEY, {});
 }
 
 export async function saveOutbox(outbox: ScheduledOutbox): Promise<void> {
-  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(outbox));
+  await saveJson(OUTBOX_STORE_KEY, outbox);
 }

@@ -7,6 +7,17 @@ the user's view) and the **backend directory/backup store** (minimal, opaque).
 
 The DB file is encrypted at rest with a key held in the OS keychain.
 
+> **Prototype status.** SQLite/SQLCipher is not what the prototype uses. It
+> stores these records as JSON in AsyncStorage, each value sealed with
+> XChaCha20-Poly1305 under a 32-byte device key held in `expo-secure-store`
+> (Keystore on Android, Keychain on iOS) — see
+> [`app/src/store/localCrypto.ts`](../app/src/store/localCrypto.ts). The
+> encryption-at-rest property above therefore holds; the storage engine and the
+> per-table structure below do not yet.
+>
+> Web has no keychain, so the key is stored beside the data there and
+> `storageReason()` says so in the UI.
+
 ### `accounts`
 | column | type | notes |
 |--------|------|-------|

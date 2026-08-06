@@ -16,7 +16,7 @@ use pgp::composed::{
 };
 use pgp::crypto::hash::HashAlgorithm;
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
-use pgp::types::{KeyDetails as _, KeyVersion};
+use pgp::types::{KeyDetails, KeyVersion};
 use rand::thread_rng;
 use serde::Serialize;
 use smallvec::smallvec;
@@ -167,6 +167,23 @@ fn describe(secret: &SignedSecretKey, email: &str) -> Result<Identity> {
         email: email.to_string(),
         fingerprint: hex::encode_upper(secret.fingerprint().as_bytes()),
         public_key_armored: armored,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: created_at(secret)?,
     })
+}
+
+/// When the key was actually made, read from the key packet.
+///
+/// This used to be `Utc::now()`, which meant `loadIdentity` reported a
+/// different creation time on every call — the key appeared to have been
+/// created the instant it was looked at. Nothing branched on it, so nothing
+/// broke; a "key first seen" UI built on it would simply have lied.
+///
+/// The creation timestamp is not incidental metadata: it is hashed into the
+/// fingerprint, so it is fixed the moment the key exists and is the same value
+/// every other OpenPGP implementation reports.
+fn created_at(secret: &SignedSecretKey) -> Result<String> {
+    let seconds = i64::from(KeyDetails::created_at(&secret.primary_key).as_secs());
+    chrono::DateTime::from_timestamp(seconds, 0)
+        .map(|t| t.to_rfc3339())
+        .ok_or_else(|| CoreError::Malformed("key creation time is out of range".into()))
 }

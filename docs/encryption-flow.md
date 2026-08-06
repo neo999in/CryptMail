@@ -373,11 +373,11 @@ visible to the provider. SMTP requires them.
 
 | Leg | Verified? |
 |---|---|
-| Key generation, algorithms, encrypt/decrypt, signature states | ✅ 20 Rust tests |
+| Key generation, algorithms, encrypt/decrypt, signature states | ✅ 27 Rust tests |
 | Envelope assembly, TS composition, demo/native parity | ✅ 101 TS tests |
-| The Kotlin bridge between them | ⛔ **does not exist yet** |
+| Interop with a second OpenPGP implementation | ✅ 9 checks against Sequoia-PGP, both directions |
+| The Kotlin bridge between them | ⛔ bindings generate; **never built for Android** |
 | Gmail transport | ⛔ never run against Google |
-| Interop with any other OpenPGP implementation | ❓ **untested — the largest open risk** |
 
 Everything above the bridge is tested against a stub; everything below is tested
 headless. The two halves have never met.

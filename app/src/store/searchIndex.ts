@@ -1,23 +1,22 @@
 /**
  * Persistence for the local search index (search/search.ts).
  *
- * Like the keyring, the prototype stores this as AsyncStorage-backed JSON rather
- * than SQLite/SQLCipher — see "Known debt" in prototype-plan.md. Because it holds
- * decrypted subjects and bodies, this is exactly the plaintext cache a
- * "no-plaintext-cache" high-security mode would disable (data-model.md).
+ * This holds decrypted subjects and bodies — a plaintext copy of exactly the
+ * mail the user encrypted — which makes it the most sensitive of the local
+ * stores and the strongest reason `secureJson` exists. It remains the cache a
+ * "no-plaintext-cache" high-security mode would disable outright
+ * (data-model.md); encrypting it at rest narrows the exposure but does not
+ * remove the copy.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { SearchIndex } from '../search/search';
-import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
+import { loadJson, saveJson } from './secureJson';
 
-const STORE_KEY = 'cryptmail.searchindex.v1';
+export const SEARCH_STORE_KEY = 'cryptmail.searchindex.v1';
 
 export async function loadSearchIndex(): Promise<SearchIndex> {
-  const stored = await getAsyncItemMigrating(STORE_KEY);
-  return stored ? (JSON.parse(stored) as SearchIndex) : {};
+  return loadJson<SearchIndex>(SEARCH_STORE_KEY, {});
 }
 
 export async function saveSearchIndex(index: SearchIndex): Promise<void> {
-  await AsyncStorage.setItem(STORE_KEY, JSON.stringify(index));
+  await saveJson(SEARCH_STORE_KEY, index);
 }
