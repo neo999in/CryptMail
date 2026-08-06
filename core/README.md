@@ -54,14 +54,30 @@ for the measurements.
 
 Not yet done, and not doable without an Android SDK/NDK. Outline:
 
+> ### ⚠️ `src/ffi.rs` is not yet a UniFFI interface
+>
+> It is plain Rust *shaped* like the FFI surface: correct method set, correct
+> error codes, passphrase taken at construction. But **`uniffi` is not a
+> dependency and there are no UniFFI annotations**, so the compiled `.so`
+> carries no UniFFI metadata and `uniffi-bindgen` has nothing to read.
+>
+> Before the binding step below will work, either:
+>
+> - add `uniffi` to `Cargo.toml`, annotate `CryptMailCore` with
+>   `#[derive(uniffi::Object)]` / `#[uniffi::export]`, and call
+>   `uniffi::setup_scaffolding!()`; **or**
+> - drop UniFFI and hand-write JNI. For five string-in/string-out methods that
+>   is a defensible choice, and it removes a build-time code generator.
+
 ```bash
 rustup target add aarch64-linux-android
-cargo install cargo-ndk uniffi-bindgen
+cargo install cargo-ndk
 
 # Cross-compile
 cargo ndk -t arm64-v8a -o ../app/android/app/src/main/jniLibs build --release
 
-# Generate Kotlin bindings from the FfiCore surface in src/ffi.rs
+# Only after the UniFFI scaffolding above exists:
+cargo install uniffi-bindgen
 uniffi-bindgen generate --library target/aarch64-linux-android/release/libcryptmail_core.so \
   --language kotlin --out-dir ../app/android/app/src/main/java
 ```
@@ -69,6 +85,9 @@ uniffi-bindgen generate --library target/aarch64-linux-android/release/libcryptm
 Pin the NDK version. Cross-compilation is historically the biggest time sink in
 this project, which is why `prototype-plan.md` puts it in M0 while the Rust
 surface is trivial.
+
+None of these commands has been run — there is no Android toolchain in the
+environment this crate was developed in.
 
 ### The Kotlin module
 
