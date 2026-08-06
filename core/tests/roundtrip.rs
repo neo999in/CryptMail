@@ -7,6 +7,8 @@
 use std::fs;
 
 use cryptmail_core::Core;
+use pgp::composed::{Deserializable, SignedPublicKey};
+use pgp::types::{KeyDetails, KeyVersion};
 use serde_json::Value;
 
 const PW: &str = "correct horse battery staple";
@@ -54,15 +56,30 @@ fn generates_a_post_quantum_identity_and_never_returns_the_secret_key() {
 
 #[test]
 fn the_identity_is_stage_one_hybrid() {
-    // Stage 1 of docs/post-quantum.md: a classical primary with a post-quantum
-    // encryption subkey. The measured size is the tell — a purely classical
-    // cert is ~1 KB, and a full ML-DSA cert is ~18 KB.
+    // Stage 1 of docs/post-quantum.md, asserted on the actual algorithm IDs
+    // rather than on certificate size. Size alone is a proxy: it would not
+    // notice the encryption subkey silently becoming something classical, which
+    // is the one regression this whole crate exists to prevent.
     let core = Core::new(tmpdir("stage1"));
-    let cert = armored(&identity(&core, "alice@example.com"));
-    let len = cert.len();
+    let armored_cert = armored(&identity(&core, "alice@example.com"));
+    let (cert, _) = SignedPublicKey::from_string(&armored_cert).unwrap();
+
+    assert_eq!(
+        format!("{:?}", KeyDetails::algorithm(&cert.primary_key)),
+        "Ed25519",
+        "primary key is not Ed25519"
+    );
+    assert_eq!(cert.primary_key.version(), KeyVersion::V6, "RFC 9980 requires V6 keys");
+
+    let subkeys: Vec<String> = cert
+        .public_subkeys
+        .iter()
+        .map(|s| format!("{:?}", KeyDetails::algorithm(&s.key)))
+        .collect();
     assert!(
-        (1500..6000).contains(&len),
-        "cert is {len} bytes — expected ~2.4 KB for Ed25519 + ML-KEM-768/X25519"
+        subkeys.iter().any(|a| a == "MlKem768X25519"),
+        "no ML-KEM-768+X25519 encryption subkey — got {subkeys:?}. \
+         Without it this is not post-quantum at all."
     );
 }
 
