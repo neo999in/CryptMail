@@ -6,4 +6,10 @@ export type RootStackParamList = {
   Drafts: undefined;
   Scheduled: undefined;
   Keys: undefined;
+
+  /** Simple UI (docs/simple-ui-plan.md). Mounted instead of the screens above. */
+  SimpleInbox: undefined;
+  SimpleMessage: { id: string };
+  SimpleCompose: { to?: string } | undefined;
+  SimpleKeys: undefined;
 };
