@@ -141,6 +141,140 @@ returns `NoKey` and the send fails — it never falls back to something weaker.
 
 ---
 
+## Cryptographic detail
+
+Everything in this section marked *measured* comes from
+`cd core && cargo run --example sizes`, which reproduces it.
+
+### Key material
+
+| | Public / encapsulation | Private | Ciphertext | Shared secret |
+|---|---|---|---|---|
+| **ML-KEM-768** (FIPS 203) | 1,184 B | 2,400 B | 1,088 B | 32 B |
+| **X25519** | 32 B | 32 B | 32 B (ephemeral) | 32 B |
+| **Ed25519** | 32 B | 32 B | — signature 64 B | — |
+| **AES-256** session key | — | 32 B | — | — |
+
+A whole Stage 1 certificate is **≈2.4 KB armored** *(measured: 2,419 B for a
+14-character address)* — dominated by the 1,184-byte ML-KEM encapsulation key,
+then base64-expanded by ~4/3. It is not a fixed constant: the address is
+embedded in the User ID, so the certificate grows by roughly the length of the
+address. Quote it as "about 2.4 KB", not as an exact figure.
+
+That is what has to fit in an `Autocrypt:` header on every message, and why
+post-quantum signatures are staged separately: ML-DSA-65 would add a 1,952-byte
+key plus a 3,309-byte signature to *each* of the three self-signatures, taking
+the same certificate to ~18.5 KB.
+
+### The composite KEM step, precisely
+
+This is the one place "post-quantum" actually happens. Per RFC 9980, for each
+recipient:
+
+```
+                   recipient ML-KEM-768 encapsulation key
+                                 │
+      ML-KEM.Encaps() ───────────┴──▶  ss_ML-KEM (32 B) + ct_ML-KEM (1088 B)
+                                                    │
+      X25519(eph_sk, recipient_pk) ──▶ ss_X25519 (32 B) + eph_pk (32 B)
+                                                    │
+                                                    ▼
+              KMAC-based combiner  (SP 800-56C, modelled on X-Wing)
+              inputs: ss_ML-KEM ‖ ss_X25519 ‖ ct_ML-KEM ‖ eph_pk ‖ recipient pk
+                                                    │
+                                                    ▼
+                              KEK  ──▶  AES-KeyWrap (RFC 3394)
+                                                    │
+                                                    ▼
+                        wrapped AES-256 session key → PKESK packet
+```
+
+Three properties follow from that shape:
+
+1. **Composite, not replacement.** Recovering the session key requires *both*
+   `ss_ML-KEM` and `ss_X25519`. Breaking the lattice alone is not enough, and
+   neither is breaking the curve — so this is never weaker than classical
+   CryptMail.
+2. **The ciphertexts and public keys are folded into the derivation**, so
+   components from two different messages cannot be mixed and matched.
+3. **ML-KEM is a KEM, not a padlock.** It *generates* `ss_ML-KEM`; you do not
+   hand it the session key to encrypt. The session key is wrapped under a
+   *derived symmetric* KEK. Implementing from the "encrypt the session key to
+   the public key" mental model produces the wrong thing.
+
+### The bulk layer
+
+One symmetric encryption of the whole inner MIME tree, regardless of recipient
+count:
+
+| | Value |
+|---|---|
+| Container | SEIPDv2 (RFC 9580) |
+| Cipher | AES-256 |
+| Mode | **OCB** — AEAD, so tampering is detected, not just decrypted to garbage |
+| Chunk size | **4 KiB** *(measured — `ChunkSize::default()`)* |
+| Signature | Ed25519 over SHA-256, **inside** the encryption |
+
+Chunking means a long message is a sequence of independently authenticated
+4 KiB units rather than one monolithic tag.
+
+### Packet layout on the wire
+
+```
+-----BEGIN PGP MESSAGE-----
+  PKESK v6   ← recipient 1: ct_ML-KEM ‖ eph_pk ‖ wrapped session key
+  PKESK v6   ← recipient 2: same, different KEK
+  PKESK v6   ← the sender, so Sent stays readable
+  SEIPDv2    ← AES-256-OCB over: [ signature ‖ literal data = inner MIME tree ]
+-----END PGP MESSAGE-----
+```
+
+One SEIPD, N PKESKs. That is the hybrid scheme: bulk data encrypted once,
+session key wrapped N times.
+
+### Measured sizes
+
+500-byte plaintext, armored:
+
+| Recipients | Message | Delta |
+|---|---|---|
+| 1 | 2,735 B | — |
+| 2 | 4,360 B | **+1,625 B** |
+| 3 | 5,985 B | **+1,625 B** |
+
+**Each additional recipient costs a flat ~1,625 B armored** — that is one PKESK
+carrying the 1,088-byte ML-KEM ciphertext plus the X25519 ephemeral and the
+wrapped key, base64-expanded. Fixed overhead for one recipient over the
+plaintext is 2,235 B.
+
+Practical consequence: a short note to five people is dominated by key
+encapsulation, not content. Attachments change that ratio entirely — the bulk
+layer scales with content while PKESKs stay flat.
+
+### Secret key at rest
+
+The stored key is a passphrase-protected OpenPGP secret key: **S2K**-derived
+key, applied to both the primary and the ML-KEM subkey. The passphrase comes
+from the Android Keystore and is held only inside the Rust core. Tests assert
+that neither the passphrase nor an unprotected key ever reaches disk.
+
+Note this is OpenPGP's own S2K, **not** the Argon2id wrapping described in
+[key-management.md](key-management.md). Aligning the two is outstanding work.
+
+### What each algorithm is doing, and its quantum status
+
+| Layer | Algorithm | Quantum-safe? |
+|---|---|---|
+| Bulk content | AES-256-OCB | ✅ Grover halves it to ~2¹²⁸ — still infeasible |
+| Session-key transport | ML-KEM-768 **+** X25519 | ✅ Composite; needs both broken |
+| Authenticity | Ed25519 | ❌ **Shor breaks this** |
+| Key at rest | S2K + AES | ✅ symmetric |
+
+The single red cell is the honest summary of Stage 1: these messages cannot be
+**decrypted** by a future quantum computer, but they could be **forged** by one.
+
+---
+
 ## What the provider stores
 
 ```
