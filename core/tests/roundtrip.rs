@@ -252,3 +252,23 @@ fn tampered_ciphertext_does_not_decrypt_silently() {
         }
     }
 }
+
+#[test]
+fn finds_the_stored_identity_address_without_being_told_it() {
+    // The FFI layer needs this: an incoming envelope cannot say which identity
+    // to decrypt with, and the filename is a hash, so the address has to come
+    // from the key's own User ID.
+    let dir = tmpdir("stored-email");
+    let core = Core::new(&dir);
+    assert_eq!(core.stored_identity_email().unwrap(), None);
+
+    identity(&core, "Alice@Example.COM");
+    assert_eq!(core.stored_identity_email().unwrap().as_deref(), Some("alice@example.com"));
+}
+
+#[test]
+fn a_missing_storage_directory_is_no_identity_not_an_error() {
+    let core = Core::new(std::env::temp_dir().join("cryptmail-core-does-not-exist"));
+    assert_eq!(core.stored_identity_email().unwrap(), None);
+    assert!(core.load_identity("alice@example.com").unwrap().is_none());
+}

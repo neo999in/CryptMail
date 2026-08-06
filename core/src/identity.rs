@@ -127,6 +127,36 @@ fn read_secret(dir: &Path, email: &str) -> Result<Option<SignedSecretKey>> {
     Ok(Some(secret))
 }
 
+/// The address of the identity stored on this device, if any.
+///
+/// The filename is a hash, so the address cannot be read back from it — it
+/// comes from the key's own User ID instead. The prototype stores one identity
+/// per device; when `data-model.md`'s multiple identities land, the caller
+/// should try each rather than assume one.
+pub fn stored_email(dir: &Path) -> Result<Option<String>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        // A fresh install has no directory yet — that is "no identity", not an error.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(CoreError::Unavailable(e.to_string())),
+    };
+
+    for entry in entries.flatten() {
+        let Ok(armored) = fs::read_to_string(entry.path()) else { continue };
+        let Ok((secret, _)) = SignedSecretKey::from_string(&armored) else { continue };
+        let email = secret
+            .details
+            .users
+            .first()
+            .and_then(|u| String::from_utf8(u.id.id().to_vec()).ok())
+            .and_then(|id| crate::keys::address_of(&id));
+        if email.is_some() {
+            return Ok(email);
+        }
+    }
+    Ok(None)
+}
+
 /// Public description of a secret key. Serialises only the public half.
 fn describe(secret: &SignedSecretKey, email: &str) -> Result<Identity> {
     let public = secret.to_public_key();
