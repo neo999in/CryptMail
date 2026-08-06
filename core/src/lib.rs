@@ -24,10 +24,12 @@
 
 use std::path::{Path, PathBuf};
 
+mod ffi;
 mod identity;
 mod keys;
 mod message;
 
+pub use ffi::{CryptMailCore, FfiError};
 pub use identity::Identity;
 pub use keys::PublicKeyInfo;
 pub use message::Decrypted;
@@ -124,6 +126,12 @@ impl Core {
     ) -> Result<String> {
         let secret = identity::load_secret(&self.dir, email)?;
         json(&message::decrypt_verify(&secret, passphrase, armored, sender_keys)?)
+    }
+
+    /// The address of the identity this device holds, if any. Used by the FFI
+    /// layer, which cannot learn it from an incoming envelope.
+    pub fn stored_identity_email(&self) -> Result<Option<String>> {
+        identity::stored_email(&self.dir)
     }
 }
 

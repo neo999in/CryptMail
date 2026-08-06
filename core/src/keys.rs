@@ -51,7 +51,7 @@ pub fn import(armored: &str) -> Result<PublicKeyInfo> {
 /// Pull the address out of an OpenPGP User ID — `Ada Lovelace <ada@x.com>`, or
 /// a bare address. Returns it lowercased so it matches keyring lookups, which
 /// key on a normalised address.
-fn address_of(user_id: &str) -> Option<String> {
+pub(crate) fn address_of(user_id: &str) -> Option<String> {
     let candidate = match (user_id.rfind('<'), user_id.rfind('>')) {
         (Some(open), Some(close)) if close > open + 1 => &user_id[open + 1..close],
         _ => user_id.trim(),
