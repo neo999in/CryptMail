@@ -40,6 +40,7 @@ in the provider's own apps — it's a real email sitting in a real inbox.
 | [docs/prototype-plan.md](docs/prototype-plan.md) | Concrete build plan for the Phase 0 prototype |
 | [docs/features.md](docs/features.md) | Feature register: everything buildable next, by what's blocking it |
 | **[docs/implementation-status.md](docs/implementation-status.md)** | **What is actually built and verified, plus every flagged issue and unverified claim** |
+| [docs/encryption-flow.md](docs/encryption-flow.md) | One message end to end: keygen → key exchange → send → wire → receive |
 | [docs/post-quantum.md](docs/post-quantum.md) | RFC 9980 hybrid migration plan, with measured certificate sizes |
 | [docs/running-it.md](docs/running-it.md) | Turning on real Gmail and real encryption — what you must do |
 | [docs/simple-ui-plan.md](docs/simple-ui-plan.md) | The four-screen UI and the plaintext-send decision |
