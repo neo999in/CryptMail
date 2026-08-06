@@ -11,7 +11,7 @@ import React, { useEffect } from 'react';
 import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { appMode, demoReason } from '../../config';
+import { demoReason, mailMode } from '../../config';
 import { displayName, relativeTime } from '../../lib/format';
 import { MailSummary } from '../../mail/types';
 import { RootStackParamList } from '../../navigation';
@@ -93,7 +93,7 @@ export function SimpleInboxScreen() {
             <EmptyState
               icon="inbox"
               title="Nothing here yet"
-              hint={appMode === 'demo' ? 'Demo fixtures load on refresh.' : 'Pull down to refresh.'}
+              hint={mailMode === 'demo' ? 'Demo fixtures load on refresh.' : 'Pull down to refresh.'}
             />
           }
           renderItem={({ item }) => (

@@ -1,0 +1,22 @@
+[package]
+name = "cryptmail-core"
+version = "0.1.0"
+edition = "2021"
+description = "CryptMail crypto core — RFC 9980 hybrid post-quantum OpenPGP"
+license = "MIT OR Apache-2.0"
+
+[lib]
+# cdylib for the Android/UniFFI build; rlib so `cargo test` and other Rust
+# consumers work without it.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# draft-pqc is what provides RFC 9980 (ML-KEM-768+X25519). See spike/pqc-rpgp.
+pgp = { version = "0.20", features = ["draft-pqc"] }
+rand = "0.8"
+smallvec = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+hex = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

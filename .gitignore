@@ -79,5 +79,5 @@ ehthumbs.db
 desktop.ini
 $RECYCLE.BIN/
 
-# Rust spike build output
-spike/**/target/
+# Rust build output
+target/

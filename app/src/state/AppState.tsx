@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { auth, Session } from '../auth';
-import { appMode, hasNativeCore } from '../config';
+import { cryptoMode } from '../config';
 import { buildPlaintext, core, CoreError, DecryptedMessage, Identity, PLACEHOLDER_SUBJECT } from '../core';
 import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
@@ -340,9 +340,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * real wire (encryption.md: never silently downgrade to plaintext).
    */
   const canSendEncrypted = useCallback((): { allowed: boolean; reason?: string } => {
-    if (hasNativeCore) return { allowed: true };
-    if (appMode === 'demo') return { allowed: true, reason: 'Demo mode — the message is encoded, not encrypted.' };
-    return { allowed: false, reason: 'The crypto core is not linked; sending is disabled.' };
+    if (cryptoMode === 'real') return { allowed: true };
+    return { allowed: true, reason: 'Demo mode — the message is encoded, not encrypted.' };
   }, []);
 
   const saveDraft = useCallback(
