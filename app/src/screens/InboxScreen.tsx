@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { appMode } from '../config';
+import { appMode, cryptoMode, mailMode } from '../config';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
 import { messageMatchesQuery } from '../search/search';
@@ -168,7 +168,15 @@ export function InboxScreen({ navigation }: Props) {
         {appMode === 'demo' ? (
           <View style={s.demoStrip}>
             <Icon name="alert" size={13} color={color.brass} />
-            <Text style={s.demoText}>DEMO MODE · fixtures, no real encryption</Text>
+            {/* Name the half that is fake — "real Gmail, demo crypto" and its
+                inverse mean very different things for the user's safety. */}
+            <Text style={s.demoText}>
+              {cryptoMode === 'demo' && mailMode === 'demo'
+                ? 'DEMO MODE · fixtures, no real encryption'
+                : cryptoMode === 'demo'
+                  ? 'DEMO CRYPTO · real mailbox, nothing is really encrypted'
+                  : 'DEMO MAILBOX · real encryption, fixture mail'}
+            </Text>
           </View>
         ) : null}
 

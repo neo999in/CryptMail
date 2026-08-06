@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { appMode } from '../config';
+import { cryptoMode } from '../config';
 import { isDraftEmpty } from '../drafts/drafts';
 import { isValidEmail } from '../lib/format';
 import { RootStackParamList } from '../navigation';
@@ -306,7 +306,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     const verified = recipients.filter((r) => r.status === 'verified').length;
     return `Encrypted for ${recipients.length} recipient${recipients.length > 1 ? 's' : ''}${
       verified ? ` · ${verified} verified` : ''
-    }${appMode === 'demo' ? ' (demo)' : ''}`;
+    }${cryptoMode === 'demo' ? ' (demo)' : ''}`;
   }
 }
 

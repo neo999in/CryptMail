@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthError } from '../auth';
-import { appMode, demoReason } from '../config';
+import { demoReason, mailMode } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
@@ -62,7 +62,7 @@ export function ConnectScreen() {
         <ProviderButton
           glyph="G"
           tint={color.coral}
-          label={appMode === 'demo' ? 'Continue with demo mailbox' : 'Continue with Gmail'}
+          label={mailMode === 'demo' ? 'Continue with demo mailbox' : 'Continue with Gmail'}
           onPress={connect}
           busy={busy}
         />
