@@ -1,0 +1,11 @@
+[package]
+name = "rpgp-side"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Interop harness: the cryptmail-core (rPGP) end. See ../README.md"
+
+[dependencies]
+# By path, on purpose — the point is to test the code that ships.
+cryptmail-core = { path = "../../../core" }
+serde_json = "1"

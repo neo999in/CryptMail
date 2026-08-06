@@ -10,7 +10,19 @@ license = "MIT OR Apache-2.0"
 # consumers work without it.
 crate-type = ["cdylib", "rlib"]
 
+# Generates the bindings with the *same* uniffi version the scaffolding was
+# built with. `cargo install uniffi-bindgen` picks whatever is newest on
+# crates.io, and a version skew between scaffolding and bindgen produces Kotlin
+# that compiles and then misreads the FFI at runtime.
+#
+#   cargo run --bin uniffi-bindgen -- generate --library <.so> --language kotlin
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
 [dependencies]
+# "cli" is what provides `uniffi_bindgen_main` for the bin target above.
+uniffi = { version = "0.32", features = ["cli"] }
 # draft-pqc is what provides RFC 9980 (ML-KEM-768+X25519). See spike/pqc-rpgp.
 pgp = { version = "0.20", features = ["draft-pqc"] }
 rand = "0.8"

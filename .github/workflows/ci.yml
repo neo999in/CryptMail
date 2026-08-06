@@ -29,3 +29,36 @@ jobs:
 
       - name: Unit tests
         run: npm test -- --ci
+
+  core:
+    name: crypto core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      # Includes tests/foreign-signature.rs, the regression guard for signatures
+      # made by a sender's signing subkey. That defect was found by
+      # spike/interop-rpgp-sequoia, which is deliberately *not* run here: it
+      # builds two full OpenPGP dependency trees and is a manual check.
+      - name: Tests
+        run: cargo test
+
+      # The Android build cannot run here, but the bindings can — and a UniFFI
+      # surface that stops generating is worth catching before the NDK step
+      # rather than during it.
+      - name: UniFFI bindings still generate
+        run: |
+          cargo build --lib
+          cargo run --bin uniffi-bindgen -- generate \
+            --library target/debug/libcryptmail_core.so \
+            --language kotlin --no-format --out-dir "$RUNNER_TEMP/kotlin"

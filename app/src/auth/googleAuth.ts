@@ -10,6 +10,7 @@ import * as SecureStore from 'expo-secure-store';
 import { GMAIL_SCOPES, GOOGLE_CLIENT_ID, hasGoogleClient } from '../config';
 import { decodeUtf8Base64, fromBase64Url } from '../lib/base64';
 import { getItemMigrating, KeyValueStore } from '../lib/legacyStorageKey';
+import { describeError, isPermanentAuthFailure } from './revocation';
 import { AuthError, AuthProvider, Session } from './types';
 
 const STORE_KEY = 'cryptmail.session.gmail';
@@ -95,14 +96,31 @@ export const googleAuth: AuthProvider = {
     if (!session) throw new AuthError('Not signed in.', 'failed');
     if (session.expiresAt - EXPIRY_SKEW_MS > Date.now()) return session.accessToken;
     if (!session.refreshToken) {
-      // Known prototype debt: no re-prompt flow yet (prototype-plan.md).
-      throw new AuthError('Session expired and no refresh token is available — sign in again.', 'failed');
+      throw new AuthError('Your session expired. Sign in again to continue.', 'reauth-required');
     }
 
-    const refreshed = await AuthSession.refreshAsync(
-      { clientId: GOOGLE_CLIENT_ID, refreshToken: session.refreshToken, scopes: GMAIL_SCOPES },
-      discovery,
-    );
+    let refreshed;
+    try {
+      refreshed = await AuthSession.refreshAsync(
+        { clientId: GOOGLE_CLIENT_ID, refreshToken: session.refreshToken, scopes: GMAIL_SCOPES },
+        discovery,
+      );
+    } catch (e) {
+      if (isPermanentAuthFailure(e)) {
+        // The grant is gone; the stored tokens can never work again. Discarding
+        // them here is what stops every later call failing the same way.
+        await googleAuth.signOut();
+        throw new AuthError(
+          'Access to your Google account was revoked or expired. Sign in again to continue.',
+          'reauth-required',
+        );
+      }
+      // Anything else — no network, Google returning a 5xx — is transient. Keep
+      // the session: signing the user out over a dropped connection would lose
+      // a perfectly good grant.
+      throw new AuthError(`Could not refresh the session: ${describeError(e)}`, 'failed');
+    }
+
     const next: Session = {
       ...session,
       accessToken: refreshed.accessToken,

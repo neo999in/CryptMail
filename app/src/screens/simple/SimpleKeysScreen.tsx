@@ -22,18 +22,41 @@ import {
   Input,
   Mono,
   PrimaryButton,
+  Muted,
   SecondaryButton,
   useFocus,
 } from '../../ui/primitives';
 
 export function SimpleKeysScreen() {
-  const { identity, keyring, importKey, forgetKey, markVerified } = useApp();
+  const { identity, keyring, importKey, forgetKey, markVerified, safetyNumberFor } = useApp();
 
   const [pasted, setPasted] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null);
+  /** The contact mid-ceremony, and the digits both sides compare. */
+  const [verifying, setVerifying] = useState<{ email: string; number: string } | null>(null);
   const pasteFocus = useFocus();
+
+  async function startVerify(email: string) {
+    setFailure(null);
+    try {
+      setVerifying({ email, number: await safetyNumberFor(email) });
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** `fingerprint` is the key as shown; AppState refuses if it changed since. */
+  async function confirmVerify(email: string, fingerprint: string) {
+    try {
+      await markVerified(email, fingerprint);
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVerifying(null);
+    }
+  }
 
   const contacts = Object.values(keyring);
 
@@ -138,12 +161,31 @@ export function SimpleKeysScreen() {
               </Badge>
             </View>
             <Mono style={styles.contactFp}>{c.fingerprint}</Mono>
+
+            {verifying?.email === c.email ? (
+              <View style={styles.ceremony}>
+                <Muted>
+                  Read these digits to {c.email} on a channel you already trust. They see the same
+                  number.
+                </Muted>
+                <Mono style={styles.safetyNumber}>{verifying.number}</Mono>
+                <View style={styles.contactActions}>
+                  <SecondaryButton
+                    title="They match"
+                    icon="check"
+                    onPress={() => void confirmVerify(c.email, c.fingerprint)}
+                  />
+                  <SecondaryButton title="Cancel" icon="close" onPress={() => setVerifying(null)} />
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.contactActions}>
-              {c.trust !== 'verified' ? (
+              {c.trust !== 'verified' && verifying?.email !== c.email ? (
                 <SecondaryButton
-                  title="Mark verified"
+                  title="Verify…"
                   icon="check"
-                  onPress={() => void markVerified(c.email)}
+                  onPress={() => void startVerify(c.email)}
                 />
               ) : null}
               <SecondaryButton
@@ -159,8 +201,8 @@ export function SimpleKeysScreen() {
 
       <View style={{ marginTop: space.lg }}>
         <Callout>
-          Marking a key verified means you compared this fingerprint with its owner out of band — in
-          person or over a call. Doing it without checking defeats the point.
+          Verifying shows a number both of you see. Compare it out of band — in person or over a
+          call where you recognise their voice. Confirming without checking defeats the point.
         </Callout>
       </View>
     </ScrollView>
@@ -168,6 +210,16 @@ export function SimpleKeysScreen() {
 }
 
 const styles = StyleSheet.create({
+  ceremony: {
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  safetyNumber: {
+    fontSize: 16,
+    letterSpacing: 1.5,
+    lineHeight: 26,
+    textAlign: 'center',
+  },
   addr: { ...type.meta, color: color.ink },
   body: { padding: space.lg, paddingBottom: space.xl * 2 },
   contactActions: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
