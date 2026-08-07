@@ -71,7 +71,7 @@ identities per [post-quantum.md](post-quantum.md) — Ed25519 primary, ML-KEM-76
 X25519 encryption subkey (RFC 9980).
 
 ```bash
-cd core && cargo test     # 20 tests, no Android needed
+cd core && cargo test     # 27 tests, no Android needed
 ```
 
 What remains is getting it onto a phone. See [core/README.md](../core/README.md)
@@ -103,36 +103,38 @@ sent message straight into the inbox store, so a full loop works on one device:
 > compose → real ML-KEM encrypt → appears in the inbox as ciphertext → open →
 > real decrypt → subject restored
 
-### A trap to expect first
+### What changes when the real core loads
 
-The demo fixtures are **not compatible with a real core**:
+The demo fixtures used to break here; that is handled now. With
+`core.kind === 'native'`:
 
-- [AppState.tsx](../app/src/state/AppState.tsx) seeds the keyring by calling
-  `core.importPublicKey(demoContactKeys.anya)`, and those are `fakePublicKey()`
-  armor blocks — a real OpenPGP parser rejects them. You will see an error
-  banner and an **empty keyring**, so encrypted send stays blocked.
-- The seeded inbox messages were built by `demoCore.buildEncrypted` (base64
-  behind a `CRYPTMAIL-DEMO-V1:` tag) and cannot be decrypted by the real core.
+- The demo keyring is **not** seeded. `demoContactKeys` are `fakePublicKey()`
+  armor a real OpenPGP parser rejects, and importing them threw — leaving an
+  error banner and an empty keyring, with encrypted send blocked for everyone.
+- The demo mailbox serves **no** `demoCore` ciphertext, and says so in a
+  plaintext message rather than showing rows that fail to open.
 
-Fix when you wire M2 up: when `core.kind === 'native'`, generate the demo
-contacts and fixtures at runtime with the real core instead of using the canned
-ones. About 20 lines in `demoMail.ts` and that seeding branch. It was left
-undone deliberately — writing compatibility code against a core that does not
-exist yet cannot be tested, and untested compatibility code is how you get a
-second bug.
+They cannot simply be regenerated with the real core: encrypting *from* Anya
+needs Anya's private key, which the demo does not have and should not ship. So
+encrypted demo mail now comes from sending one to yourself, which round-trips
+through the real core and demonstrates more.
 
 ---
 
 ## What is still not true
 
-- **Interop is unverified.** The core has only ever talked to itself. rPGP gates
-  RFC 9980 behind a feature named `draft-pqc`, so before trusting this with real
-  mail, test against a second RFC 9980 implementation. This is the largest open
-  risk in the project.
-- **Local storage is plaintext.** Keyring, drafts, outbox and the decrypted
-  search index are unencrypted AsyncStorage — [features.md](features.md) lists
-  this as the #1 thing gating a real user. SQLCipher is the fix.
-- **No verification ceremony.** Every imported key is trusted on first use.
-- **The scheduler only runs while the app runs.**
-- **No token-revocation handling** — an expired refresh token surfaces as an
-  error rather than a re-auth prompt.
+- **Nothing has run on Android.** No SDK, no NDK, no device. The Rust core has
+  never been cross-compiled and the Kotlin module
+  ([`app/modules/cryptmail-core/`](../app/modules/cryptmail-core)) has never been
+  compiled. This is now the only thing standing between the prototype and its
+  one-sentence goal.
+- **Google OAuth has never run against Google.** No `.env`, no Cloud project.
+- **The scheduler only runs while the app runs.** Real background delivery needs
+  `expo-background-task`, which cannot be verified without a device.
+- **Recovery does not exist.** The device key protecting local storage has no
+  backup path, so a lost or wiped device is a lost keyring.
+
+Interop, local encryption at rest, the verification ceremony and
+token-revocation handling were on this list and are not any more — see
+[implementation-status.md](implementation-status.md) for what each was replaced
+with and what it still does not prove.

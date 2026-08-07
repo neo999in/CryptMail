@@ -2,7 +2,24 @@
  * In-memory mailbox for demo mode: the three inbox states from the design
  * (encrypted+verified, encrypted+unverified, not encrypted), plus a working
  * Sent path so an end-to-end send can be walked through without Gmail.
+ *
+ * ## Why the fixtures depend on which core is loaded
+ *
+ * The encrypted fixtures below are built by `demoCore` — base64 behind a
+ * `CRYPTMAIL-DEMO-V1:` tag — and are encrypted "from" contacts whose armor is
+ * `fakePublicKey()` output. A real core can do nothing with either: it rejects
+ * the fake keys as malformed and cannot decrypt the fake ciphertext.
+ *
+ * They also cannot simply be re-made for a real core. Producing genuine
+ * ciphertext *from* Anya requires Anya's private key, and the demo does not have
+ * one — inventing it would mean shipping a private key in the repo.
+ *
+ * So with a native core the mailbox serves only what stays true: the plaintext
+ * fixtures, plus a message explaining the absence. Encrypted demo mail then
+ * comes from actually sending one, which round-trips through the real core and
+ * is a better demonstration anyway.
  */
+import { core } from '../core';
 import { demoCore, fakePublicKey } from '../core/demoCore';
 import { buildPlaintext, parseRfc822 } from '../core/mime';
 import { parseAddress } from '../lib/format';
@@ -30,8 +47,16 @@ export const demoContactKeys = {
 
 type Stored = { summary: MailSummary; raw: string };
 
-export async function createDemoMailClient(address: string = DEMO_ADDRESS): Promise<MailClient> {
-  const store: Stored[] = await seed(address);
+export async function createDemoMailClient(
+  address: string = DEMO_ADDRESS,
+  /**
+   * Whether to include fixtures `demoCore` encrypted. Defaults to "only when
+   * the demo core is the one that would have to read them back". Injectable so
+   * tests can drive both shapes without a native module.
+   */
+  includeDemoCiphertext: boolean = core.kind === 'demo',
+): Promise<MailClient> {
+  const store: Stored[] = await seed(address, includeDemoCiphertext);
 
   return {
     kind: 'demo',
@@ -75,9 +100,36 @@ export async function createDemoMailClient(address: string = DEMO_ADDRESS): Prom
   };
 }
 
-async function seed(address: string): Promise<Stored[]> {
+async function seed(address: string, includeDemoCiphertext: boolean): Promise<Stored[]> {
   const now = Date.now();
   const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+
+  const newsletter = buildPlaintext({
+    from: 'Newsletter <digest@weekly.example>',
+    to: [address],
+    subject: 'Your weekly digest',
+    body: 'This one is not encrypted — it was sent by someone who is not a CryptMail user.',
+  });
+
+  if (!includeDemoCiphertext) {
+    // Say plainly why the inbox is thinner than the design shows, rather than
+    // presenting an empty mailbox or a row that fails to open.
+    const explanation = buildPlaintext({
+      from: 'CryptMail <demo@cryptmail.invalid>',
+      to: [address],
+      subject: 'Demo mail, real encryption',
+      body:
+        'The real crypto core is loaded, so the demo cannot fake encrypted mail for you.\n\n' +
+        'The sample encrypted messages were produced by the demo core and are not real ' +
+        'ciphertext; a real core correctly refuses to read them. Making genuine ones would ' +
+        "need the sender's private key, which the demo does not have and should not ship.\n\n" +
+        'Compose a message to yourself instead — it will be encrypted and decrypted for real.',
+    });
+    return [
+      toStored('demo-note', explanation, true, undefined, at(5)),
+      toStored('demo-3', newsletter, false, undefined, at(60 * 26)),
+    ];
+  }
 
   const fromAnya = await demoCore.buildEncrypted({
     from: `${demoContacts.anya.name} <${demoContacts.anya.email}>`,
@@ -106,13 +158,6 @@ async function seed(address: string): Promise<Stored[]> {
     body: 'First pass of redlines attached — clauses 3 and 4 are the ones to look at. Thoughts?',
     recipientKeys: [demoContactKeys.jordan],
     autocryptKey: demoContactKeys.jordan,
-  });
-
-  const newsletter = buildPlaintext({
-    from: 'Newsletter <digest@weekly.example>',
-    to: [address],
-    subject: 'Your weekly digest',
-    body: 'This one is not encrypted — it was sent by someone who is not a CryptMail user.',
   });
 
   return [
