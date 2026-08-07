@@ -289,3 +289,30 @@ fn a_missing_storage_directory_is_no_identity_not_an_error() {
     assert_eq!(core.stored_identity_email().unwrap(), None);
     assert!(core.load_identity("alice@example.com").unwrap().is_none());
 }
+
+/// `createdAt` used to be `Utc::now()`, so it changed on every call — the key
+/// looked as though it had been created the moment it was looked at. The
+/// creation time is hashed into the fingerprint, so it is fixed for the life of
+/// the key and must read back identically however often it is loaded.
+#[test]
+fn the_creation_time_is_the_keys_own_and_does_not_move() {
+    let dir = tmpdir("created-at");
+    let core = Core::new(&dir);
+
+    let generated = identity(&core, "alice@example.com");
+    let created = generated["createdAt"].as_str().unwrap().to_string();
+    assert!(!created.is_empty(), "no creation time reported");
+
+    // Every subsequent load must agree — with itself, and with generation.
+    for _ in 0..3 {
+        let loaded: Value =
+            serde_json::from_str(&core.load_identity("alice@example.com").unwrap().unwrap())
+                .unwrap();
+        assert_eq!(loaded["createdAt"].as_str().unwrap(), created, "creation time moved");
+    }
+
+    // Sanity: it is a real timestamp, not an empty string that happens to be
+    // stable, and it is not in the future.
+    let parsed = chrono::DateTime::parse_from_rfc3339(&created).expect("not an RFC 3339 timestamp");
+    assert!(parsed <= chrono::Utc::now(), "key claims to have been created in the future");
+}

@@ -5,6 +5,7 @@
  */
 import { base64ToBytes, bytesToUtf8, encodeUtf8Base64, fromBase64Url, toBase64Url } from '../lib/base64';
 import { parseAddress } from '../lib/format';
+import { AuthError } from '../auth/types';
 import { MailClient, MailError, MailSummary } from './types';
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -20,6 +21,15 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
+      // A token can be revoked between the refresh and this call, so a 401 here
+      // is the same situation as a failed refresh and has to reach the user as
+      // "sign in again" rather than a bare status code they cannot act on.
+      if (res.status === 401) {
+        throw new AuthError(
+          'Google rejected the session. Sign in again to continue.',
+          'reauth-required',
+        );
+      }
       throw new MailError(`Gmail ${res.status}: ${detail.slice(0, 200)}`, res.status);
     }
     return (await res.json()) as T;

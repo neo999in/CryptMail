@@ -73,7 +73,10 @@ The backend is designed so a breach doesn't break confidentiality:
 - Private key material zeroized from memory on lock/quit; auto-lock timer.
 - Optional "no plaintext cache" mode (store only ciphertext locally).
 - DB encrypted at rest (SQLCipher), key in OS keychain (hardware-backed where
-  available — Secure Enclave / TPM / StrongBox).
+  available — Secure Enclave / TPM / StrongBox). *Prototype: local records are
+  sealed individually with XChaCha20-Poly1305 under a device key in
+  `expo-secure-store` rather than by SQLCipher — see
+  [data-model.md](data-model.md). Encrypted at rest, different engine.*
 - Constant-time crypto via vetted libraries (Sequoia/rPGP/OpenPGP.js); no custom
   crypto primitives.
 - Strict TLS to providers and backend; certificate validation, no plaintext ports.

@@ -313,7 +313,7 @@ now against the demo core, with the crypto swapped in later.
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
 | **Attachments** — send, receive, inline images, preview | L | M–L | `buildProtectedInner` emits a single `text/plain` part inside `multipart/mixed`; attachments are added parts there. Needs streaming over the bridge (file paths, not base64 strings) for anything past ~1 MB. UI is 🟢 today. |
-| **Encrypted local store (SQLCipher)** | M | S–M | Replaces plaintext AsyncStorage. See ⚫ Debt — this gates shipping. |
+| **Encrypted local store (SQLCipher)** | L | S–M | Superseded for now: stores are sealed individually (⚫ Debt 1). SQLCipher remains the [data-model.md](data-model.md) target for query performance, not for the encryption property. |
 | **Encrypted search index** | M | M | Today's index is plaintext decrypted content on disk, which fights any no-plaintext-cache mode. Encrypting it lets search and that mode coexist. |
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |
 | **Fingerprint / QR safety-number verification** | L | M | The durable defence against key substitution. Fingerprints render today; the *comparison ceremony* is the feature. QR "add me" cards are a cheaper sibling. |
@@ -376,19 +376,21 @@ item adds an operational and privacy surface, so each needs its own threat note.
 Not features — things already wrong. Any of these reaching a real user is worse
 than shipping without any Tier 0 item.
 
-1. **Plaintext local storage.** Keyring, drafts, outbox, and the decrypted
-   search index are unencrypted AsyncStorage. Directly contradicts
-   [security.md](security.md). → SQLCipher (Tier 1).
-2. **Trust on first use with no verification ceremony.** Every imported key is
-   accepted; "key changed" is recorded but there is no comparison flow.
-   → Fingerprint/QR verification (Tier 1).
+1. ~~**Plaintext local storage.**~~ **Fixed.** Every local store is sealed with
+   XChaCha20-Poly1305 under a device key in `expo-secure-store`. Not SQLCipher —
+   see [data-model.md](data-model.md) for the divergence. Web still has no
+   keychain, which `storageReason()` reports.
+2. ~~**Trust on first use with no verification ceremony.**~~ **Fixed.** Safety
+   numbers derived from both fingerprints, and `markVerified` refuses if the key
+   changed since the number was shown. QR scanning is still to come.
 3. **The scheduler only runs while the app runs.** Scheduled sends and snoozes
    fire from a 15 s in-app interval. Honest UI copy today; real background
-   execution eventually.
-4. **No token-revocation handling.** Expired refresh tokens surface as errors
-   rather than a re-auth prompt.
-5. **The README says "design documentation only. No code yet."** That stopped
-   being true six features ago.
+   execution needs `expo-background-task` and a device to verify on.
+   **Still open** — the only one of these five that is.
+4. ~~**No token-revocation handling.**~~ **Fixed.** A revoked grant returns the
+   app to signed-out with a reason; transient failures deliberately do not.
+5. ~~**The README says "design documentation only. No code yet."**~~ Check it
+   still says that before believing this line either way.
 
 ---
 
@@ -406,9 +408,11 @@ crypto is finished:
 5. **Tier 4 conformance tests** — before more surface area accretes on an
    unverified envelope spec.
 
-If the goal is *shippable to a real user*, the order is instead: SQLCipher →
-verification ceremony → recovery drill → conformance tests. Nothing in Tier 0
-matters if the app writes decrypted mail to disk in the clear.
+If the goal is *shippable to a real user*: encryption at rest and the
+verification ceremony are done, so the order is now **recovery drill →
+background scheduler → conformance tests**. The recovery drill is the sharp one
+— the device key protecting local data has no backup path, so a lost device is
+currently a lost keyring.
 
 ---
 

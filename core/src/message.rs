@@ -87,6 +87,16 @@ pub fn decrypt_verify(
 /// this against" and "this was checked and is wrong" drive very different UI
 /// (`docs/key-management.md` trust levels), and collapsing them would let a
 /// forged message read as merely unverified.
+///
+/// Every key in the sender's certificate is tried, not just the primary.
+/// `cryptmail-core` signs with its Ed25519 primary, but most OpenPGP clients
+/// sign with a dedicated **signing subkey** — Sequoia, GnuPG and Proton all do
+/// by default. Checking only the primary reports every one of those senders as
+/// `invalid`, which the UI renders as *forged*: the worst possible answer, and
+/// worse than `unknown`, since it accuses a legitimate correspondent.
+///
+/// Caught by `spike/interop-rpgp-sequoia`; no test inside this crate could
+/// have caught it, because this crate always signs with the primary.
 fn verify(message: &Message<'_>, sender_keys: &[String]) -> (String, Option<String>) {
     if !message.is_signed() {
         return ("none".into(), None);
@@ -99,8 +109,25 @@ fn verify(message: &Message<'_>, sender_keys: &[String]) -> (String, Option<Stri
     for armored in sender_keys {
         let Ok(cert) = parse_public(armored) else { continue };
         saw_key = true;
+
+        // The fingerprint reported is always the *certificate's*, never the
+        // subkey's: it is what the keyring is indexed by and what the user
+        // verifies out of band. Which subkey signed is an implementation
+        // detail of the sender's client.
+        let fingerprint = || Some(hex::encode_upper(cert.fingerprint().as_bytes()));
+
         if message.verify(&cert).is_ok() {
-            return ("valid".into(), Some(hex::encode_upper(cert.fingerprint().as_bytes())));
+            return ("valid".into(), fingerprint());
+        }
+        for subkey in &cert.public_subkeys {
+            // A subkey that cannot sign cannot have produced this signature;
+            // skipping them keeps an encryption subkey from being tried.
+            if !KeyDetails::algorithm(&subkey.key).can_sign() {
+                continue;
+            }
+            if message.verify(subkey).is_ok() {
+                return ("valid".into(), fingerprint());
+            }
         }
     }
 

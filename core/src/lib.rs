@@ -24,6 +24,11 @@
 
 use std::path::{Path, PathBuf};
 
+// Emits the UniFFI scaffolding into the cdylib. Without this the `.so` carries
+// no UniFFI metadata and `uniffi-bindgen generate --library` has nothing to
+// read, however correct the Rust looks.
+uniffi::setup_scaffolding!();
+
 mod ffi;
 mod identity;
 mod keys;

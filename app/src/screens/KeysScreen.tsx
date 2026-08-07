@@ -29,12 +29,36 @@ import {
  * fingerprint is shown prominently for out-of-band comparison.
  */
 export function KeysScreen() {
-  const { identity, keyring, importKey, forgetKey, markVerified } = useApp();
+  const { identity, keyring, importKey, forgetKey, markVerified, safetyNumberFor } = useApp();
   const insets = useSafeAreaInsets();
   const [paste, setPaste] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const pasteFocus = useFocus();
+
+  /** The contact currently mid-ceremony, and the digits being compared. */
+  const [verifying, setVerifying] = useState<{ email: string; number: string } | null>(null);
+
+  const startVerify = async (contact: ContactKey) => {
+    setError(null);
+    try {
+      setVerifying({ email: contact.email, number: await safetyNumberFor(contact.email) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const confirmVerify = async (contact: ContactKey) => {
+    try {
+      // The fingerprint as it was when the number on screen was derived. If the
+      // key has changed since, AppState refuses rather than certifying the new one.
+      await markVerified(contact.email, contact.fingerprint);
+      setVerifying(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setVerifying(null);
+    }
+  };
 
   const contacts = Object.values(keyring).sort((a, b) => a.email.localeCompare(b.email));
   const unverified = contacts.filter((c) => c.trust !== 'verified').length;
@@ -152,7 +176,10 @@ export function KeysScreen() {
           <ContactRow
             key={contact.email}
             contact={contact}
-            onVerify={() => void markVerified(contact.email)}
+            ceremony={verifying?.email === contact.email ? verifying.number : null}
+            onStartVerify={() => void startVerify(contact)}
+            onConfirm={() => void confirmVerify(contact)}
+            onCancel={() => setVerifying(null)}
             onForget={() =>
               Alert.alert('Forget key?', `Remove ${contact.email}'s key from this device?`, [
                 { text: 'Cancel', style: 'cancel' },
@@ -168,11 +195,18 @@ export function KeysScreen() {
 
 function ContactRow({
   contact,
-  onVerify,
+  ceremony,
+  onStartVerify,
+  onConfirm,
+  onCancel,
   onForget,
 }: {
   contact: ContactKey;
-  onVerify: () => void;
+  /** The safety number, once the user has asked to verify. */
+  ceremony: string | null;
+  onStartVerify: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
   onForget: () => void;
 }) {
   const name = displayName(contact.email, contact.name);
@@ -197,11 +231,28 @@ function ContactRow({
       </View>
 
       <Text style={s.fingerprint}>{groupFingerprint(contact.fingerprint).join(' ')}</Text>
-      <Text style={s.source}>via {contact.source}</Text>
+      <Text style={s.source}>
+        via {contact.source}
+        {contact.verifiedAt ? ` · compared ${new Date(contact.verifiedAt).toLocaleDateString()}` : ''}
+      </Text>
+
+      {ceremony ? (
+        <View style={s.ceremony}>
+          <Muted>
+            Read these digits to {name} over a channel you already trust — in person, or a call where
+            you recognise their voice. They will see the same number.
+          </Muted>
+          <Text style={s.safetyNumber}>{ceremony}</Text>
+          <View style={s.row}>
+            <PrimaryButton title="They match" icon="check" onPress={onConfirm} />
+            <SecondaryButton title="Cancel" icon="close" onPress={onCancel} />
+          </View>
+        </View>
+      ) : null}
 
       <View style={s.row}>
-        {contact.trust !== 'verified' ? (
-          <SecondaryButton title="They match — verify" icon="check" onPress={onVerify} />
+        {contact.trust !== 'verified' && !ceremony ? (
+          <SecondaryButton title="Verify…" icon="check" onPress={onStartVerify} />
         ) : null}
         <SecondaryButton title="Forget" icon="close" onPress={onForget} tone="danger" />
       </View>
@@ -231,6 +282,24 @@ const s = StyleSheet.create({
     paddingVertical: 4,
     textAlign: 'center',
     width: '25%',
+  },
+
+  ceremony: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: glass.hairline,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+  },
+  safetyNumber: {
+    color: color.ink,
+    fontFamily: font.mono,
+    fontSize: 16,
+    letterSpacing: 1.5,
+    lineHeight: 26,
+    textAlign: 'center',
   },
 
   row: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
