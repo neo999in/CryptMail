@@ -87,8 +87,33 @@ permanently absent and `expiresAt` is advisory only — Play services owns expir
 revoked grant is permanent and clears the session, while a dropped connection is
 transient and keeps it. That asymmetry was the point of §7.4 and does not change
 just because the token source did. On a permanent failure, call
-`clearCachedAccessToken` before surfacing `reauth-required`, so a stale token
-cannot be handed out again.
+`GoogleSignin.signOut()` before surfacing `reauth-required`, so nothing cached
+can be handed out again. (`clearCachedAccessToken` is the narrower tool for a
+single 401'd token mid-session; it belongs to the Gmail client if anywhere, not
+here, and using it for a revoked grant would leave the stale session in place.)
+
+One caveat for implementation: `isPermanentAuthFailure` in `revocation.ts` was
+written against the errors `AuthSession` threw. Play services may report a
+revoked grant differently. Widen the predicate **with a test** if so — never by
+treating unrecognised errors as permanent, which would sign users out on
+transient failures and invert the very asymmetry §7.4 exists to protect.
+
+### The library will not tolerate concurrent calls (found 2026-08-08)
+
+Not anticipated by this spec, and worth stating plainly because the design
+above — no cached session, ask Play services every time — walks straight into it.
+
+`signInSilently` and `getTokens` each **overwrite** an in-flight promise rather
+than queueing behind it, and the overwritten promise *never settles*. Boot races
+both: `AppState` calls `restore()` while the Gmail client it has just built asks
+for a token. The observed symptom was an inbox that stayed empty forever, with no
+error, because it was awaiting a promise that could never resolve.
+
+`googleAuth.ts` single-flights both: concurrent callers share the in-flight
+promise, and the slot is released as soon as it settles. That keeps the "no
+cached session" property — the *result* is never reused, only the pending call —
+while making concurrency safe. Fixing only `signInSilently` moves the failure to
+`getTokens`; both are required.
 
 ### Two clients in the console, one in code
 
@@ -97,8 +122,13 @@ Android. The **Android** client (package + signing SHA-1) must also exist but is
 never named in code — Play services matches it implicitly. Getting this backwards
 is the most common setup failure.
 
-- Android client: package `app.cryptmail.prototype`, debug SHA-1
-  `AD:CC:27:38:68:34:50:AE:D7:53:A4:C1:76:74:35:DF:55:FF:81:DA`
+- Android client: package `app.cryptmail.prototype`, SHA-1
+  `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`.
+  **Corrected 2026-08-08:** this spec first named
+  `AD:CC:27:38:…:81:DA`, the fingerprint of `~/.android/debug.keystore`. Gradle
+  signs with `app/android/app/debug.keystore` instead, so that value would have
+  failed with `DEVELOPER_ERROR` after account selection. Verified with
+  `apksigner verify --print-certs` against the installed APK
 - Web client: its id goes in `app/.env` as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
 
 `config.ts` gains that variable. `EXPO_PUBLIC_GOOGLE_CLIENT_ID` is retired; a
@@ -128,10 +158,17 @@ module is absent — the exact silent-downgrade failure `demoReason()` exists to
 prevent, and the same bug class as trap 1 in the handoff (a core that was present
 while the app reported it missing).
 
-`mailMode` gains the same "is the native module actually here?" test `cryptoMode`
-already applies, and `demoReason()` gains a case naming Play services as the
-reason. No screen changes: the banner already renders whatever `demoReason()`
-returns.
+`mailMode` gains an "is the sign-in module actually here?" test, and
+`demoReason()` gains a case naming Play services. No screen changes: the banner
+already renders whatever `demoReason()` returns.
+
+**This must not recouple mail and crypto.** `config.ts` separates them
+deliberately — §"Two capabilities, decided independently" — so that transport can
+be proven before the crypto core exists, and `config-test.ts` asserts all four
+combinations. The module `mailMode` tests for is
+`@react-native-google-signin/google-signin`, **not** the crypto core. They remain
+independent: a dev build with the sign-in library and no Rust core is still
+`gmail` + `demo`, exactly as today.
 
 ### Build
 
@@ -152,8 +189,9 @@ bridge — the composition is where the bugs are:
 - `restore()` returns null on `noSavedCredentialFound` rather than throwing
 - `signIn()` maps `cancelled` to the existing `cancelled` AuthError, not `failed`
 - `freshAccessToken()` returns the token from `getTokens()`
-- a revoked grant → `reauth-required`, session cleared, `clearCachedAccessToken`
-  called; a network failure → `failed`, session **kept** (the §7.4 asymmetry)
+- a revoked grant → `reauth-required`, session cleared via `GoogleSignin.signOut()`
+  (**not** `clearCachedAccessToken` — see above); a network failure → `failed`,
+  session **kept** (the §7.4 asymmetry)
 - `hasPlayServices()` false → an error naming Play services, not a crash
 
 **Not verifiable without a credential**, and therefore not to be claimed until

@@ -99,6 +99,12 @@ encrypted" is disabled and names the address, "Send unencrypted" is offered but
 single `appMode` requiring both, so a valid OAuth client still produced demo
 fixtures. Covered by `src/__tests__/config-test.ts`.
 
+`mailMode` now takes **two** things, not one: a client id *and* the Play-services
+sign-in module (`hasSignInModule`). A web build has the first and not the second,
+so it falls back to fixtures and says why through `demoReason()`. The two
+capabilities remain independent of each other — the module tested for is the
+sign-in library, never the crypto core.
+
 ### Native bridge — ✅ verified against a fake module
 
 `src/core/__tests__/nativeCore-test.ts` drives the bridge with a stub in place of
@@ -303,11 +309,66 @@ machine with several they disagree silently.
   path still has never run.
 - **Two devices**, which the goal sentence needs for a real send and receive.
 
-### 5.3 Google OAuth — ⛔
+### 5.3 Google sign-in — 🟨 runs against real Gmail; two paths still unproven
 
-`auth/googleAuth.ts` and `mail/gmail.ts` are complete and were read, but have
-**never been run against Google**. No `.env`, no Cloud project. See
-[running-it.md](running-it.md).
+This entry used to say `auth/googleAuth.ts` and `mail/gmail.ts` "are complete and
+were read". The first half was false. `googleAuth.ts` implemented an
+`expo-auth-session` redirect flow against a custom URI scheme, and Google refuses
+custom schemes from an Android OAuth client — the approach could not have worked,
+however completely it was written. It was **rewritten** on Play-services sign-in
+(`@react-native-google-signin/google-signin`); `expo-auth-session` is gone. See
+[the design spec](superpowers/specs/2026-08-08-google-auth-native-design.md).
+
+**First run against Google: 2026-08-08**, Pixel emulator, test account, against a
+Cloud project in Testing mode. What was observed, not inferred:
+
+| Claim | Evidence |
+|---|---|
+| Sign-in is native, with no browser or redirect | logcat: `com.google.android.gms.auth.GOOGLE_SIGN_IN` → `SignInHubActivity` → GMS `SignInActivity`, all in-process |
+| A real mailbox renders | Inbox listed real senders, unread counts and Gmail threading |
+| `gmail.modify` is genuinely granted | A star set in the app survived a **cold restart** — so the label change reached Google, not just local state |
+| Archive reaches Google | The archived message left the inbox and stayed gone across a cold restart |
+| Flags target the message the user tapped | Starred a chosen row, cold-restarted, that same message came back starred. Repeated on a second message |
+
+**Running it found three defects that every unit test had passed over.** The
+first two are the reason this section is worth reading:
+
+1. **Concurrent `signInSilently`.** The library *overwrites* an in-flight promise
+   instead of queueing, and the overwritten one never settles. Boot triggers it
+   every time: `AppState` calls `restore()` while the Gmail client it has just
+   built asks for a token. The inbox sat empty forever on a dead promise.
+2. **Concurrent `getTokens`** — the same defect on a second method. Fixing only
+   the first moved the failure here rather than curing it.
+3. **Message bodies rendered as raw MIME.** `plainBodyOf` returned everything
+   after the first blank line, so a `multipart/alternative` message showed its
+   boundary, its part headers and undecoded `=E2=80=87` escapes to the user.
+
+(1) and (2) are fixed by single-flighting both calls in `auth/googleAuth.ts` —
+sharing the in-flight promise without caching the *result*, so Play services
+stays the only source of truth. (3) is fixed by `mail/plainBody.ts`, a reader for
+inbound third-party mail, kept out of `core/mime.ts` because that file mirrors
+[message-format.md](message-format.md) — the envelope CryptMail *writes*.
+
+All three were invisible to the fake-module tests because the demo fixtures are
+single-part US-ASCII and never race. Each now has regression tests.
+
+**Still ⛔, and not to be claimed:**
+
+- **Token refresh across an access-token expiry.** Never observed. §7.3's
+  background scheduler depends on `signInSilently` refreshing without an
+  interactive prompt, and that remains an open question, not an assumption.
+- **The revocation path.** `isPermanentAuthFailure` has never seen a real revoked
+  grant — it was written against the errors `AuthSession` threw, and Play
+  services may signal revocation differently.
+- **Sending.** No message has been sent through the real transport.
+- **A physical device.** Emulator only.
+
+One unexplained observation, recorded rather than tidied away: a second message
+acquired a star that could not be traced to any interaction. Star *targeting*
+tested correct twice, so this is not believed to be a targeting bug, but it was
+not reproduced or explained.
+
+See [running-it.md](running-it.md).
 
 ### 5.4 Smaller ones
 

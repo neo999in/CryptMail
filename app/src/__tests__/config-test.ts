@@ -12,12 +12,19 @@
 
 type ConfigModule = typeof import('../config');
 
-/** Load config.ts fresh with the given OAuth client id and core kind. */
-function loadConfig(clientId: string, coreKind: 'native' | 'demo'): ConfigModule {
+/** Load config.ts fresh with the given client id, core kind and sign-in availability. */
+function loadConfig(
+  clientId: string,
+  coreKind: 'native' | 'demo',
+  signInModule: boolean = true,
+): ConfigModule {
   let mod!: ConfigModule;
   jest.isolateModules(() => {
     jest.doMock('../core', () => ({ core: { kind: coreKind } }));
-    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID = clientId;
+    jest.doMock('@react-native-google-signin/google-signin', () =>
+      signInModule ? { GoogleSignin: { configure: jest.fn() } } : {},
+    );
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = clientId;
     mod = require('../config') as ConfigModule;
   });
   return mod;
@@ -26,7 +33,7 @@ function loadConfig(clientId: string, coreKind: 'native' | 'demo'): ConfigModule
 const CLIENT = 'abc123.apps.googleusercontent.com';
 
 afterEach(() => {
-  delete process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+  delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
   jest.resetModules();
 });
 
@@ -53,6 +60,30 @@ describe('mail and crypto capabilities are independent', () => {
     const c = loadConfig(CLIENT, 'native');
     expect(c.mailMode).toBe('gmail');
     expect(c.cryptoMode).toBe('real');
+  });
+});
+
+describe('the sign-in module is a separate capability from the crypto core', () => {
+  it('falls back to demo mail where Play services cannot run, even with a client id', () => {
+    // The web build. Claiming a real mailbox it cannot reach would be exactly
+    // the silent downgrade demoReason() exists to prevent.
+    const c = loadConfig(CLIENT, 'native', false);
+    expect(c.mailMode).toBe('demo');
+    expect(c.demoReason()).toMatch(/play services/i);
+  });
+
+  it('keeps mail and crypto independent — a sign-in module with no core is still real mail', () => {
+    const c = loadConfig(CLIENT, 'demo', true);
+    expect(c.mailMode).toBe('gmail');
+    expect(c.cryptoMode).toBe('demo');
+  });
+});
+
+describe('scopes', () => {
+  it('requests gmail.modify, because star, archive and mark-read call messages.modify', () => {
+    const c = loadConfig(CLIENT, 'native');
+    expect(c.GMAIL_SCOPES).toContain('https://www.googleapis.com/auth/gmail.modify');
+    expect(c.GMAIL_SCOPES).not.toContain('https://www.googleapis.com/auth/gmail.readonly');
   });
 });
 
