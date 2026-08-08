@@ -33,6 +33,7 @@ mod ffi;
 mod identity;
 mod keys;
 mod message;
+mod recovery;
 
 pub use ffi::{CryptMailCore, FfiError};
 pub use identity::Identity;
@@ -131,6 +132,24 @@ impl Core {
     ) -> Result<String> {
         let secret = identity::load_secret(&self.dir, email)?;
         json(&message::decrypt_verify(&secret, passphrase, armored, sender_keys)?)
+    }
+
+    /// Wrap this device's secret key under a recovery code the user holds.
+    ///
+    /// The code is generated in TypeScript (`app/src/core/recoveryCode.ts`) and
+    /// passed in, so there is only ever one implementation of the alphabet.
+    /// Returns an armored OpenPGP secret key — opaque to the caller, and the
+    /// only form in which secret material may leave this crate.
+    pub fn export_recovery_backup(&self, email: &str, passphrase: &str, code: &str) -> Result<String> {
+        recovery::export(&self.dir, email, passphrase, code)
+    }
+
+    /// Adopt an identity from a backup. Returns the public identity as JSON.
+    ///
+    /// Whatever key this device held is replaced — on a fresh device that is the
+    /// throwaway identity generated at sign-in, which nothing was ever sent to.
+    pub fn import_recovery_backup(&self, passphrase: &str, blob: &str, code: &str) -> Result<String> {
+        json(&recovery::import(&self.dir, passphrase, blob, code)?)
     }
 
     /// The address of the identity this device holds, if any. Used by the FFI

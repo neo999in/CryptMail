@@ -68,7 +68,8 @@ mitigations (key transparency log, self-signed key changes).
 Losing the private key means losing access to all past encrypted mail. Two
 supported paths, user chooses at onboarding (can enable both):
 
-### A. Recovery code (recommended, zero-knowledge)
+### A. Recovery code (recommended, zero-knowledge) — ✅ implemented
+
 - At setup, generate a high-entropy **recovery code** (e.g. a BIP39-style
   mnemonic or a base32 code).
 - Use it (via Argon2id) as an alternate wrapping key for the private key.
@@ -79,6 +80,28 @@ supported paths, user chooses at onboarding (can enable both):
 - If the user loses the recovery code **and** all devices → mail is
   unrecoverable. This is stated plainly during onboarding.
 
+**As built**, with three divergences from the above:
+
+1. **No backend, and none needed.** The blob described here is opaque to the
+   server, so the server only ever bought convenience. The user exports the blob
+   themselves. Storing it as a self-addressed message in the user's own mailbox
+   is the next increment — durable, opaque to the provider, no new
+   infrastructure — and needs the Gmail transport first.
+2. **The wrapping is an OpenPGP Argon2id S2K**, not a bespoke AES-256-GCM
+   envelope: the secret key is re-locked from the Keystore passphrase to one
+   derived from the code, primary and every subkey. The blob is therefore a
+   **standard armored OpenPGP secret key** — GnuPG or Sequoia could open it with
+   the code — and the S2K packet carries its own Argon2 parameters, so raising
+   them later cannot strand an existing backup. Parameters are rPGP's V6 default:
+   RFC 9106 choice 2, 64 MiB, 3 passes, 4 lanes, AES-256-OCB.
+3. **The code is 160 bits of Crockford base32**, generated (never chosen), so
+   option B below is deliberately not implemented — it is strictly weaker and a
+   second path to maintain.
+
+The identity is unchanged by all of this: same key, same fingerprint, so senders
+never have to do anything. See
+[the design spec](superpowers/specs/2026-08-08-key-recovery-rust-design.md).
+
 ### B. Passphrase backup
 - Same as above but wrapped with the user's chosen passphrase instead of a
   generated code. More memorable, weaker if the passphrase is weak.
@@ -86,6 +109,58 @@ supported paths, user chooses at onboarding (can enable both):
 ### Non-goal: server-side recovery of readable keys
 The backend never holds anything it can decrypt. We do not offer "we'll reset it
 for you" recovery, because that would mean the server could read mail.
+
+### As built
+
+Option A only. Option B is **deliberately not implemented**: it is strictly
+weaker than a generated code and would be a second path to maintain for no
+security gain. The code is generated, never chosen, so there is no
+weak-passphrase failure mode to design around.
+
+The contract is two methods on `CryptCore`
+([`app/src/core/types.ts`](../app/src/core/types.ts)):
+
+```ts
+exportRecoveryBackup(email): Promise<{ code, blob }>
+importRecoveryBackup(blob, code): Promise<Identity>
+```
+
+Both sides are strings and `blob` is ciphertext, so the "no private key leaves
+the core" rule holds. A wrong code is `decrypt-failed`; a blob that is not a
+backup is `malformed` — distinguished so the UI can say which of the two the
+user got wrong, rather than sending someone to look for a piece of paper that
+was fine all along.
+
+The code is 160 bits in **Crockford base32** — no `I`, `L`, `O` or `U` — shown as
+eight groups of four. Confusables are folded on input rather than rejected: a
+code written by hand and typed back with `O` for `0` still opens the backup.
+See [`app/src/core/recoveryCode.ts`](../app/src/core/recoveryCode.ts).
+
+Three divergences from the plan above, all deliberate:
+
+1. **There is no backend, so the user holds the blob.** The server described
+   above is zero-knowledge and therefore contributes nothing cryptographically —
+   removing it costs convenience, not security. Building one would also make
+   CryptMail a service rather than a client, which is the project's first
+   architectural commitment. The app exports the blob and the user stores it.
+
+   The intended next step is storing the blob as a **self-addressed message in
+   the user's own mailbox**: durable, fetchable after sign-in on a new device,
+   opaque to the provider, and no new infrastructure. It drops onto the contract
+   above unchanged. Deferred until the Gmail transport has run against Google.
+
+2. **Device approval is not built.** See Multi-device below — it genuinely needs
+   a server to coordinate, and it is marked optional there.
+
+3. **Recovery is not yet wired into first-run.** `AppState.attach` generates an
+   identity at sign-in, so a fresh device already holds a throwaway key by the
+   time the user reaches the Recovery screen; restoring discards it. Correct, but
+   onboarding should offer "restore instead" before generating.
+
+**Status:** the contract, the demo implementation, the UI and the tests exist.
+The Argon2id wrapping itself is Rust and is **not implemented** — see §4.1 of
+[implementation-status.md](implementation-status.md). Until it lands, recovery
+works in demo mode only, and a native build reports `unavailable`.
 
 ## Multi-device
 

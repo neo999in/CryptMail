@@ -3,7 +3,15 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { auth, Session } from '../auth';
 import { needsReauth } from '../auth/types';
 import { cryptoMode } from '../config';
-import { buildPlaintext, core, CoreError, DecryptedMessage, Identity, PLACEHOLDER_SUBJECT } from '../core';
+import {
+  buildPlaintext,
+  core,
+  CoreError,
+  DecryptedMessage,
+  Identity,
+  PLACEHOLDER_SUBJECT,
+  RecoveryBackup,
+} from '../core';
 import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
 import { Draft, Drafts, removeDraft, upsertDraft } from '../drafts/drafts';
@@ -16,7 +24,14 @@ import { indexContent, SearchIndex } from '../search/search';
 import { loadDrafts, saveDrafts } from '../store/draftsStore';
 import { loadOutbox, saveOutbox } from '../store/outboxStore';
 import { ContactKey, findKey, Keyring, loadKeyring, removeKey, saveKeyring, upsertKey } from '../store/keyring';
+import { RecipientState, resolveRecipientStates } from './recipients';
 import { loadSearchIndex, saveSearchIndex } from '../store/searchIndex';
+import {
+  clearBackupRecord,
+  loadRecoveryState,
+  recordBackup,
+  RecoveryState,
+} from '../store/recoveryStore';
 import { initStorage } from '../store';
 
 /* --------------------------------------------------------------- types ---- */
@@ -24,6 +39,9 @@ import { initStorage } from '../store';
 export type EncryptionState =
   | { kind: 'encrypted'; trust: 'verified' | 'seen' | 'changed' | 'unknown'; own?: boolean }
   | { kind: 'plain' };
+
+/** Re-exported so screens keep a single import site for everything `useApp` returns. */
+export type { RecipientState };
 
 export type OpenedMessage = {
   summary: MailSummary;
@@ -36,17 +54,12 @@ export type OpenedMessage = {
   error?: string;
 };
 
-/** Per-recipient outcome of key resolution — drives Compose's fail-safe. */
-export type RecipientState = {
-  email: string;
-  key?: ContactKey;
-  status: 'ok' | 'verified' | 'changed' | 'missing';
-};
-
 type State = {
   booting: boolean;
   session: Session | null;
   identity: Identity | null;
+  /** Whether this device's key has ever been backed up. Drives the Keys warning. */
+  recovery: RecoveryState;
   keyring: Keyring;
   /** Decrypted subjects/bodies seen on this device, so encrypted mail is searchable. */
   searchIndex: SearchIndex;
@@ -72,6 +85,13 @@ type Actions = {
   markVerified(email: string, confirmedFingerprint: string): Promise<void>;
   /** The safety number to compare with this contact, out of band. */
   safetyNumberFor(email: string): Promise<string>;
+  /**
+   * Wrap this device's key under a new recovery code. The code is returned for
+   * the user to write down and is deliberately not stored anywhere.
+   */
+  exportRecovery(): Promise<RecoveryBackup>;
+  /** Adopt an identity from a backup, replacing whatever key this device holds. */
+  restoreFromRecovery(blob: string, code: string): Promise<Identity>;
   sendEncrypted(input: { to: string[]; subject: string; body: string }): Promise<void>;
   /**
    * Send a normal, unencrypted email. Never called as a fallback when
@@ -99,6 +119,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     booting: true,
     session: null,
     identity: null,
+    recovery: { backedUpAt: null, fingerprint: null },
     keyring: {},
     searchIndex: {},
     drafts: {},
@@ -123,7 +144,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const attach = useCallback(
     async (
       session: Session,
-    ): Promise<{ identity: Identity; keyring: Keyring; searchIndex: SearchIndex; drafts: Drafts; scheduled: ScheduledOutbox }> => {
+    ): Promise<{
+      identity: Identity;
+      recovery: RecoveryState;
+      keyring: Keyring;
+      searchIndex: SearchIndex;
+      drafts: Drafts;
+      scheduled: ScheduledOutbox;
+    }> => {
       mailRef.current =
         session.provider === 'demo'
           ? await createDemoMailClient(session.email)
@@ -149,7 +177,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const searchIndex = await loadSearchIndex();
       const drafts = await loadDrafts();
       const scheduled = await loadOutbox();
-      return { identity, keyring, searchIndex, drafts, scheduled };
+      const recovery = await loadRecoveryState();
+      return { identity, recovery, keyring, searchIndex, drafts, scheduled };
     },
     [],
   );
@@ -168,8 +197,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!cancelled) patch({ booting: false });
           return;
         }
-        const { identity, keyring, searchIndex, drafts, scheduled } = await attach(session);
-        if (!cancelled) patch({ booting: false, session, identity, keyring, searchIndex, drafts, scheduled });
+        const attached = await attach(session);
+        if (!cancelled) patch({ booting: false, session, ...attached });
       } catch (e) {
         // A grant revoked while the app was closed shows up here. Land on the
         // sign-in screen with the reason, not on a broken inbox.
@@ -220,8 +249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async () => {
     patch({ error: null });
     const session = await auth.signIn();
-    const { identity, keyring, searchIndex, drafts, scheduled } = await attach(session);
-    patch({ session, identity, keyring, searchIndex, drafts, scheduled });
+    patch({ session, ...(await attach(session)) });
     await refreshInbox();
   }, [attach, patch, refreshInbox]);
 
@@ -332,14 +360,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const resolveRecipients = useCallback(
-    (emails: string[]): RecipientState[] =>
-      emails.map((email) => {
-        const key = findKey(state.keyring, email);
-        if (!key) return { email, status: 'missing' };
-        if (key.trust === 'changed') return { email, key, status: 'changed' };
-        return { email, key, status: key.trust === 'verified' ? 'verified' : 'ok' };
-      }),
-    [state.keyring],
+    (emails: string[]): RecipientState[] => resolveRecipientStates(state.keyring, state.identity, emails),
+    [state.identity, state.keyring],
   );
 
   const importKey = useCallback(
@@ -413,6 +435,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return safetyNumber(state.identity.fingerprint, contact.fingerprint);
     },
     [state.identity, state.keyring],
+  );
+
+  /**
+   * Wrap this device's key under a fresh recovery code.
+   *
+   * The code is returned to the caller and deliberately goes no further — only
+   * the *fact* of a backup is recorded. A recovery code stored on the device it
+   * recovers protects nothing, since whatever can read the store can already
+   * read the key.
+   *
+   * Each call issues a new code and supersedes the last blob, so a user who
+   * loses the paper can simply take another backup.
+   */
+  const exportRecovery = useCallback(async (): Promise<RecoveryBackup> => {
+    if (!state.identity) throw new CoreError('This device has no identity key yet.', 'no-key');
+
+    const backup = await core.exportRecoveryBackup(state.identity.email);
+    patch({ recovery: await recordBackup(state.identity.fingerprint) });
+    return backup;
+  }, [patch, state.identity]);
+
+  /**
+   * Adopt an identity from a backup, replacing whatever key this device holds.
+   *
+   * The keyring, drafts and search index are left alone — they are this
+   * device's, not the backup's, and the restored identity can read everything
+   * that was encrypted to it regardless.
+   *
+   * The backup mark is cleared rather than kept: it described the key this
+   * device used to hold. Whether the *restored* key has a backup elsewhere is
+   * not something this device can know, and claiming it does would be the one
+   * false reassurance that costs a user their mail.
+   */
+  const restoreFromRecovery = useCallback(
+    async (blob: string, code: string): Promise<Identity> => {
+      const identity = await core.importRecoveryBackup(blob, code);
+      patch({ identity, recovery: await clearBackupRecord() });
+      return identity;
+    },
+    [patch],
   );
 
   /**
@@ -494,8 +556,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         to,
         subject,
         body,
-        // Encrypt to the sender too, so the message is readable in Sent.
-        recipientKeys: [...recipients.map((r) => r.key!.armored), state.identity.publicKeyArmored],
+        // Encrypt to the sender too, so the message is readable in Sent. A
+        // self-addressed message already resolved to this same key, hence the
+        // dedupe — encrypting to one key twice would emit two PKESK packets for
+        // it.
+        recipientKeys: [...new Set([...recipients.map((r) => r.key!.armored), state.identity.publicKeyArmored])],
         autocryptKey: state.identity.publicKeyArmored,
       });
 
@@ -658,6 +723,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgetKey,
       markVerified,
       safetyNumberFor,
+      exportRecovery,
+      restoreFromRecovery,
       sendEncrypted,
       sendPlain,
       canSendEncrypted,
@@ -682,6 +749,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       forgetKey,
       markVerified,
       safetyNumberFor,
+      exportRecovery,
+      restoreFromRecovery,
       sendEncrypted,
       sendPlain,
       canSendEncrypted,
