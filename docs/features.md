@@ -280,14 +280,27 @@ explicit, clearly-labelled choice, never a fallback the app takes on its own.
 **Done when.** The UI distinguishes "encrypted", "signed only", and "refused"
 without ambiguity, and signing never happens implicitly.
 
-### 0.15 Onboarding: recovery-code drill · Impact M · Effort S
+### 0.15 Onboarding: recovery-code drill · Impact M · Effort S — ◐ partly built
 
 **What.** Make the user actually perform an unlock-with-recovery-code once,
 during setup.
 
 **Why.** [security.md](security.md) names permanent data loss as the top *user*
-risk. A code you've never used is a code you don't have. (Full backup/restore is
-🔵 backend; the *drill* is not.)
+risk. A code you've never used is a code you don't have.
+
+**Built.** Backup and restore themselves, which turned out **not** to need a
+backend after all — the server in [key-management.md](key-management.md) is
+zero-knowledge, so it only ever bought convenience. The user exports the blob
+instead. There is a Recovery screen, and an unprompted warning on Keys for a key
+that has never been backed up, which is the part that reaches users who don't
+already know they need it.
+
+The Argon2id wrapping in Rust is now written: `core/src/recovery.rs` re-locks the
+secret key under an OpenPGP Argon2id S2K, and a test proves a message encrypted
+to the original key still decrypts after restoring on a fresh device.
+
+**Not built.** The drill itself: setup still completes without a code entry, and
+recovery is reachable only after onboarding has already generated a key.
 
 **Done when.** Setup can't complete without a successful code entry, and the
 copy states plainly what is lost if it's lost.
@@ -336,7 +349,7 @@ item adds an operational and privacy surface, so each needs its own threat note.
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
 | **Key directory** (publish / lookup + address-ownership proof) | L | L | Removes manual key exchange — the prototype's most obviously unshippable seam. |
-| **Encrypted key backup + recovery codes** | L | M | The other half of 0.15. Server stores only an opaque blob it cannot open. |
+| **Encrypted key backup + recovery codes** | L | M | ⬇️ **Mostly demoted to Tier 0** — the server only ever held an opaque blob, so it bought convenience, not security. Built as manual export (0.15). What is still 🔵 is *automatic* fetch on a new device — and even that is better served by storing the blob as a self-addressed message than by a server. |
 | **Push relay** | L | M | Payload carries "new mail" only — never content. Pairs with 0.10. |
 | **Secure-link fallback for key-less recipients** | M | L | Passphrase-protected web reader; the honest alternative to sending plaintext. |
 | **Multi-device sync + device approval** | M | L | Includes a flag-conflict merge rule — read/star state genuinely diverges across devices. |
@@ -408,11 +421,14 @@ crypto is finished:
 5. **Tier 4 conformance tests** — before more surface area accretes on an
    unverified envelope spec.
 
-If the goal is *shippable to a real user*: encryption at rest and the
-verification ceremony are done, so the order is now **recovery drill →
-background scheduler → conformance tests**. The recovery drill is the sharp one
-— the device key protecting local data has no backup path, so a lost device is
-currently a lost keyring.
+If the goal is *shippable to a real user*: encryption at rest, the verification
+ceremony, and now key recovery end to end are done, so the order is
+**the onboarding drill → background scheduler → conformance tests**.
+
+The wrapping is the sharp one and it needs a machine with cargo. Until it exists,
+a real key still has no backup path — the screen is built, but in a native build
+it reports `unavailable` rather than producing a blob. Nothing is shippable to a
+user with mail worth losing until that is closed.
 
 ---
 

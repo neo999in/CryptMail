@@ -1,149 +1,157 @@
 /**
- * Gmail OAuth 2.0 with PKCE and no client secret (prototype-plan.md M3).
+ * Gmail sign-in through Google Play services.
  *
- * Tokens are persisted in expo-secure-store (Android Keystore-backed), never in
- * AsyncStorage, and never logged.
+ * There is no redirect URI and no PKCE exchange here, because Google no longer
+ * accepts a custom URI scheme from an Android OAuth client — see
+ * `docs/superpowers/specs/2026-08-08-google-auth-native-design.md`.
+ *
+ * Nothing is persisted, and no token is ever logged. Play services holds the
+ * refresh token and mints access tokens on demand, so this module keeps no
+ * long-lived secret at all — an improvement on the previous design, which wrote
+ * both tokens to secure storage.
  */
-import * as AuthSession from 'expo-auth-session';
-import * as SecureStore from 'expo-secure-store';
+import {
+  GoogleSignin,
+  isNoSavedCredentialFoundResponse,
+  isSuccessResponse,
+} from '@react-native-google-signin/google-signin';
 
-import { GMAIL_SCOPES, GOOGLE_CLIENT_ID, hasGoogleClient } from '../config';
-import { decodeUtf8Base64, fromBase64Url } from '../lib/base64';
-import { getItemMigrating, KeyValueStore } from '../lib/legacyStorageKey';
+import { GMAIL_SCOPES, GOOGLE_WEB_CLIENT_ID, hasGoogleClient } from '../config';
 import { describeError, isPermanentAuthFailure } from './revocation';
 import { AuthError, AuthProvider, Session } from './types';
 
-const STORE_KEY = 'cryptmail.session.gmail';
-const EXPIRY_SKEW_MS = 60_000;
+let configured = false;
 
-/** expo-secure-store behind the shared `KeyValueStore` shape, for the key migration. */
-const secureStore: KeyValueStore = {
-  getItem: (key) => SecureStore.getItemAsync(key),
-  setItem: (key, value) => SecureStore.setItemAsync(key, value),
-  removeItem: (key) => SecureStore.deleteItemAsync(key),
-};
+function configure() {
+  if (configured) return;
+  GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID, scopes: GMAIL_SCOPES });
+  configured = true;
+}
 
-const discovery: AuthSession.DiscoveryDocument = {
-  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
-};
+async function requirePlayServices() {
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+  } catch (e) {
+    throw new AuthError(
+      `Google sign-in needs Google Play services, which this device does not have: ${describeError(e)}`,
+      'failed',
+    );
+  }
+}
 
-const redirectUri = AuthSession.makeRedirectUri({ scheme: 'cryptmail', path: 'oauth' });
+/**
+ * One shared call at a time, per library method.
+ *
+ * The library overwrites an in-flight promise rather than queueing behind it,
+ * and the overwritten one never settles — so whoever was awaiting it waits
+ * forever. It does this for **both** `signInSilently` and `getTokens`, and boot
+ * hits both: `AppState` calls `restore()` while the Gmail client it has just
+ * built asks for a token, so two silent sign-ins and then two `getTokens` race.
+ * The inbox sat empty on a dead promise. Observed on a device, 2026-08-08.
+ *
+ * Sharing the promise keeps the design's "no cached session" property — Play
+ * services is still the only source of truth — while making concurrent callers
+ * safe. It deliberately does not cache a *result*: the slot is released as soon
+ * as the call settles, so the next caller still asks Play services afresh.
+ */
+type Slot<T> = { current: Promise<T> | null };
 
-let cached: Session | null = null;
+function shared<T>(slot: Slot<T>, start: () => Promise<T>): Promise<T> {
+  if (slot.current) return slot.current;
+
+  const started = start();
+  slot.current = started;
+  // Release the slot however it settles, so the next call starts a fresh
+  // attempt. The catch only stops this bookkeeping chain from surfacing as an
+  // unhandled rejection; real callers still see the error.
+  void started
+    .finally(() => {
+      if (slot.current === started) slot.current = null;
+    })
+    .catch(() => {});
+
+  return started;
+}
+
+const silentSlot: Slot<Awaited<ReturnType<typeof GoogleSignin.signInSilently>>> = { current: null };
+const tokensSlot: Slot<Awaited<ReturnType<typeof GoogleSignin.getTokens>>> = { current: null };
+
+const signInSilentlyShared = () => shared(silentSlot, () => GoogleSignin.signInSilently());
+const getTokensShared = () => shared(tokensSlot, () => GoogleSignin.getTokens());
+
+/** Play services owns expiry; this is advisory, so callers keep a sane number. */
+const ADVISORY_TTL_MS = 3600_000;
+
+async function sessionFrom(user: { user: { email?: string | null } }): Promise<Session> {
+  const { accessToken } = await getTokensShared();
+  return {
+    provider: 'gmail',
+    email: (user.user.email ?? '').toLowerCase(),
+    accessToken,
+    expiresAt: Date.now() + ADVISORY_TTL_MS,
+  };
+}
 
 export const googleAuth: AuthProvider = {
   provider: 'gmail',
 
   async signIn(): Promise<Session> {
     if (!hasGoogleClient) {
-      throw new AuthError('No Google OAuth client id is configured (EXPO_PUBLIC_GOOGLE_CLIENT_ID).', 'not-configured');
+      throw new AuthError(
+        'No Google client id is configured (EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).',
+        'not-configured',
+      );
     }
+    configure();
+    await requirePlayServices();
 
-    const request = new AuthSession.AuthRequest({
-      clientId: GOOGLE_CLIENT_ID,
-      redirectUri,
-      scopes: GMAIL_SCOPES,
-      usePKCE: true,
-      // offline + consent so we actually receive a refresh token on first grant.
-      extraParams: { access_type: 'offline', prompt: 'consent' },
-    });
-
-    const result = await request.promptAsync(discovery);
-    if (result.type === 'cancel' || result.type === 'dismiss') {
+    const response = await GoogleSignin.signIn();
+    if (!isSuccessResponse(response)) {
       throw new AuthError('Sign-in was cancelled.', 'cancelled');
     }
-    if (result.type !== 'success') {
-      throw new AuthError('Sign-in failed.', 'failed');
-    }
-
-    const tokens = await AuthSession.exchangeCodeAsync(
-      {
-        clientId: GOOGLE_CLIENT_ID,
-        code: result.params.code,
-        redirectUri,
-        extraParams: { code_verifier: request.codeVerifier ?? '' },
-      },
-      discovery,
-    );
-
-    const session: Session = {
-      provider: 'gmail',
-      email: emailFromIdToken(tokens.idToken) ?? '',
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken ?? undefined,
-      expiresAt: Date.now() + (tokens.expiresIn ?? 3600) * 1000,
-    };
-    await persist(session);
-    return session;
+    return sessionFrom(response.data);
   },
 
   async restore(): Promise<Session | null> {
-    if (cached) return cached;
-    const stored = await getItemMigrating(secureStore, STORE_KEY);
-    cached = stored ? (JSON.parse(stored) as Session) : null;
-    return cached;
+    if (!hasGoogleClient) return null;
+    configure();
+
+    const response = await signInSilentlyShared();
+    if (isNoSavedCredentialFoundResponse(response) || !isSuccessResponse(response)) return null;
+    return sessionFrom(response.data);
   },
 
   async signOut(): Promise<void> {
-    cached = null;
-    await SecureStore.deleteItemAsync(STORE_KEY);
+    configure();
+    await GoogleSignin.signOut();
   },
 
   async freshAccessToken(): Promise<string> {
-    const session = await googleAuth.restore();
-    if (!session) throw new AuthError('Not signed in.', 'failed');
-    if (session.expiresAt - EXPIRY_SKEW_MS > Date.now()) return session.accessToken;
-    if (!session.refreshToken) {
-      throw new AuthError('Your session expired. Sign in again to continue.', 'reauth-required');
+    configure();
+    // `signInSilently` returns either a success or `noSavedCredentialFound`;
+    // ruling the latter out is what narrows it, since `isSuccessResponse` is
+    // typed against the interactive response union.
+    const response = await signInSilentlyShared();
+    if (isNoSavedCredentialFoundResponse(response) || !isSuccessResponse(response)) {
+      throw new AuthError('Not signed in.', 'reauth-required');
     }
 
-    let refreshed;
     try {
-      refreshed = await AuthSession.refreshAsync(
-        { clientId: GOOGLE_CLIENT_ID, refreshToken: session.refreshToken, scopes: GMAIL_SCOPES },
-        discovery,
-      );
+      const { accessToken } = await getTokensShared();
+      return accessToken;
     } catch (e) {
       if (isPermanentAuthFailure(e)) {
-        // The grant is gone; the stored tokens can never work again. Discarding
-        // them here is what stops every later call failing the same way.
-        await googleAuth.signOut();
+        // The grant is gone; nothing cached can ever work again. Clearing it
+        // here is what stops every later call failing the same way.
+        await GoogleSignin.signOut();
         throw new AuthError(
           'Access to your Google account was revoked or expired. Sign in again to continue.',
           'reauth-required',
         );
       }
-      // Anything else — no network, Google returning a 5xx — is transient. Keep
-      // the session: signing the user out over a dropped connection would lose
-      // a perfectly good grant.
+      // Offline, or Google returning a 5xx. Keep the session: signing the user
+      // out over a dropped connection loses a perfectly good grant.
       throw new AuthError(`Could not refresh the session: ${describeError(e)}`, 'failed');
     }
-
-    const next: Session = {
-      ...session,
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken ?? session.refreshToken,
-      expiresAt: Date.now() + (refreshed.expiresIn ?? 3600) * 1000,
-    };
-    await persist(next);
-    return next.accessToken;
   },
 };
-
-async function persist(session: Session) {
-  cached = session;
-  await SecureStore.setItemAsync(STORE_KEY, JSON.stringify(session));
-}
-
-/** The address comes from the id_token, so no extra round trip on sign-in. */
-function emailFromIdToken(idToken?: string | null): string | null {
-  if (!idToken) return null;
-  try {
-    const payload = JSON.parse(decodeUtf8Base64(fromBase64Url(idToken.split('.')[1]))) as { email?: string };
-    return payload.email?.toLowerCase() ?? null;
-  } catch {
-    return null;
-  }
-}

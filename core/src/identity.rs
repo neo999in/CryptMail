@@ -102,6 +102,31 @@ pub fn generate(dir: &Path, email: &str, passphrase: &str) -> Result<Identity> {
     describe(&secret, &email)
 }
 
+/// Store a secret key that came from somewhere other than `generate`, and
+/// describe it.
+///
+/// Used by recovery. The key is already locked under this device's passphrase
+/// by the time it arrives, and the address comes from its own User ID rather
+/// than from the caller — someone restoring on a new device may not have signed
+/// in yet, and the backup already knows who it belongs to.
+pub fn adopt(dir: &Path, secret: SignedSecretKey) -> Result<Identity> {
+    let email = secret
+        .details
+        .users
+        .first()
+        .and_then(|u| String::from_utf8(u.id.id().to_vec()).ok())
+        .and_then(|id| crate::keys::address_of(&id))
+        .ok_or_else(|| CoreError::Malformed("the backup carries no usable address".into()))?;
+
+    fs::create_dir_all(dir).map_err(|e| CoreError::Unavailable(e.to_string()))?;
+    let armored = secret
+        .to_armored_string(None.into())
+        .map_err(|e| CoreError::Unavailable(e.to_string()))?;
+    fs::write(secret_path(dir, &email), armored).map_err(|e| CoreError::Unavailable(e.to_string()))?;
+
+    describe(&secret, &email)
+}
+
 /// The public identity for an address, or `None` if this device has no key yet.
 pub fn load_public(dir: &Path, email: &str) -> Result<Option<Identity>> {
     let email = email.trim().to_lowercase();

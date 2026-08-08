@@ -35,6 +35,25 @@ export type PublicKeyInfo = {
 
 export type SignatureStatus = 'valid' | 'invalid' | 'unknown' | 'none';
 
+/**
+ * A backup of this device's identity, wrapped under a generated recovery code.
+ *
+ * The secret key is protected by a passphrase the Android Keystore holds, and
+ * that Keystore key has no backup path — so a wiped device means a permanently
+ * lost identity and every message ever sent to it becomes unreadable.
+ * `key-management.md` §Recovery option A closes that: the same secret key is
+ * re-wrapped under a high-entropy code the user writes down.
+ *
+ * Both halves are strings and `blob` is ciphertext the core produced and only
+ * the core reopens, so the "no private key leaves the core" rule is intact.
+ */
+export type RecoveryBackup = {
+  /** Shown to the user exactly once. Never persisted — persisting it defeats the point. */
+  code: string;
+  /** The secret key wrapped under the code. Opaque; safe to store anywhere. */
+  blob: string;
+};
+
 export type BuildRequest = {
   from: string;
   to: string[];
@@ -67,6 +86,24 @@ export interface CryptCore {
 
   /** Parse + validate an armored public key someone pasted in. Throws if malformed. */
   importPublicKey(armored: string): Promise<PublicKeyInfo>;
+
+  /**
+   * Wrap this device's secret key under a freshly generated recovery code.
+   *
+   * The code is returned once for the user to write down and is not stored. The
+   * identity is unchanged — recovery restores the same key and fingerprint, so
+   * senders never have to do anything.
+   */
+  exportRecoveryBackup(email: string): Promise<RecoveryBackup>;
+
+  /**
+   * Restore an identity from a backup, adopting it as this device's key.
+   *
+   * Throws `decrypt-failed` if the code is wrong and `malformed` if the blob is
+   * not a backup at all — the two are distinguished so the UI can tell the user
+   * which of the two things they got wrong.
+   */
+  importRecoveryBackup(blob: string, code: string): Promise<Identity>;
 
   /** M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message. */
   buildEncrypted(request: BuildRequest): Promise<string>;
