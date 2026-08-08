@@ -30,6 +30,23 @@ const NATIVE_DRIVER = Platform.OS !== 'web';
  * Press feedback for anything that reads as a raised control. Opacity alone is
  * ambiguous on a dark ground — a small scale makes the touch land.
  */
+/**
+ * The returned `style` must be applied **unconditionally**, even while the
+ * control is disabled or busy.
+ *
+ * Swapping it for `undefined` removes the `transform` array from the view's
+ * props while the native animation driver still holds the node, and Fabric's
+ * prop-override path asserts on exactly that:
+ *
+ *   assert(outputReadableMap.getType("transform") == ReadableType.Array && …)
+ *   — SurfaceMountingManager.overridePropsReadableMap
+ *
+ * which is a hard `AssertionError` on the main thread, i.e. the whole app dies.
+ * It cost a crash on every send, because the Send button sets `busy` mid-flight.
+ *
+ * Nothing is lost by always applying it: `Pressable`'s own `disabled` already
+ * stops `onPressIn`/`onPressOut`, so a disabled control never animates anyway.
+ */
 function usePressScale(to = 0.97) {
   const scale = useRef(new Animated.Value(1)).current;
   const drive = (value: number) =>
@@ -242,7 +259,7 @@ export function PrimaryButton({
   const press = usePressScale();
   const off = disabled || busy;
   return (
-    <Animated.View style={off ? undefined : press.style}>
+    <Animated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled: !!off }}
@@ -282,7 +299,7 @@ export function SecondaryButton({
   const press = usePressScale();
   const danger = tone === 'danger';
   return (
-    <Animated.View style={disabled ? undefined : press.style}>
+    <Animated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled: !!disabled }}

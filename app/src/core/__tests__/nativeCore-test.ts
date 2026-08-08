@@ -7,8 +7,6 @@
  * *same* envelope, or swapping one for the other changes what lands in a
  * mailbox. That is the promise `core/index.ts` makes when it picks between them.
  */
-import { NativeModules } from 'react-native';
-
 import { demoCore } from '../demoCore';
 import { PLACEHOLDER_SUBJECT, parseRfc822 } from '../mime';
 import { getNativeCore, NATIVE_MODULE_NAME } from '../nativeCore';
@@ -41,28 +39,122 @@ function fakeBridge() {
     decryptVerify: jest.fn(async () =>
       JSON.stringify({ plaintext: lastPlaintext, signature: 'valid', signerFingerprint: 'FFFF' }),
     ),
+    // The blob is a standard armored secret key locked under the code, and the
+    // code is generated on this side and passed *down* — see the Rust half in
+    // `core/src/recovery.rs`.
+    exportRecoveryBackup: jest.fn(
+      async (email: string, _code: string) =>
+        `-----BEGIN PGP PRIVATE KEY BLOCK-----\nd3JhcHBlZDoke${email}}\n-----END PGP PRIVATE KEY BLOCK-----`,
+    ),
+    importRecoveryBackup: jest.fn(async () =>
+      JSON.stringify({
+        email: 'alice@example.com',
+        fingerprint: 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555',
+        publicKeyArmored: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nx\n-----END PGP PUBLIC KEY BLOCK-----',
+        createdAt: '2026-08-05T00:00:00.000Z',
+      }),
+    ),
   };
 }
 
 function withBridge(): { core: CryptCore; bridge: ReturnType<typeof fakeBridge> } {
   const bridge = fakeBridge();
-  (NativeModules as Record<string, unknown>)[NATIVE_MODULE_NAME] = bridge;
-  const core = getNativeCore();
+  const core = getNativeCore(bridge);
   if (!core) throw new Error('expected a native core once the module is registered');
   return { core, bridge };
 }
 
-afterEach(() => {
-  delete (NativeModules as Record<string, unknown>)[NATIVE_MODULE_NAME];
-});
-
 describe('getNativeCore', () => {
   it('is null when the module is not registered, so the app falls back to demo', () => {
+    expect(getNativeCore(null)).toBeNull();
+  });
+
+  /**
+   * The real lookup, unmocked. Under jest there is no Android runtime, so
+   * `expo-modules-core` finds nothing — which is the same path the web build
+   * takes, and it must yield the demo core rather than throwing.
+   */
+  it('resolves through expo-modules-core, not the legacy NativeModules registry', () => {
     expect(getNativeCore()).toBeNull();
   });
 
   it('reports kind "native" so the UI can stop calling itself a demo', () => {
     expect(withBridge().core.kind).toBe('native');
+  });
+});
+
+describe('recovery', () => {
+  /**
+   * The JS bundle and the native library version separately — an OTA update
+   * ships this TypeScript against whatever `.so` is already installed. Calling
+   * a method the older Kotlin does not have would throw "is not a function",
+   * which reads as a crash rather than a missing feature.
+   */
+  describe('against a native core built before recovery landed', () => {
+    function withOlderBridge(): CryptCore {
+      const bridge = fakeBridge();
+      delete (bridge as Partial<typeof bridge>).exportRecoveryBackup;
+      delete (bridge as Partial<typeof bridge>).importRecoveryBackup;
+      const core = getNativeCore(bridge);
+      if (!core) throw new Error('expected a native core once the module is registered');
+      return core;
+    }
+
+    it('still loads, so the rest of the app keeps working', () => {
+      expect(withOlderBridge().kind).toBe('native');
+    });
+
+    it('reports "unavailable" and names the upgrade, rather than crashing', async () => {
+      const core = withOlderBridge();
+
+      await expect(core.exportRecoveryBackup('alice@example.com')).rejects.toMatchObject({
+        code: 'unavailable',
+        message: expect.stringMatching(/newer version of the CryptMail crypto core/),
+      });
+      await expect(core.importRecoveryBackup('BLOB', 'CODE')).rejects.toMatchObject({
+        code: 'unavailable',
+      });
+    });
+  });
+});
+
+describe('recovery through the native bridge', () => {
+  it('generates the code itself and hands the bridge the normalised form', async () => {
+    const { core, bridge } = withBridge();
+
+    const backup = await core.exportRecoveryBackup('me@example.com');
+
+    expect(backup.blob).toContain('BEGIN PGP PRIVATE KEY BLOCK');
+    // The code shown to the user is grouped, for writing down…
+    expect(backup.code).toMatch(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){7}$/);
+    // …but what Argon2 hashes is the bare 32 characters. If these two ever
+    // disagree, every code shown to a user opens nothing.
+    expect(bridge.exportRecoveryBackup).toHaveBeenCalledWith(
+      'me@example.com',
+      backup.code.replace(/-/g, ''),
+    );
+  });
+
+  it('issues a different code every time, so one backup never unlocks another', async () => {
+    const { core } = withBridge();
+    const first = await core.exportRecoveryBackup('me@example.com');
+    const second = await core.exportRecoveryBackup('me@example.com');
+    expect(first.code).not.toBe(second.code);
+  });
+
+  it('normalises a code the user typed, and parses the restored identity back out', async () => {
+    const { core, bridge } = withBridge();
+
+    const identity = await core.importRecoveryBackup(
+      'BLOB',
+      ' k7m2-nq8z-r4j5-twxb-3hyp-d6c9-fgkm-ln8q ',
+    );
+
+    expect(bridge.importRecoveryBackup).toHaveBeenCalledWith(
+      'BLOB',
+      'K7M2NQ8ZR4J5TWXB3HYPD6C9FGKM1N8Q',
+    );
+    expect(identity.fingerprint).toBe('AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555');
   });
 });
 

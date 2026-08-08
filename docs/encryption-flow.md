@@ -87,6 +87,10 @@ encrypted send is available:
 - any recipient's key **changed** → blocked, re-verification required
 - otherwise available, with a warning if keys are only trust-on-first-use
 
+This device's own address is the one case resolved outside the keyring: it comes
+from the identity and reports `verified`, since a key you hold the private half
+of needs no out-of-band comparison. See `app/src/state/recipients.ts`.
+
 Plaintext is a separate, explicitly chosen mode. It is never preselected, and
 `defaultSendMode()` returns `null` rather than falling back to it.
 

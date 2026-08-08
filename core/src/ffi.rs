@@ -1,4 +1,4 @@
-//! UniFFI surface — the five operations the Kotlin module exposes to React
+//! UniFFI surface — the seven operations the Kotlin module exposes to React
 //! Native as `CryptMailCore` (see `app/src/core/nativeCore.ts`).
 //!
 //! This layer exists to keep `lib.rs` free of FFI concerns and to enforce two
@@ -94,6 +94,20 @@ impl CryptMailCore {
 
     pub fn import_public_key(&self, armored: String) -> FfiResult<String> {
         Ok(self.core.import_public_key(&armored)?)
+    }
+
+    /// → the armored blob. The recovery code is generated in TypeScript
+    /// (`app/src/core/recoveryCode.ts`) and passed in, so Crockford base32 has
+    /// exactly one implementation. The Keystore passphrase is not passed in and
+    /// never appears in a JS-visible signature.
+    pub fn export_recovery_backup(&self, email: String, code: String) -> FfiResult<String> {
+        Ok(self.core.export_recovery_backup(&email, &self.passphrase, &code)?)
+    }
+
+    /// → Identity JSON. Rewrites the secret key under this device's Keystore
+    /// passphrase. Takes no address: the backup carries its own.
+    pub fn import_recovery_backup(&self, blob: String, code: String) -> FfiResult<String> {
+        Ok(self.core.import_recovery_backup(&self.passphrase, &blob, &code)?)
     }
 
     pub fn encrypt_sign(

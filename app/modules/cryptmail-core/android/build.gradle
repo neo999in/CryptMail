@@ -10,21 +10,43 @@ android {
   namespace "app.cryptmail.core"
 
   defaultConfig {
-    // The Rust core is built for arm64 only (see core/README.md). Listing it
-    // explicitly means a build for another ABI fails at assembly time rather
-    // than at the first crypto call on a device.
+    // `expo-module-gradle-plugin` requires both, and fails configuration with
+    // "'android.defaultConfig.versionName' is not defined" without them. Every
+    // module under node_modules/expo-* declares them; this one did not, because
+    // it had never been through a Gradle configuration phase.
+    versionCode 1
+    versionName '0.1.0'
+
+    // Exactly the ABIs `cargo ndk` was asked to build, and no others.
+    //
+    // The list is a safety property, not a preference: an ABI named here with
+    // no matching libcryptmail_core.so installs happily and then dies at the
+    // first crypto call with UnsatisfiedLinkError — a runtime failure a long
+    // way from its cause. Naming only what exists turns that into an assembly
+    // -time error instead.
+    //
+    // x86_64 is the Android emulator on a desktop; arm64-v8a is every real
+    // phone. Keep this in step with the `-t` flags in core/README.md — if you
+    // drop one here, drop it there too.
     ndk {
-      abiFilters 'arm64-v8a'
+      abiFilters 'arm64-v8a', 'x86_64'
     }
   }
 
-  sourceSets {
-    main {
-      // Where `cargo ndk -o …/jniLibs` puts libcryptmail_core.so, and where
-      // `uniffi-bindgen --out-dir` puts the generated Kotlin.
-      jniLibs.srcDirs += ['../../../android/app/src/main/jniLibs']
-    }
-  }
+  // No sourceSets override: the .so and the generated Kotlin both live in this
+  // module's own `src/main/{jniLibs,java}`, which are the defaults.
+  //
+  // They used to be written into `app/android/app/src/main/…` instead, which
+  // broke two ways. The generated `uniffi.cryptmail_core` package landed in the
+  // `:app` module while the Kotlin importing it compiles in `:cryptmail-core` —
+  // and a Gradle module cannot see another module's sources, so every reference
+  // failed with "Unresolved reference 'uniffi'". Pointing `java.srcDirs` there
+  // would not fix it either: `:app` compiles that directory too, so the class
+  // would be defined twice.
+  //
+  // The second break is quieter. `app/android/` is generated, gitignored, and
+  // deleted by `expo prebuild --clean` — so a clean prebuild silently removed
+  // the crypto core and the next build fell back to the demo one.
 }
 
 dependencies {

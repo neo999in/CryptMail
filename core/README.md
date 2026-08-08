@@ -89,11 +89,12 @@ Not yet done, and not doable without an Android SDK/NDK — neither command belo
 has been run.
 
 ```bash
-rustup target add aarch64-linux-android
+rustup target add aarch64-linux-android x86_64-linux-android
 cargo install cargo-ndk
 
-# Cross-compile
-cargo ndk -t arm64-v8a -o ../app/android/app/src/main/jniLibs build --release
+# Cross-compile. Both ABIs, matching `abiFilters` in the Expo module's
+# build.gradle — arm64 for phones, x86_64 for the desktop emulator.
+cargo ndk -t arm64-v8a -t x86_64 -o ../app/android/app/src/main/jniLibs build --release
 
 # Then regenerate the bindings from the *Android* .so
 cargo run --bin uniffi-bindgen -- generate \
