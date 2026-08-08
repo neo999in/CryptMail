@@ -80,14 +80,17 @@ send bar.
 | Mail | fixtures in [src/mail/demoMail.ts](src/mail/demoMail.ts) | Gmail REST |
 | Crypto | `demoCore` (encoded, not encrypted) | Rust core |
 
-To move to live mode: build the native core (M2), then add a Google OAuth
+To move to live mode: build the native core (M2), then add a Google **Web**
 client id:
 
 ```bash
-cp .env.example .env     # then fill in EXPO_PUBLIC_GOOGLE_CLIENT_ID
+cp .env.example .env     # then fill in EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 ```
 
-The redirect scheme is `cryptmail://oauth` (set in [app.json](app.json)).
+Sign-in runs through Google Play services, not a browser redirect — there is no
+redirect scheme. A separate Android OAuth client (package + signing SHA-1) must
+exist in the console but is never named in code. Full setup:
+[docs/running-it.md](../docs/running-it.md).
 
 ## The fail-safe
 

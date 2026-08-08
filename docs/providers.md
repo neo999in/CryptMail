@@ -25,13 +25,19 @@ core.
 
 ## Gmail / Google Workspace
 
-**Auth:** OAuth 2.0 (Authorization Code + PKCE). Users never type their Google
-password into CryptMail.
+**Auth:** native Play-services sign-in on Android
+(`@react-native-google-signin/google-signin`). Users never type their Google
+password into CryptMail. A browser Authorization-Code + PKCE flow is *not* an
+option here: Google refuses custom URI schemes from an Android OAuth client, so
+there is no redirect URI to come back to. A hosted `https` redirect would work,
+but needs a server.
 
 - Scopes (principle of least privilege):
   - `https://www.googleapis.com/auth/gmail.modify` — read, send, modify labels
-    (avoid the broad `mail.google.com` scope unless full IMAP is needed).
-  - Or `gmail.readonly` + `gmail.send` if you don't need label writes.
+    (avoid the broad `mail.google.com` scope unless full IMAP is needed). **This
+    is what CryptMail requests**, as of 2026-08-08.
+  - `gmail.readonly` + `gmail.send` is narrower, but 403s on label writes — which
+    is what star, archive and mark-read are.
 - **Transport options:**
   - **Gmail API (recommended):** `users.messages.list/get/send`, `users.watch`
     for push via Google Cloud Pub/Sub → real-time, quota-friendly.

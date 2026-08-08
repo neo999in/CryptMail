@@ -16,6 +16,7 @@ import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/dem
 import { createGmailClient } from '../mail/gmail';
 import { Draft, Drafts, removeDraft, upsertDraft } from '../drafts/drafts';
 import { applyFlagPatch } from '../mail/flags';
+import { plainBodyOf } from '../mail/plainBody';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { dueScheduled, removeScheduled, Scheduled, ScheduledOutbox, upsertScheduled } from '../outbox/outbox';
 import { userIdDisplayName } from '../pgp/parseArmoredKey';
@@ -775,11 +776,6 @@ export function useApp() {
 }
 
 /* ------------------------------------------------------------- helpers ---- */
-
-function plainBodyOf(raw: string): string {
-  const sep = raw.replace(/\r\n/g, '\n').indexOf('\n\n');
-  return sep === -1 ? raw : raw.slice(sep + 2).trim();
-}
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
