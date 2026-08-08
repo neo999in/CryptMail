@@ -14,6 +14,7 @@ import { resealPlaintext } from './secureJson';
 import { DRAFTS_STORE_KEY } from './draftsStore';
 import { KEYRING_STORE_KEY } from './keyring';
 import { OUTBOX_STORE_KEY } from './outboxStore';
+import { RECOVERY_STORE_KEY } from './recoveryStore';
 import { SEARCH_STORE_KEY } from './searchIndex';
 
 /** Every store whose contents are sealed. Order is irrelevant; completeness is not. */
@@ -22,6 +23,7 @@ export const SEALED_STORE_KEYS = [
   DRAFTS_STORE_KEY,
   OUTBOX_STORE_KEY,
   SEARCH_STORE_KEY,
+  RECOVERY_STORE_KEY,
 ];
 
 /**

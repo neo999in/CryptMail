@@ -93,8 +93,10 @@ and `demoReason()` explains a downgrade to the user rather than hiding it.
 To reach live mode: build the native core (M2), register the Kotlin module as
 `CryptMailCore` with the five methods in
 [app/src/core/nativeCore.ts](app/src/core/nativeCore.ts) — nothing else changes —
-then `cp app/.env.example app/.env` and fill in `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
-Redirect scheme is `cryptmail://oauth`, set in [app/app.json](app/app.json).
+then `cp app/.env.example app/.env` and fill in the **Web** client id as
+`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`. Sign-in goes through Google Play services
+(`@react-native-google-signin/google-signin`), so there is no redirect scheme —
+Google refuses custom URI schemes from an Android OAuth client.
 
 [app/src/core/mime.ts](app/src/core/mime.ts) implements
 [docs/message-format.md](docs/message-format.md) exactly — `multipart/encrypted`,
