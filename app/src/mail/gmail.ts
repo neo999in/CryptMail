@@ -76,8 +76,9 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
       if (patch.unread === false) removeLabelIds.push('UNREAD');
       if (patch.archived) removeLabelIds.push('INBOX');
       if (addLabelIds.length === 0 && removeLabelIds.length === 0) return;
-      // Requires the gmail.modify scope; the prototype requests only
-      // gmail.readonly + gmail.send, so this 403s until the scope is raised (config.ts).
+      // Requires the gmail.modify scope, which `config.ts` requests. Verified
+      // against a real mailbox on 2026-08-08: a star set here survives a cold
+      // restart, so the label change reaches Google rather than 403ing.
       await call(`/messages/${id}/modify`, {
         method: 'POST',
         body: JSON.stringify({ addLabelIds, removeLabelIds }),

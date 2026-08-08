@@ -23,6 +23,7 @@ import { DraftsScreen } from './src/screens/DraftsScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
+import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { ScheduledScreen } from './src/screens/ScheduledScreen';
 import { SimpleComposeScreen } from './src/screens/simple/SimpleComposeScreen';
 import { SimpleInboxScreen } from './src/screens/simple/SimpleInboxScreen';
@@ -94,6 +95,7 @@ function FullStack() {
       <Stack.Screen name="Drafts" component={DraftsScreen} options={{ title: 'Drafts' }} />
       <Stack.Screen name="Scheduled" component={ScheduledScreen} options={{ title: 'Scheduled' }} />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
+      <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
     </Stack.Navigator>
   );
 }

@@ -10,7 +10,7 @@ import uniffi.cryptmail_core.CryptMailCore
 import uniffi.cryptmail_core.FfiException
 
 /**
- * The `CryptMailCore` native module: five string-in/string-out crypto calls,
+ * The `CryptMailCore` native module: seven string-in/string-out crypto calls,
  * bridging JavaScript to the Rust crate through UniFFI.
  *
  * This is the module `app/src/core/nativeCore.ts` looks for by name. Its
@@ -68,6 +68,18 @@ class CryptMailCoreModule : Module() {
 
     AsyncFunction("importPublicKey") Coroutine { armored: String ->
       mapErrors { core.importPublicKey(armored) }
+    }
+
+    // Recovery is the slowest thing here by a wide margin — Argon2id at 64 MiB
+    // is deliberately expensive — so `Coroutine` is load-bearing, not decoration:
+    // running this inline would freeze the UI outright.
+    AsyncFunction("exportRecoveryBackup") Coroutine { email: String, code: String ->
+      mapErrors { core.exportRecoveryBackup(email, code) }
+    }
+
+    // Takes no address: the backup carries its own, in the restored key's User ID.
+    AsyncFunction("importRecoveryBackup") Coroutine { blob: String, code: String ->
+      mapErrors { core.importRecoveryBackup(blob, code) }
     }
 
     AsyncFunction("encryptSign") Coroutine { email: String, plaintext: String, recipientKeysJson: String ->

@@ -1,15 +1,19 @@
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, groupFingerprint, initials } from '../lib/format';
+import { RootStackParamList } from '../navigation';
 import { ContactKey } from '../store/keyring';
+import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
 import {
   Avatar,
   Badge,
+  Banner,
   Callout,
   Card,
   EmptyState,
@@ -28,8 +32,10 @@ import {
  * paste theirs. Every imported key is trusted on first use (known debt), so the
  * fingerprint is shown prominently for out-of-band comparison.
  */
-export function KeysScreen() {
-  const { identity, keyring, importKey, forgetKey, markVerified, safetyNumberFor } = useApp();
+type Props = NativeStackScreenProps<RootStackParamList, 'Keys'>;
+
+export function KeysScreen({ navigation }: Props) {
+  const { identity, keyring, recovery, importKey, forgetKey, markVerified, safetyNumberFor } = useApp();
   const insets = useSafeAreaInsets();
   const [paste, setPaste] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +68,7 @@ export function KeysScreen() {
 
   const contacts = Object.values(keyring).sort((a, b) => a.email.localeCompare(b.email));
   const unverified = contacts.filter((c) => c.trust !== 'verified').length;
+  const backupMissing = needsBackup(recovery, identity?.fingerprint ?? null);
 
   const copyMine = async () => {
     if (!identity) return;
@@ -70,13 +77,29 @@ export function KeysScreen() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  /** Key blocks arrive by clipboard almost every time — save the long-press. */
+  /**
+   * Key blocks arrive by clipboard almost every time — save the long-press.
+   *
+   * A read that comes back empty, or throws because the OS refused it, must say
+   * so: silently doing nothing leaves the user tapping a button that looks
+   * broken, with no way to tell a denied clipboard from an empty one.
+   */
   const pasteFromClipboard = async () => {
-    const text = await Clipboard.getStringAsync();
-    if (text.trim()) {
-      setPaste(text.trim());
-      setError(null);
+    let text: string;
+    try {
+      text = await Clipboard.getStringAsync();
+    } catch (e) {
+      setError(`Could not read the clipboard: ${e instanceof Error ? e.message : String(e)}`);
+      return;
     }
+
+    if (!text.trim()) {
+      setError('The clipboard is empty. Copy the key block first, then paste.');
+      return;
+    }
+
+    setPaste(text.trim());
+    setError(null);
   };
 
   const doImport = async () => {
@@ -112,6 +135,32 @@ export function KeysScreen() {
             <View style={s.row}>
               <SecondaryButton title={copied ? 'Copied' : 'Copy key'} icon={copied ? 'check' : 'copy'} onPress={() => void copyMine()} />
               <Text style={s.address}>{identity.email}</Text>
+            </View>
+
+            {/*
+              Unprompted, because the user has no other way to learn it: the key
+              is wrapped by the platform keystore, which has no backup path of
+              its own. Someone who never opens this screen finds out only after
+              the phone is gone, when nothing can be done about it.
+            */}
+            <View style={{ marginTop: 14 }}>
+              {backupMissing || !recovery.backedUpAt ? (
+                <Banner tone="warn" icon="alert">
+                  This key has no backup. Lose this device and every message ever sent to it becomes
+                  unreadable — permanently.
+                </Banner>
+              ) : (
+                <Banner tone="ok" icon="shield">
+                  Backed up {new Date(recovery.backedUpAt).toLocaleDateString()}.
+                </Banner>
+              )}
+              <View style={s.row}>
+                <SecondaryButton
+                  title={backupMissing ? 'Back up this key…' : 'Backup and recovery…'}
+                  icon="shield"
+                  onPress={() => navigation.navigate('Recovery')}
+                />
+              </View>
             </View>
           </>
         ) : (

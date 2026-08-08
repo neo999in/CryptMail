@@ -11,8 +11,10 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
+import { sha256 } from '@noble/hashes/sha2.js';
 
-import { decodeUtf8Base64, encodeUtf8Base64 } from '../lib/base64';
+import { decodeUtf8Base64, encodeUtf8Base64, utf8ToBytes } from '../lib/base64';
+import { generateRecoveryCode, normaliseRecoveryCode } from './recoveryCode';
 import {
   armor,
   buildEncryptedEnvelope,
@@ -25,12 +27,24 @@ import {
 } from './mime';
 import { getAsyncItemMigrating } from '../lib/legacyStorageKey';
 import { parseArmoredPublicKey } from '../pgp/parseArmoredKey';
-import { BuildRequest, CryptCore, CoreError, DecryptedMessage, Identity, PublicKeyInfo } from './types';
+import {
+  BuildRequest,
+  CryptCore,
+  CoreError,
+  DecryptedMessage,
+  Identity,
+  PublicKeyInfo,
+  RecoveryBackup,
+} from './types';
 
 const IDENTITY_KEY = 'cryptmail.demo.identity';
 const DEMO_ARMOR_TAG = 'CRYPTMAIL-DEMO-V1:';
 /** Demo messages built before the rename; read-only, never emitted. */
 const LEGACY_ARMOR_TAG = 'CIPHERMAIL-DEMO-V1:';
+
+const RECOVERY_HEADER = '-----BEGIN CRYPTMAIL RECOVERY BACKUP-----';
+const RECOVERY_FOOTER = '-----END CRYPTMAIL RECOVERY BACKUP-----';
+const DEMO_RECOVERY_TAG = 'CRYPTMAIL-DEMO-RECOVERY-V1:';
 
 export const demoCore: CryptCore = {
   kind: 'demo',
@@ -71,6 +85,69 @@ export const demoCore: CryptCore = {
     // CoreError('malformed') if it isn't a usable v4 key.
     const parsed = parseArmoredPublicKey(trimmed);
     return { email: parsed.email, fingerprint: parsed.fingerprint, armored: trimmed, userId: parsed.userId };
+  },
+
+  /**
+   * ⚠️  Encodes; does not wrap. The real core stretches the code with Argon2id
+   * and re-wraps the OpenPGP secret key — there is no secret key here to wrap.
+   *
+   * The verifier below is a plain SHA-256 of the code, **not** a KDF: it exists
+   * so the wrong-code path is a real path the UI and its tests exercise, rather
+   * than something that only appears once the Rust lands. A demo blob is
+   * readable by anyone who has it, exactly like a demo message.
+   */
+  async exportRecoveryBackup(email: string): Promise<RecoveryBackup> {
+    const identity = await demoCore.loadIdentity(email);
+    if (!identity) {
+      throw new CoreError('This device has no identity key to back up.', 'no-key');
+    }
+
+    const code = generateRecoveryCode();
+    const payload = `${DEMO_RECOVERY_TAG}${verifierFor(code)}:${encodeUtf8Base64(JSON.stringify(identity))}`;
+    return { code, blob: armorRecovery(encodeUtf8Base64(payload)) };
+  },
+
+  async importRecoveryBackup(blob: string, code: string): Promise<Identity> {
+    const body = dearmorRecovery(blob);
+    if (!body) {
+      throw new CoreError('That is not a CryptMail recovery backup.', 'malformed');
+    }
+
+    let decoded: string;
+    try {
+      decoded = decodeUtf8Base64(body);
+    } catch {
+      throw new CoreError('This recovery backup is damaged and cannot be read.', 'malformed');
+    }
+
+    if (!decoded.startsWith(DEMO_RECOVERY_TAG)) {
+      // A backup the real core produced. Only the real core can unwrap it.
+      throw new CoreError(
+        'This backup needs the real crypto core to restore (demo mode is running).',
+        'decrypt-failed',
+      );
+    }
+
+    const rest = decoded.slice(DEMO_RECOVERY_TAG.length);
+    const sep = rest.indexOf(':');
+    if (sep < 0) {
+      throw new CoreError('This recovery backup is damaged and cannot be read.', 'malformed');
+    }
+
+    if (rest.slice(0, sep) !== verifierFor(code)) {
+      throw new CoreError('That recovery code does not match this backup.', 'decrypt-failed');
+    }
+
+    let identity: Identity;
+    try {
+      identity = JSON.parse(decodeUtf8Base64(rest.slice(sep + 1))) as Identity;
+    } catch {
+      throw new CoreError('This recovery backup is damaged and cannot be read.', 'malformed');
+    }
+
+    // Adopt it as this device's identity, which is what restoring means.
+    await AsyncStorage.setItem(`${IDENTITY_KEY}.${identity.email}`, JSON.stringify(identity));
+    return identity;
   },
 
   async buildEncrypted(request: BuildRequest): Promise<string> {
@@ -127,6 +204,44 @@ export const demoCore: CryptCore = {
 };
 
 /* ------------------------------------------------------------- helpers ---- */
+
+/**
+ * Binds a blob to the code that produced it, so a wrong code is *detected*.
+ *
+ * Not a key-derivation function and not slow on purpose — a demo blob carries
+ * no secret, so there is nothing here to brute-force. The real core stretches
+ * the code with Argon2id and derives an actual wrapping key from it.
+ */
+function verifierFor(code: string): string {
+  const digest = sha256(utf8ToBytes(`cryptmail-demo-recovery-v1:${normaliseRecoveryCode(code)}`));
+  return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Same 64-column armor the message path uses, under its own label. */
+function armorRecovery(payload: string): string {
+  return [
+    RECOVERY_HEADER,
+    'Comment: CryptMail identity backup — useless without the recovery code',
+    '',
+    ...(payload.match(/.{1,64}/g) ?? []),
+    RECOVERY_FOOTER,
+  ].join('\n');
+}
+
+/** The armored body, or null if this is not a recovery backup at all. */
+function dearmorRecovery(blob: string): string | null {
+  const start = blob.indexOf(RECOVERY_HEADER);
+  const end = blob.indexOf(RECOVERY_FOOTER);
+  if (start < 0 || end < 0 || end < start) return null;
+
+  return blob
+    .slice(start + RECOVERY_HEADER.length, end)
+    .split('\n')
+    // Drop armor headers (`Comment:`) and blank lines, keeping only the payload.
+    .filter((line) => line.trim() !== '' && !line.includes(':'))
+    .join('')
+    .trim();
+}
 
 function randomFingerprint(): string {
   const bytes = Crypto.getRandomBytes(20);

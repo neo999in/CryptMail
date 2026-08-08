@@ -35,32 +35,56 @@ The OAuth and Gmail code is already written ([auth/googleAuth.ts](../app/src/aut
 1. Create a project and **enable the Gmail API**.
 2. **OAuth consent screen** → External, in **Testing** mode. Add both Gmail
    accounts you intend to test with as test users. They will not work otherwise.
-3. **Credentials → OAuth client ID → Android**. Not "Web application": web
-   clients are issued a secret, which a phone cannot hold safely, and the PKCE
-   flow this app uses does not want one.
+3. **Credentials → OAuth client ID → Android.** This one is never named in code.
+   Play services matches it implicitly, by package name and signing certificate.
    - Package name: `app.cryptmail.prototype` (from [app/app.json](../app/app.json))
-   - SHA-1: your debug keystore's fingerprint —
-     `keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android`
+   - SHA-1: **the fingerprint of `app/android/app/debug.keystore`**, which is what
+     Gradle signs with — *not* `~/.android/debug.keystore`, which signs nothing
+     here. Read it off the APK itself:
 
-Scopes are `gmail.readonly` + `gmail.send` ([config.ts](../app/src/config.ts)).
-`gmail.readonly` is a **restricted** scope: Testing mode caps you at 100 users,
-which is fine here, but production needs Google verification plus a CASA
-assessment. Start that clock early if it matters.
+     ```powershell
+     & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify `
+       --print-certs app\android\app\build\outputs\apk\debug\app-debug.apk
+     ```
+
+     Get this wrong and sign-in fails with `DEVELOPER_ERROR` (status 10) *after*
+     you pick an account — which looks like a code bug and is not. See
+     [handoff.md](handoff.md) §2.4.
+4. **Credentials → OAuth client ID → Web application.** Create this one *as
+   well*. Its id is what the app actually passes to the sign-in library, even on
+   Android — it identifies the backend the tokens are minted for. Ignore the
+   secret it is issued; the app never sees it.
+
+Sign-in goes through **Google Play services**, not a browser redirect, because
+Google refuses custom URI schemes from an Android client. A device without Play
+services (a de-Googled ROM, the web build) cannot sign in at all — the app
+detects this and stays on demo fixtures rather than pretending otherwise.
+
+Scopes are `openid`, `email` and `gmail.modify`
+([config.ts](../app/src/config.ts)). `gmail.modify` is a **restricted** scope:
+Testing mode caps you at 100 users, which is fine here, but production needs
+Google verification plus a CASA assessment. Start that clock early if it
+matters. Add all three to the consent screen before signing in — an existing
+grant does not pick up new scopes without re-consent.
 
 ### 1b. Point the app at it
 
 ```bash
 cp app/.env.example app/.env
-# EXPO_PUBLIC_GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+# EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
 ```
 
 The client id is **not** a secret — it ships inside the APK and anyone can
-extract it. That is expected for a public client; security comes from PKCE, the
-`cryptmail://oauth` redirect scheme, and Google binding the client to your
-package name and SHA-1. `.env` is gitignored for hygiene, not secrecy.
+extract it. That is expected for a public client; security comes from Google
+binding the Android client to your package name and signing SHA-1, which an
+attacker cannot forge. `.env` is gitignored for hygiene, not secrecy.
 
-You now have real send and receive. Encryption is still the demo core, and the
-UI says so.
+This setup **has been run** — 2026-08-08, on an emulator, against a real Gmail
+account: sign-in completes through the Play-services chooser, the inbox lists
+real mail, and star and archive persist server-side. Token refresh across an
+expiry and the revocation path are still unproven. See
+[implementation-status.md](implementation-status.md) §5.3 for exactly what was
+and was not observed.
 
 ---
 
