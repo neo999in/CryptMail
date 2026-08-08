@@ -1,0 +1,139 @@
+/**
+ * Reading the human-readable body out of third-party mail.
+ *
+ * Every case here comes from mail that a real Gmail account actually receives.
+ * The demo fixtures are single-part US-ASCII, so none of this was reachable
+ * until the app first opened a real message on 2026-08-08 and rendered the
+ * multipart boundary, the part headers and the raw `=E2=80=87` escapes at the
+ * user.
+ */
+import { plainBodyOf } from '../plainBody';
+
+const crlf = (s: string) => s.replace(/\n/g, '\r\n');
+
+describe('single-part messages', () => {
+  it('returns the body of a bare text/plain message', () => {
+    const raw = 'From: a@b.c\nSubject: Hi\nContent-Type: text/plain\n\nHello there.\n';
+    expect(plainBodyOf(raw)).toBe('Hello there.');
+  });
+
+  it('reads a message with no Content-Type at all', () => {
+    expect(plainBodyOf('From: a@b.c\n\nJust text.')).toBe('Just text.');
+  });
+
+  it('survives CRLF line endings, which is what the wire actually carries', () => {
+    expect(plainBodyOf(crlf('Content-Type: text/plain\n\nHello there.\n'))).toBe('Hello there.');
+  });
+});
+
+describe('quoted-printable', () => {
+  it('decodes multi-byte UTF-8 escapes rather than showing =E2=80=87', () => {
+    const raw =
+      'Content-Type: text/plain; charset="utf-8"\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\n' +
+      'Ship your first commit=E2=80=87now.';
+    // U+2007 FIGURE SPACE — the exact sequence that leaked into the UI.
+    expect(plainBodyOf(raw)).toBe('Ship your first commit now.');
+  });
+
+  it('joins soft line breaks', () => {
+    const raw =
+      'Content-Type: text/plain\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\n' +
+      'one two=\nthree';
+    expect(plainBodyOf(raw)).toBe('one twothree');
+  });
+
+  it('decodes an escaped equals sign', () => {
+    const raw =
+      'Content-Type: text/plain\nContent-Transfer-Encoding: quoted-printable\n\n1 =3D 1';
+    expect(plainBodyOf(raw)).toBe('1 = 1');
+  });
+});
+
+describe('multipart', () => {
+  const alternative = crlf(
+    'Content-Type: multipart/alternative; boundary="b1"\n' +
+      '\n' +
+      '--b1\n' +
+      'Content-Type: text/plain; charset="utf-8"\n' +
+      '\n' +
+      'The plain part.\n' +
+      '--b1\n' +
+      'Content-Type: text/html; charset="utf-8"\n' +
+      '\n' +
+      '<p>The HTML part.</p>\n' +
+      '--b1--\n',
+  );
+
+  it('picks the text/plain part and never shows the boundary', () => {
+    const body = plainBodyOf(alternative);
+    expect(body).toBe('The plain part.');
+    expect(body).not.toMatch(/--b1/);
+    expect(body).not.toMatch(/Content-Type/i);
+  });
+
+  it('decodes a base64 part', () => {
+    const raw = crlf(
+      'Content-Type: multipart/alternative; boundary="x"\n\n' +
+        '--x\n' +
+        'Content-Type: text/plain\n' +
+        'Content-Transfer-Encoding: base64\n\n' +
+        'SGVsbG8sIHdvcmxkLg==\n' +
+        '--x--\n',
+    );
+    expect(plainBodyOf(raw)).toBe('Hello, world.');
+  });
+
+  it('descends into a nested multipart, as mail with attachments carries', () => {
+    const raw = crlf(
+      'Content-Type: multipart/mixed; boundary="outer"\n\n' +
+        '--outer\n' +
+        'Content-Type: multipart/alternative; boundary="inner"\n\n' +
+        '--inner\n' +
+        'Content-Type: text/plain\n\n' +
+        'Buried but readable.\n' +
+        '--inner--\n' +
+        '--outer\n' +
+        'Content-Type: application/pdf\n' +
+        'Content-Transfer-Encoding: base64\n\n' +
+        'JVBERi0=\n' +
+        '--outer--\n',
+    );
+    expect(plainBodyOf(raw)).toBe('Buried but readable.');
+  });
+
+  it('falls back to the HTML part as text when there is no plain alternative', () => {
+    const raw = crlf(
+      'Content-Type: multipart/alternative; boundary="h"\n\n' +
+        '--h\n' +
+        'Content-Type: text/html\n\n' +
+        '<p>Hello <b>there</b>.</p>\n' +
+        '--h--\n',
+    );
+    expect(plainBodyOf(raw)).toBe('Hello there.');
+  });
+
+  it('quotes a boundary that appears with no quotes in the header', () => {
+    const raw = crlf(
+      'Content-Type: multipart/alternative; boundary=nq123\n\n' +
+        '--nq123\n' +
+        'Content-Type: text/plain\n\n' +
+        'Unquoted boundary.\n' +
+        '--nq123--\n',
+    );
+    expect(plainBodyOf(raw)).toBe('Unquoted boundary.');
+  });
+});
+
+describe('degrading rather than throwing', () => {
+  it('returns the raw body when a multipart declares a boundary it never uses', () => {
+    // Truncated or malformed mail must still show *something*, not an error.
+    const raw = 'Content-Type: multipart/alternative; boundary="missing"\n\norphan text';
+    expect(plainBodyOf(raw)).toBe('orphan text');
+  });
+
+  it('returns an empty string for an empty body', () => {
+    expect(plainBodyOf('Content-Type: text/plain\n\n')).toBe('');
+  });
+});

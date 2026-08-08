@@ -3,8 +3,8 @@
  *
  * Two capabilities, decided independently at startup:
  *
- *  · mail   — `gmail` when a Google OAuth client id is configured, else `demo`
- *             fixtures.
+ *  · mail   — `gmail` when a Google client id is configured *and* Play-services
+ *             sign-in is available, else `demo` fixtures.
  *  · crypto — `real` when the native core is linked, else the non-cryptographic
  *             `demo` stand-in.
  *
@@ -21,30 +21,53 @@
  * Set the client id in an `.env` file at the app root (Expo reads EXPO_PUBLIC_*
  * at build time):
  *
- *   EXPO_PUBLIC_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+ *   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=xxxxx.apps.googleusercontent.com
  */
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+
 import { core } from './core';
 import { protectionLevel } from './store/localCrypto';
 
-export const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
+/**
+ * The **Web**-type client id, even though this runs on Android — the sign-in
+ * library uses it to identify the backend that tokens are minted for. The
+ * Android client (package + signing SHA-1) also has to exist in the console, but
+ * is never named here: Play services matches it implicitly.
+ */
+export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
 
-/** Least-privilege: read the inbox, send mail. Nothing else. (M3) */
+/**
+ * Read, send, and change flags. `updateFlags` calls `messages.modify`, so star,
+ * archive and mark-read 403 without this — and those are built, shipped UI.
+ *
+ * The trade is deliberate and worth stating: `gmail.modify` reads on the consent
+ * screen as permission to change and delete mail, which is broader than this app
+ * needs for anything but flags. Raising it later would force every user to
+ * re-consent, so it is chosen up front rather than discovered.
+ */
 export const GMAIL_SCOPES = [
   'openid',
   'email',
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
 ];
 
-export const hasGoogleClient = GOOGLE_CLIENT_ID.length > 0;
+export const hasGoogleClient = GOOGLE_WEB_CLIENT_ID.length > 0;
 export const hasNativeCore = core.kind === 'native';
+
+/**
+ * Whether Play-services sign-in can run at all. False on web, where the native
+ * module does not exist — and a web build that claimed a real mailbox would be
+ * the same silent downgrade as trap 1 in the handoff, where a working core was
+ * reported missing.
+ */
+export const hasSignInModule = typeof GoogleSignin?.configure === 'function';
 
 export type MailMode = 'gmail' | 'demo';
 export type CryptoMode = 'real' | 'demo';
 export type AppMode = 'live' | 'demo';
 
 /** Real mailbox or fixtures. Independent of whether the crypto is real. */
-export const mailMode: MailMode = hasGoogleClient ? 'gmail' : 'demo';
+export const mailMode: MailMode = hasGoogleClient && hasSignInModule ? 'gmail' : 'demo';
 
 /** Real encryption or the encoded stand-in. Independent of where mail comes from. */
 export const cryptoMode: CryptoMode = hasNativeCore ? 'real' : 'demo';
@@ -85,6 +108,9 @@ export function demoReason(): string | null {
   }
   if (cryptoMode === 'demo') {
     return 'Real Gmail, demo crypto: the native core is not linked, so nothing is really encrypted.';
+  }
+  if (hasGoogleClient && !hasSignInModule) {
+    return 'Demo mailbox: Google sign-in needs Play services, which this platform does not have, so mail is served from fixtures.';
   }
   return 'Real encryption, demo mailbox: no Google OAuth client is configured, so mail is served from fixtures.';
 }
