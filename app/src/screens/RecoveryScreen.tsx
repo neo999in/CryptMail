@@ -3,6 +3,7 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { cryptoMode } from '../config';
 import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
 import { RecoveryBackup } from '../core';
 import { needsBackup } from '../store/recoveryStore';
@@ -49,6 +50,15 @@ export function RecoveryScreen() {
   const codeFocus = useFocus();
 
   const unprotected = needsBackup(recovery, identity?.fingerprint ?? null);
+
+  // The two cores emit different blobs: the real one re-locks the OpenPGP secret
+  // key under the code, so the backup *is* a standard armored private key, while
+  // demoCore wraps base64 in a header of its own. A placeholder showing the
+  // wrong one tells a user their perfectly good backup looks wrong.
+  const blobPlaceholder =
+    cryptoMode === 'real'
+      ? '-----BEGIN PGP PRIVATE KEY BLOCK-----'
+      : '-----BEGIN CRYPTMAIL RECOVERY BACKUP-----';
 
   const copy = async (what: 'code' | 'blob', value: string) => {
     await Clipboard.setStringAsync(value);
@@ -202,7 +212,7 @@ export function RecoveryScreen() {
             big
             multiline
             onChangeText={setBlobInput}
-            placeholder="-----BEGIN CRYPTMAIL RECOVERY BACKUP-----"
+            placeholder={blobPlaceholder}
             style={s.blobInput}
             value={blobInput}
             {...blobFocus.bind}
