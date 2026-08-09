@@ -22,7 +22,7 @@ no backend:
 |---|---|
 | 🟢 **Ready** | Buildable today, in TypeScript, against the existing demo core. No new native code, no server. |
 | 🟡 **Needs core** | Blocked on the real Rust `cryptmail-core` (M1/M2 of [prototype-plan.md](prototype-plan.md)). |
-| 🔵 **Needs backend** | Blocked on the optional service in [api.md](api.md) (key directory / push relay / secure links). |
+| 🔵 **Needs backend** | Would need a server. [api.md](api.md) is now marked **not planned**, so this tier is mostly a list of things that are *not* being built and what replaced them. |
 | 🟣 **Needs surface** | Blocked on a new platform target (desktop, iOS, browser extension). |
 | ⚫ **Debt** | Not a feature — something already wrong that gates shipping to real users. |
 
@@ -45,16 +45,21 @@ test-driven and verified in the running app. Knowing this is what makes
 | Message actions (star / archive / read) | [`mail/flags.ts`](../app/src/mail/flags.ts) | Inbox rows, `MessageScreen` | 8 |
 | Scheduled send + outbox | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts) | `ScheduledScreen`, Compose | 8 |
 | Import real OpenPGP public keys | [`pgp/parseArmoredKey.ts`](../app/src/pgp/parseArmoredKey.ts) | `KeysScreen` | 11 |
+| Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
+| Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
+| Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
 
-**52 tests across 6 suites**, run with `npm test` (jest-expo). Convention: pure
-logic lives in a framework-free module with a `__tests__/*-test.ts` sibling;
-persistence lives in `store/*`; `state/AppState.tsx` orchestrates.
+Run with `npm test` (jest-expo). Convention: pure logic lives in a
+framework-free module with a `__tests__/*-test.ts` sibling; persistence lives in
+`store/*`; `state/AppState.tsx` orchestrates.
 
 **What is deliberately still fake:**
 
 - `core/demoCore.ts` **base64-encodes; it does not encrypt.** Every send path
   gates on `core.kind`, so the app can never present encoded bytes as encrypted.
-- No backend at all — no key directory, no push, no secure links.
+- No backend at all, and none planned — no CryptMail key directory, no push, no
+  secure links. Key discovery goes to `keys.openpgp.org` and WKD from the client
+  ([key-management.md](key-management.md) §Discovery).
 - All local storage is **plaintext AsyncStorage** (keyring, drafts, outbox,
   search index). This is the prototype's stated "known debt."
 - One real provider connector (Gmail REST) plus a demo fixture client, behind
@@ -331,7 +336,7 @@ now against the demo core, with the crypto swapped in later.
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |
 | **Fingerprint / QR safety-number verification** | L | M | The durable defence against key substitution. Fingerprints render today; the *comparison ceremony* is the feature. QR "add me" cards are a cheaper sibling. |
 | **Multiple identities / send-as aliases** | S–M | M | Data model already allows N identity keys per account. |
-| **Publish own key via WKD / keyserver** | S | M | Lookup is planned; publishing is what helps non-users reach you. |
+| ~~**Publish own key via WKD / keyserver**~~ | — | — | ✅ **Built** ([`keys/discovery.ts`](../app/src/keys/discovery.ts)). Upload to `keys.openpgp.org` behind an explicit consent step, with the confirmation state tracked. Needs no core: it is public key material. |
 | **Sign / verify / encrypt arbitrary files** | S | S | Pure reuse of the core; a cheap power-user surface. |
 | **Message size padding** | S | S | Pad ciphertext to buckets to blunt size fingerprinting — [security.md](security.md) admits size leaks. |
 | **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |
@@ -341,21 +346,21 @@ now against the demo core, with the crypto swapped in later.
 
 ---
 
-## Tier 2 — 🔵 Needs a backend
+## Tier 2 — 🔵 Would need a backend
 
-The service specced in [api.md](api.md). Everything here is Phase 1+ and each
-item adds an operational and privacy surface, so each needs its own threat note.
+[api.md](api.md) is marked **not planned**. This tier is now mostly a record of
+what was dropped and what took its place; two rows moved out of it entirely.
 
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
-| **Key directory** (publish / lookup + address-ownership proof) | L | L | Removes manual key exchange — the prototype's most obviously unshippable seam. |
+| ~~**Key directory**~~ | — | — | ❌ **Not being built.** Replaced by client-side lookup against `keys.openpgp.org` + WKD, which removes the manual key-exchange seam without us hosting a database of `email → key` or a live log of who is about to email whom. |
+| ~~**Invite flow for key-less recipients**~~ | — | — | ✅ **Built, and needed no backend.** A contentless plaintext invite plus an `awaiting-key` hold in the outbox ([`outbox/outbox.ts`](../app/src/outbox/outbox.ts)). One invite per address per week. |
+| ~~**Secure-link fallback for key-less recipients**~~ | — | — | ❌ **Rejected**, not deferred: hosting ciphertext and a web reader makes CryptMail a service. Invite-and-queue covers the case; the passphrase-in-an-attachment variants train people to fall for phishing. |
 | **Encrypted key backup + recovery codes** | L | M | ⬇️ **Mostly demoted to Tier 0** — the server only ever held an opaque blob, so it bought convenience, not security. Built as manual export (0.15). What is still 🔵 is *automatic* fetch on a new device — and even that is better served by storing the blob as a self-addressed message than by a server. |
-| **Push relay** | L | M | Payload carries "new mail" only — never content. Pairs with 0.10. |
-| **Secure-link fallback for key-less recipients** | M | L | Passphrase-protected web reader; the honest alternative to sending plaintext. |
+| **Push relay** | L | M | The one entry here still worth arguing for. It is also what would let a held message leave a device that is not open. Payload carries "new mail" only — never content. Pairs with 0.10. |
 | **Multi-device sync + device approval** | M | L | Includes a flag-conflict merge rule — read/star state genuinely diverges across devices. |
-| **Key transparency log** | L | L | Makes directory misbehaviour detectable rather than merely unlikely. CONIKS/KT-style. |
-| **Abuse controls** — PoW + rate limits on lookups | M | M | Blunts enumeration of the directory and abuse of the link relay. |
-| **Invite flow for key-less recipients** | M | S | Turns the fail-safe's dead end into a growth loop. |
+| **Key transparency log** | L | L | Would make keyserver misbehaviour *detectable* rather than merely bounded by the `changed` check. The strongest argument for ever running our own directory. CONIKS/KT-style. |
+| **Abuse controls** — PoW + rate limits on lookups | M | M | Moot without a directory of our own to enumerate. |
 
 ---
 

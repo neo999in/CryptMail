@@ -52,7 +52,7 @@ The DB file is encrypted at rest with a key held in the OS keychain.
 | contact_id | uuid | FK |
 | fingerprint | text | |
 | public_key | blob | armored |
-| source | text | `autocrypt` / `directory` / `wkd` / `manual` |
+| source | text | `autocrypt` / `directory` / `manual`. A key fetched from `keys.openpgp.org` or from WKD is `directory` either way — the trust it earns is identical, so splitting the two would only invite treating one as better than the other. |
 | trust | text | `seen` / `verified` / `changed` |
 | first_seen / last_seen | ts | |
 
@@ -75,8 +75,10 @@ The DB file is encrypted at rest with a key held in the OS keychain.
 > ciphertext locally and decrypts on demand, so a stolen unlocked DB reveals less.
 
 ### `pending_outbox`
-Queued sends (compose drafts already turned into ciphertext or awaiting keys),
-including chosen mode (encrypted / secure-link / plaintext) and resolution state.
+Queued sends, with the reason each one is held: `time` (scheduled for later) or
+`awaiting-key` (a recipient has no published key yet), plus which addresses are
+still pending. There is no per-message "mode" column — a queued message is
+always encrypted-or-nothing. See [`outbox/outbox.ts`](../app/src/outbox/outbox.ts).
 
 ## Backend directory / backup store (Postgres)
 

@@ -12,8 +12,10 @@ import * as SecureStore from 'expo-secure-store';
 import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
 import { DRAFTS_STORE_KEY } from './draftsStore';
+import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
 import { OUTBOX_STORE_KEY } from './outboxStore';
+import { PUBLISH_STORE_KEY } from './publishStore';
 import { RECOVERY_STORE_KEY } from './recoveryStore';
 import { SEARCH_STORE_KEY } from './searchIndex';
 
@@ -24,6 +26,8 @@ export const SEALED_STORE_KEYS = [
   OUTBOX_STORE_KEY,
   SEARCH_STORE_KEY,
   RECOVERY_STORE_KEY,
+  PUBLISH_STORE_KEY,
+  INVITE_STORE_KEY,
 ];
 
 /**

@@ -16,6 +16,13 @@ export type MailSummary = {
   snippet: string;
   unread: boolean;
   starred: boolean;
+  /**
+   * Raw `Autocrypt` header value, when the message carried one.
+   *
+   * Cleartext, so it costs one extra metadata header per message and lets the
+   * sync path learn senders' keys without opening — or decrypting — anything.
+   */
+  autocrypt?: string;
 };
 
 /** A change to a message's flags. `archived: true` removes it from the inbox. */

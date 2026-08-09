@@ -2,10 +2,12 @@
 
 ## 10,000-foot view
 
-CryptMail is a **local-first client** plus a **thin optional backend**. The
-client does all cryptography and talks directly to the user's mail provider. The
-backend exists only for things a pure client can't do well: publishing/finding
-public keys, encrypted key backup, and push notifications.
+CryptMail is a **client, and only a client**. It does all cryptography locally
+and talks directly to the user's mail provider and to public key infrastructure
+that already exists. **There is no CryptMail backend** — see
+[api.md](api.md) for the design that was considered and dropped, and
+[key-management.md](key-management.md) §Discovery for why running a key directory
+would cost more than it bought.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -18,23 +20,29 @@ public keys, encrypted key backup, and push notifications.
 │  │  compose)  │  │  key store)   │  │  · MS Graph API          │    │
 │  └────────────┘  └───────┬───────┘  └───────────┬────────────┘    │
 │                          │                       │                 │
-│                 ┌────────▼────────┐              │                 │
-│                 │ Local encrypted │              │                 │
-│                 │ store (SQLite)  │              │                 │
-│                 └─────────────────┘              │                 │
-└──────────────────────────────┬───────────────────┼────────────────┘
-                                │                   │
-              (HTTPS, public    │                   │ IMAP/SMTP/HTTPS
-               keys + backup)   │                   │
-                                ▼                   ▼
+│         ┌────────────────┼──────────┐            │                 │
+│  ┌──────▼───────┐ ┌──────▼───────┐  │            │                 │
+│  │ Local        │ │ Outbox:      │  │            │                 │
+│  │ encrypted    │ │ scheduled +  │  │            │                 │
+│  │ store        │ │ awaiting-key │  │            │                 │
+│  └──────────────┘ └──────────────┘  │            │                 │
+└─────────────────────────────────────┼────────────┼────────────────┘
+                                       │            │
+                    (HTTPS, public     │            │ IMAP/SMTP/HTTPS
+                     keys only)        │            │
+                                       ▼            ▼
                    ┌──────────────────────┐   ┌──────────────────────┐
-                   │  CryptMail backend  │   │  Mail provider        │
-                   │  · Key directory     │   │  (Gmail, Outlook,     │
-                   │  · Encrypted key     │   │   IMAP host, …)       │
-                   │    backup store      │   │                       │
-                   │  · Push relay        │   │  Stores ciphertext    │
+                   │  Public key infra     │   │  Mail provider        │
+                   │  · keys.openpgp.org   │   │  (Gmail, Outlook,     │
+                   │  · WKD at the         │   │   IMAP host, …)       │
+                   │    recipient's domain │   │                       │
+                   │  (third-party, not    │   │  Stores ciphertext    │
+                   │   operated by us)     │   │  Carries Autocrypt    │
                    └──────────────────────┘   └──────────────────────┘
 ```
+
+The user's own key backup has no box on this diagram on purpose: it is a blob the
+user exports and keeps. Nothing we run holds it.
 
 ## Components
 
@@ -69,41 +77,53 @@ Inbox, thread view, compose, key/trust indicators, onboarding, recovery. Renders
 decrypted content only in memory. Shows explicit encryption status per recipient
 before sending.
 
-### 5. Backend (optional but recommended)
-Stateless-ish services:
-- **Key directory** — maps `email → verified public key(s)`. Enables discovery
-  when Autocrypt headers aren't available yet.
-- **Encrypted key backup** — stores the user's *passphrase-encrypted* private key
-  so a new device can restore it. The server cannot read it.
-- **Push relay** — mobile push notifications for new mail without keeping IMAP
-  IDLE alive in the background.
+### 5. Key discovery (third-party, not ours)
+No CryptMail server. Public keys are found and published through infrastructure
+that already exists and that we treat as untrusted:
+- **`keys.openpgp.org`** — address lookup and publication, after the address
+  owner confirms by email.
+- **WKD** — the same lookup against the recipient's own domain.
 
-The backend never sees plaintext and never sees usable private keys. If it is
-compromised, message confidentiality is preserved (integrity of key discovery is
-the thing at risk — see [security.md](security.md)).
+Neither is trusted to be honest. A key from either arrives as `seen`, and a key
+that contradicts one already on file marks the contact `changed` and blocks the
+send. See [key-management.md](key-management.md).
+
+### 6. Outbox
+Messages written but not yet delivered, for two different reasons: scheduled for
+a time, or **held because a recipient has no key yet**. The second is what
+replaces a plaintext fallback — the message waits, the recipient gets a
+contentless invite, and delivery happens on its own once a key exists
+([encryption.md](encryption.md)). It is client-side, which is an honest
+limitation: a device that never reopens cannot deliver what it holds.
 
 ## Data flow: sending an encrypted message
 
 1. User composes; app resolves each recipient's public key
-   (local ring → Autocrypt cache → key directory → WKD).
-2. If any recipient has no key, UI shows a warning and offers fallbacks.
-3. Crypto core builds a PGP/MIME message: encrypts body + attachments to all
-   recipient keys (and to the sender's own key, so the sender can read Sent),
-   signs with the sender's private key.
-4. Real subject is moved into the encrypted payload; visible subject becomes
+   (local ring → Autocrypt cache → `keys.openpgp.org` → WKD).
+2. If a recipient's key **changed**, the send stops — nothing is sent or held.
+3. If a recipient has **no key**, the message goes to the outbox marked
+   `awaiting-key`, that recipient gets a contentless invite, and the UI says
+   *queued*, never *sent*.
+4. Otherwise the crypto core builds a PGP/MIME message: encrypts body +
+   attachments to all recipient keys (and to the sender's own key, so the sender
+   can read Sent), signs with the sender's private key.
+5. Real subject is moved into the encrypted payload; visible subject becomes
    `[Encrypted message]`. An Autocrypt header carrying the sender's public key is
    attached.
-5. Connector sends via SMTP / Gmail API / Graph API.
-6. A copy lands in the provider "Sent" folder — also as ciphertext.
+6. Connector sends via SMTP / Gmail API / Graph API.
+7. A copy lands in the provider "Sent" folder — also as ciphertext.
 
 ## Data flow: receiving
 
 1. Connector fetches new mail (IMAP IDLE / Gmail watch / Graph subscription).
-2. App detects PGP/MIME (content type / armor markers).
-3. Crypto core decrypts with the private key and verifies the signature.
-4. Sender's public key from the Autocrypt header is cached to the local ring.
-5. Decrypted content rendered in the UI; optionally cached in the encrypted store.
-6. In the provider's own apps, the same message stays ciphertext.
+2. Senders' public keys are harvested from the cleartext `Autocrypt` headers on
+   the summaries — no decryption, nothing opened.
+3. Held messages are re-checked: anything whose recipients now all have keys is
+   encrypted and sent.
+4. App detects PGP/MIME (content type / armor markers) when a message is opened.
+5. Crypto core decrypts with the private key and verifies the signature.
+6. Decrypted content rendered in the UI; optionally cached in the encrypted store.
+7. In the provider's own apps, the same message stays ciphertext.
 
 ## Technology recommendations
 
@@ -114,7 +134,7 @@ the thing at risk — see [security.md](security.md)).
 | Mobile | Native (Swift/Kotlin) or React Native | Keychain/Keystore access for key storage |
 | Local DB | SQLite + SQLCipher | Encrypted at rest, ubiquitous |
 | Key at rest | OS keychain (macOS Keychain, Windows DPAPI, Android Keystore, iOS Keychain) | Hardware-backed where available |
-| Backend | Any (Go/Node/Rust) + Postgres | Small surface; mostly a key/value directory |
+| Key discovery | `keys.openpgp.org` (VKS) + WKD | Address-verified lookup with nothing for us to host — and no log of who is about to email whom |
 
 Choosing a Rust crypto core (Sequoia/rPGP) that compiles to desktop, mobile, and
 WASM keeps one audited implementation everywhere. That is the recommended path.

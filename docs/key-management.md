@@ -36,31 +36,75 @@ that can decrypt mail.
 
 ## Discovery: finding recipients' public keys
 
-Resolved in priority order at send time:
+Resolved in priority order at send time. All four sources are built
+([`app/src/keys/`](../app/src/keys/)):
 
 1. **Local keyring** — keys already cached from prior messages/verification.
 2. **Autocrypt cache** — keys learned from `Autocrypt` headers on received mail
-   (see [encryption.md](encryption.md)).
-3. **CryptMail key directory** — backend service mapping `email → public key(s)`
-   for registered users (see [api.md](api.md)).
-4. **WKD (Web Key Directory)** — RFC-standard lookup at the recipient's domain
-   (`https://openpgpkey.<domain>/.well-known/openpgpkey/...`). Enables interop
-   with non-CryptMail PGP users.
+   (see [encryption.md](encryption.md)). Harvested during inbox sync, so a key
+   arrives without the user opening anything.
+3. **VKS — `keys.openpgp.org`** — lookup by address
+   (`GET /vks/v1/by-email/<address>`). It serves a key by address only after the
+   address owner has clicked a confirmation link, and it strips third-party
+   signatures, so an answer is a claim about that address rather than an
+   unauthenticated blob anyone could upload. Publishing is
+   `POST /vks/v1/upload` then `POST /vks/v1/request-verify`.
+4. **WKD (Web Key Directory)** — RFC-shaped lookup at the recipient's *own*
+   domain (`https://openpgpkey.<domain>/.well-known/openpgpkey/…`, plus the
+   direct form). It cannot help for `@gmail.com` — nobody but Google can publish
+   under that domain — so it is a supplement for people on their own domains,
+   never the primary path.
 5. **Manual import** — paste/scan a key or fingerprint.
 
-If none resolve, the recipient is treated as "no key" and fallbacks apply.
+If none resolve, the recipient has no key: the message is held and they are
+invited ([encryption.md](encryption.md), invite-and-queue).
+
+### Decision: CryptMail does not run a key directory
+
+Earlier revisions of this document listed a CryptMail-operated directory as
+source 3, and [api.md](api.md) specified it. It is **not being built**, and the
+user-visible result is the same either way.
+
+Running one would mean hosting and uptime — a directory that is down means users
+cannot send — plus abuse limits, an address-verification flow, and a database of
+`email → key` mappings that is personal data. It would also produce a real-time
+log of who is about to email whom: the social graph, which is precisely what the
+product exists to protect. `keys.openpgp.org` already provides the same lookup
+with none of that on our side.
+
+Worth revisiting only for key-transparency proofs (§ below) or an enterprise
+deployment that wants its own namespace.
+
+### Publishing your own key
+
+Discovery is symmetric: a lookup only finds a key someone published. The app
+uploads the user's public key to VKS — but **only after asking**, on the setup
+screen or the keys screen. The listing is public: anyone who tries the address
+learns that it has a key. That is stated before anything is uploaded, and
+declining is remembered rather than re-asked on every launch.
+
+VKS then emails a confirmation link and will not serve the key by address until
+it is opened. The app does not parse that mail; it asks the directory the same
+question a stranger would — *is this key served for this address yet?* — on each
+sync, and a yes is the confirmation, whichever device opened the link.
 
 ### Trust levels
 
-- **Seen (TOFU):** learned via Autocrypt/directory, trust-on-first-use. Fine for
-  the default, opportunistic experience.
+- **Seen (TOFU):** learned via Autocrypt or a keyserver, trust-on-first-use.
+  Fine for the default, opportunistic experience. A keyserver key is **always**
+  `seen` and never anything more.
 - **Verified:** the user compared the key **fingerprint** out-of-band (QR scan in
   person, phone call, safety-number comparison). Upgrades UI to "verified".
-- **Changed:** a previously-seen address presents a new key → warn loudly; could
-  be a new device (benign) or an attacker (not). Require re-verification.
+- **Changed:** a previously-seen address presents a new key → sending stops;
+  could be a new device (benign) or an attacker (not). Require re-verification.
 
-The key directory being honest is a trust assumption; verification defeats a
-malicious directory. See [security.md](security.md) for key-substitution risk and
+A keyserver being honest is a trust assumption, and automatic discovery makes it
+a load-bearing one: once every client fetches every key, a directory that swaps
+one has a much wider reach. Two things bound that. `upsertKey` marks a key that
+arrives with a *different* fingerprint for a known address `changed` and blocks
+the send, whatever source it came from — so a swap can only affect a
+correspondent you have never heard from before. And the safety-number comparison
+defeats it outright. See [security.md](security.md) for key-substitution risk and
 mitigations (key transparency log, self-signed key changes).
 
 ## Recovery
@@ -152,10 +196,15 @@ Three divergences from the plan above, all deliberate:
 2. **Device approval is not built.** See Multi-device below — it genuinely needs
    a server to coordinate, and it is marked optional there.
 
-3. **Recovery is not yet wired into first-run.** `AppState.attach` generates an
-   identity at sign-in, so a fresh device already holds a throwaway key by the
-   time the user reaches the Recovery screen; restoring discards it. Correct, but
-   onboarding should offer "restore instead" before generating.
+3. **Recovery is offered before an identity is generated.** `AppState.attach`
+   used to generate one at sign-in, so a fresh device held a throwaway key by the
+   time the user reached the Recovery screen, and restoring discarded it — a
+   fingerprint change every correspondent saw, caused by the app, for nothing.
+   It now loads an identity and stops. A signed-in account with no key lands on
+   [`SetupScreen`](../app/src/screens/SetupScreen.tsx), which offers *restore
+   from a recovery code* first and generates only when the user declines it.
+   This matters more once discovery is live: with every client fetching every
+   key automatically, one avoidable rotation blocks compose for every contact.
 
 **Status:** the contract, the demo implementation, the UI and the tests exist.
 The Argon2id wrapping itself is Rust and is **not implemented** — see §4.1 of
@@ -176,20 +225,42 @@ works in demo mode only, and a native build reports `unavailable`.
 
 - Keys carry an expiration; subkeys can be rotated without changing the primary
   identity/fingerprint.
-- On rotation, the new public key is republished (directory + Autocrypt) and the
+- On rotation, the new public key is republished (keyserver + Autocrypt) and the
   old private key is retained locally (marked non-preferred) so historical mail
   stays readable.
 - Compromise → revoke: publish a revocation certificate and a fresh key; warn
   contacts on next contact.
 
+### Self-authenticated rotation — partly built
+
+A key change signed by the key it replaces is something only that key's holder
+could produce, so it is a rotation and not a substitution. Accepting one keeps a
+legitimate key change from hard-blocking every correspondent's compose screen.
+
+The **trust transition** is built and tested: `upsertKey` takes a
+`rotation: 'self-signed' | 'none'` and accepts a changed fingerprint as `seen`
+(never `verified` — the signature says the same person made this key, not that
+anyone compared its safety number). Without the evidence it stays `changed` and
+the send is blocked, which is today's behaviour exactly.
+
+**Verifying** the signature is a core operation and needs the Rust core, so
+every caller passes `none` for now and nothing yet carries such a signature in
+the message path. Until then, §Recovery above — restoring the same key rather
+than minting a new one — is what actually keeps fingerprints stable, and it is
+the larger practical win because it prevents most rotations from happening.
+
 ## Summary of what is stored where
 
-| Item | Device (encrypted store / keychain) | Backend | Mail provider |
-|------|-------------------------------------|---------|---------------|
+There is no CryptMail backend, so the middle column is the public keyserver —
+which holds public keys and nothing else.
+
+| Item | Device (encrypted store / keychain) | `keys.openpgp.org` | Mail provider |
+|------|-------------------------------------|--------------------|---------------|
 | Private key (usable) | ✅ (wrapped, RAM when unlocked) | ❌ | ❌ |
-| Private key (passphrase-wrapped backup) | optional | ✅ (opaque blob) | ❌ |
-| Own public key | ✅ | ✅ (directory) | ✅ (Autocrypt headers) |
-| Contacts' public keys | ✅ (keyring) | ✅ (directory) | ✅ (headers on their mail) |
-| Passphrase / recovery code | ❌ (memorized / keychain) | ❌ | ❌ |
-| Message ciphertext | cached | secure-link only | ✅ |
+| Private key (code-wrapped backup) | ✅ (user exports it) | ❌ | ❌ |
+| Own public key | ✅ | ✅ (if the user published it) | ✅ (Autocrypt headers) |
+| Contacts' public keys | ✅ (keyring) | ✅ (public listings) | ✅ (headers on their mail) |
+| Passphrase / recovery code | ❌ (memorized / on paper) | ❌ | ❌ |
+| Who you correspond with | ✅ | ❌ (no account, no log we hold) | ✅ (envelope metadata) |
+| Message ciphertext | cached | ❌ | ✅ |
 | Message plaintext | RAM / optional cache | ❌ | ❌ |
