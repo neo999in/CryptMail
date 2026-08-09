@@ -2,7 +2,22 @@
 //!
 //! Stage 1 of `docs/post-quantum.md` — Ed25519 primary for signing and
 //! certification, ML-KEM-768 + X25519 subkey for encryption (RFC 9980
-//! algorithm 35). V6 keys, which RFC 9980 requires.
+//! algorithm 35).
+//!
+//! **V4 keys.** The PQC spec confines its new algorithms to v6 with exactly one
+//! exception: ML-KEM-768+X25519 is also permitted on a *v4* encryption subkey,
+//! so that an existing v4 certificate can gain post-quantum confidentiality
+//! without its holder changing key. `docs/post-quantum.md` chose Stage 1 around
+//! that exception because the install base reads v4 — and `keys.openpgp.org`
+//! turns out to enforce the point, answering a v6 upload with
+//! `400 OpenPGP v6 (RFC 9580) is not yet supported`. A v6 identity is therefore
+//! one nobody can publish, and an address nobody can publish is one no stranger
+//! can encrypt to on a first message.
+//!
+//! The primary uses `Ed25519Legacy` (algorithm 22) rather than `Ed25519` (27):
+//! 27 is RFC 9580's codepoint and is not recognised by the v4-era software this
+//! version exists to interoperate with. Both are accepted by the keyserver, so
+//! only a test on the algorithm id catches the difference.
 //!
 //! The secret key is written S2K-encrypted under the caller's passphrase and is
 //! never returned to the caller in any form.
@@ -64,8 +79,8 @@ pub fn generate(dir: &Path, email: &str, passphrase: &str) -> Result<Identity> {
     let mut rng = thread_rng();
 
     let params = SecretKeyParamsBuilder::default()
-        .version(KeyVersion::V6)
-        .key_type(KeyType::Ed25519)
+        .version(KeyVersion::V4)
+        .key_type(KeyType::Ed25519Legacy)
         .can_certify(true)
         .can_sign(true)
         .primary_user_id(format!("<{email}>"))
@@ -74,7 +89,7 @@ pub fn generate(dir: &Path, email: &str, passphrase: &str) -> Result<Identity> {
         .passphrase(Some(passphrase.to_string()))
         .subkey(
             SubkeyParamsBuilder::default()
-                .version(KeyVersion::V6)
+                .version(KeyVersion::V4)
                 // RFC 9980 algorithm 35 — post-quantum confidentiality.
                 .key_type(KeyType::MlKem768X25519)
                 .can_encrypt(EncryptionCaps::All)

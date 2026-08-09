@@ -11,7 +11,9 @@ import { ADA_ARMORED } from '../../pgp/__tests__/fixtures';
 import {
   DiscoveryError,
   Fetcher,
+  LOOKUP_TIMEOUT_MS,
   lookupKey,
+  PUBLISH_TIMEOUT_MS,
   publishKey,
   vksLookupUrl,
   wkdUrls,
@@ -107,11 +109,45 @@ describe('lookupKey', () => {
     });
   });
 
+  it('reports our own deadline as a timeout however the platform words it', async () => {
+    // React Native rejects an aborted fetch as a plain Error reading "Fetch
+    // request has been canceled" — no `AbortError` name anywhere. Recognising
+    // the deadline by the shape of the error means the platform gets to decide
+    // whether our own timeout is understood, and on a phone it was not: the
+    // user saw the raw platform string instead of being told the keyserver was
+    // slow. What we know for certain is that *we* aborted it.
+    const fetch: Fetcher = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new Error('fetch failed: Fetch request has been canceled')),
+        );
+      });
+    await expect(lookupKey('ada@example.com', { fetch, timeoutMs: 10 })).rejects.toMatchObject({
+      code: 'timeout',
+      message: expect.stringContaining('did not answer in time'),
+    });
+  });
+
   it('treats a 404 from one source and a failure from another as "not published"', async () => {
     // VKS is authoritative about *its* answer; a WKD host that is simply absent
     // must not turn a clean "no key" into an error the user cannot act on.
     const d = deps([{ match: '.well-known', throws: new Error('DNS failure') }]);
     await expect(lookupKey('ada@example.com', d)).resolves.toBeNull();
+  });
+
+  it('does not let a WKD 404 mask a VKS that could not be reached', async () => {
+    // The inverse of the case above, and the one that matters: most domains
+    // publish no WKD at all, so a 404 there is the norm. If that counted as a
+    // definite "nobody has a key", every keyserver outage would be reported to
+    // the user as "this person does not use encryption" — and the message would
+    // sit in the queue forever waiting for a key that was there all along.
+    const d = deps([{ match: 'by-email', throws: new Error('Network request failed') }]);
+    await expect(lookupKey('ada@example.com', d)).rejects.toBeInstanceOf(DiscoveryError);
+  });
+
+  it('does not let a WKD 404 mask a VKS timeout', async () => {
+    const d = deps([{ match: 'by-email', status: 503 }]);
+    await expect(lookupKey('ada@example.com', d)).rejects.toMatchObject({ code: 'server' });
   });
 });
 
@@ -155,5 +191,59 @@ describe('publishKey', () => {
   it('surfaces a rejected upload rather than claiming success', async () => {
     const d = deps([{ match: 'upload', status: 400, body: 'bad key' }]);
     await expect(publishKey(ADA_ARMORED, 'ada@example.com', d)).rejects.toBeInstanceOf(DiscoveryError);
+  });
+
+  it("repeats the keyserver's own reason for refusing a key", async () => {
+    // VKS explains a rejection in a JSON `error` field, and that sentence is the
+    // whole diagnosis — "unsupported key version" and "malformed" send the user
+    // somewhere completely different. A bare status code sends them nowhere.
+    const d = deps([
+      { match: 'upload', status: 400, body: JSON.stringify({ error: 'unsupported key version' }) },
+    ]);
+    await expect(publishKey(ADA_ARMORED, 'ada@example.com', d)).rejects.toMatchObject({
+      message: expect.stringContaining('unsupported key version'),
+    });
+  });
+
+  it("does not double the full stop the keyserver already wrote", async () => {
+    const d = deps([
+      {
+        match: 'upload',
+        status: 400,
+        body: JSON.stringify({ error: 'OpenPGP v6 (RFC 9580) is not yet supported.' }),
+      },
+    ]);
+    await expect(publishKey(ADA_ARMORED, 'ada@example.com', d)).rejects.toMatchObject({
+      message: 'Key upload failed (400): OpenPGP v6 (RFC 9580) is not yet supported.',
+    });
+  });
+
+  it('waits longer than a lookup does, because a person asked for this one', async () => {
+    // A lookup runs while someone types and has to give up quickly. Publishing
+    // is a button press whose whole purpose is the round trip, and it uploads a
+    // far larger key than a lookup downloads. Six seconds is a typing budget,
+    // not a keyserver's: measured from here, keys.openpgp.org takes upwards of
+    // fifteen.
+    const budgets: number[] = [];
+    const fetch: Fetcher = async (url, init) => {
+      init?.signal?.addEventListener('abort', () => undefined);
+      budgets.push(Date.now());
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ token: 't', status: { 'ada@example.com': 'published' } }),
+        arrayBuffer: async () => bytes(''),
+      };
+    };
+    await publishKey(ADA_ARMORED, 'ada@example.com', { fetch });
+    expect(PUBLISH_TIMEOUT_MS).toBeGreaterThan(LOOKUP_TIMEOUT_MS);
+    expect(budgets).toHaveLength(1);
+  });
+
+  it('still reports a status when the body explains nothing', async () => {
+    const d = deps([{ match: 'upload', status: 503, body: '<html>maintenance</html>' }]);
+    await expect(publishKey(ADA_ARMORED, 'ada@example.com', d)).rejects.toMatchObject({
+      message: expect.stringContaining('503'),
+    });
   });
 });

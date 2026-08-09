@@ -59,6 +59,27 @@ Resolved in priority order at send time. All four sources are built
 If none resolve, the recipient has no key: the message is held and they are
 invited ([encryption.md](encryption.md), invite-and-queue).
 
+**"No key" and "could not find out" are different answers.** A definite "nothing
+published" is the only thing reported as *the recipient has no key*; a lookup
+that failed, or a key that came back and would not import, is reported as a
+fault on our side that may clear on the next attempt. Neither ever downgrades
+the send — rule 1 holds throughout — but only one of them is a fact about the
+recipient. Only VKS can speak for an address — it serves a key only after the owner confirmed it, so its 404
+is a real answer and yields "no key". WKD is a supplement: most domains publish
+none, so a 404 there is the norm and settles nothing. A VKS lookup that fails or
+times out is reported as a failure even when every WKD host answered 404,
+because the alternative is telling the user that someone does not use encryption
+whenever the keyserver is slow — and holding their message against a key that
+was published all along.
+
+**A key is accepted for any address it claims, not just its primary User ID.**
+One key commonly carries several addresses (`dkg@debian.org` and
+`dkg@fifthhorseman.net` are one key), and VKS serves it for each. The answer is
+accepted when any User ID matches the address that was asked about, and the key
+is filed in the keyring under *that* address; the fingerprint still identifies
+the single underlying key. Judging the answer by the primary User ID alone would
+discard a valid key and report the recipient as having none.
+
 ### Decision: CryptMail does not run a key directory
 
 Earlier revisions of this document listed a CryptMail-operated directory as
@@ -87,6 +108,35 @@ VKS then emails a confirmation link and will not serve the key by address until
 it is opened. The app does not parse that mail; it asks the directory the same
 question a stranger would — *is this key served for this address yet?* — on each
 sync, and a yes is the confirmation, whichever device opened the link.
+
+#### The key must be v4, or it cannot be published at all
+
+Measured against the live service on 2026-08-09. `keys.openpgp.org` refuses a v6
+key outright:
+
+```
+POST /vks/v1/upload   →  400  {"error": "OpenPGP v6 (RFC 9580) is not yet supported."}
+```
+
+The identity is therefore **v4**, with the ML-KEM-768+X25519 encryption subkey
+the PQC spec permits there (see [post-quantum.md](post-quantum.md)). Uploading
+that key is accepted, and the keyserver serves it back with the post-quantum
+subkey intact — confirmed by round-tripping a throwaway key through
+`/vks/v1/upload` and `/vks/v1/by-fingerprint`:
+
+```
+uploaded → primary v4 alg=22 (EdDSALegacy)   subkey v4 alg=35 (ML-KEM-768+X25519)
+served   → primary v4 alg=22 (EdDSALegacy)   subkey v4 alg=35 (ML-KEM-768+X25519)
+```
+
+So publication and post-quantum confidentiality are **not** a trade-off. They
+looked like one only while the identity was v6.
+
+The stakes are higher than one screen. An unpublishable key makes its owner
+undiscoverable, so two CryptMail users writing to each other for the first time
+would *both* fall into invite-and-queue even though both are running the app —
+the directory would only ever have helped when writing to someone using other
+PGP software.
 
 ### Trust levels
 
@@ -136,8 +186,17 @@ supported paths, user chooses at onboarding (can enable both):
    derived from the code, primary and every subkey. The blob is therefore a
    **standard armored OpenPGP secret key** — GnuPG or Sequoia could open it with
    the code — and the S2K packet carries its own Argon2 parameters, so raising
-   them later cannot strand an existing backup. Parameters are rPGP's V6 default:
-   RFC 9106 choice 2, 64 MiB, 3 passes, 4 lanes, AES-256-OCB.
+   them later cannot strand an existing backup. Parameters are RFC 9106 choice 2:
+   64 MiB, 3 passes, 4 lanes, AES-256-OCB.
+
+   The KDF is **chosen explicitly, not inherited from the key's version.** It
+   used to be read from rPGP's default for whatever version the key happened to
+   be, which quietly tied the strength of every backup to an unrelated decision:
+   moving the identity to a v4 key swapped Argon2id for iterated-and-salted
+   SHA-256 under CFB, and nothing failed — backups still restored, and the guard
+   test asked rPGP about V6 while production had moved on. The guard now reads
+   the S2K out of a blob that was actually produced
+   (`tests/recovery.rs::the_blob_is_wrapped_with_argon2id_whatever_version_the_key_is`).
 3. **The code is 160 bits of Crockford base32**, generated (never chosen), so
    option B below is deliberately not implemented — it is strictly weaker and a
    second path to maintain.

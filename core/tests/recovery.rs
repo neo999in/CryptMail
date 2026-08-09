@@ -48,6 +48,45 @@ fn the_blob_is_a_conforming_secret_key_locked_under_the_code() {
     );
 }
 
+/// The recovery code is all that protects a stolen blob, so the KDF wrapping it
+/// is a security claim and not an implementation detail.
+///
+/// This reads the S2K out of the blob that was *actually produced*, rather than
+/// asking rPGP what its default is for some version. That distinction is the
+/// whole point: `rewrap` used to inherit the KDF from the key's own version, so
+/// changing the identity to a v4 key silently swapped Argon2id for
+/// iterated-and-salted SHA-256 — and every test, including the one that checked
+/// rPGP's V6 default, stayed green while backups got weaker.
+#[test]
+fn the_blob_is_wrapped_with_argon2id_whatever_version_the_key_is() {
+    use pgp::types::{S2kParams, SecretParams, StringToKey};
+
+    let dir = tmpdir("s2k");
+    let core = Core::new(&dir);
+    core.generate_identity("alice@example.com", PW).unwrap();
+
+    let blob = core.export_recovery_backup("alice@example.com", PW, CODE).unwrap();
+    let (parsed, _) = SignedSecretKey::from_string(&blob).expect("blob parses");
+
+    let mut checked = 0;
+    for params in std::iter::once(parsed.primary_key.secret_params())
+        .chain(parsed.secret_subkeys.iter().map(|s| s.key.secret_params()))
+    {
+        match params {
+            SecretParams::Encrypted(enc) => match enc.string_to_key_params() {
+                S2kParams::Aead { s2k: StringToKey::Argon2 { t, p, m_enc, .. }, .. } => {
+                    // RFC 9106 parameter choice 2: 64 MiB, 3 passes, 4 lanes.
+                    assert_eq!((*t, *p, *m_enc), (3, 4, 16), "Argon2 parameters were weakened");
+                    checked += 1;
+                }
+                other => panic!("a key in the recovery blob is not Argon2id-wrapped: {other:?}"),
+            },
+            SecretParams::Plain(_) => panic!("a key in the recovery blob is not locked at all"),
+        }
+    }
+    assert!(checked >= 2, "expected the primary and at least one subkey to be wrapped");
+}
+
 #[test]
 fn exporting_leaves_the_device_key_untouched() {
     // Taking a backup must not be able to lock a user out of the device they

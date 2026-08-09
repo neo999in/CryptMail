@@ -80,18 +80,7 @@ does not open a Kotlin/Bouncy Castle shortcut.
 
 ## 3. The app (`app/`)
 
-**✅ Verified.** `npx tsc --noEmit` clean; `npm test -- --ci` — 150 tests, 15 suites.
-
-### Simple UI — ✅ verified in a real browser
-
-Built the web bundle, served it, drove it with Chromium at 430×1000. No console
-or page errors. Observed: sign-in → inbox with per-row lock badges → open an
-encrypted message (real subject restored, `ENCRYPTED · VERIFIED SENDER`) →
-compose.
-
-The fail-safe was confirmed visually: with an unknown recipient, "Send
-encrypted" is disabled and names the address, "Send unencrypted" is offered but
-**left unselected**, and the send button stays disabled until the user chooses.
+**✅ Verified.** `npx tsc --noEmit` clean; `npm test -- --ci` — 275 tests, 26 suites.
 
 ### Capability split — ✅ verified by test
 

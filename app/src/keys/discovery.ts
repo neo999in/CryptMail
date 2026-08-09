@@ -67,7 +67,30 @@ export type DiscoveryDeps = {
 };
 
 export const VKS_BASE = 'https://keys.openpgp.org';
-const DEFAULT_TIMEOUT_MS = 6000;
+
+/**
+ * A lookup runs while someone types a recipient, so it should not wait forever
+ * — but the old six seconds was chosen against no measurement at all. Sampled
+ * against `keys.openpgp.org`, a single lookup came back in 1.1s, 7.8s and 9.8s
+ * on three consecutive tries, with a tail past twenty.
+ *
+ * Giving up early is not the cheap option it looks like. A lookup that gives up
+ * leaves the recipient `missing`, and rule 1 then holds the message *and emails
+ * that person an invitation* — so an impatient deadline sends a stranger an
+ * invite to install CryptMail when they had a published key all along. Compose
+ * stays usable while this runs and says what it is doing, so waiting costs the
+ * user very little and giving up costs them something real.
+ */
+export const LOOKUP_TIMEOUT_MS = 15_000;
+
+/**
+ * Publishing is a button press whose entire purpose is the round trip, and it
+ * uploads a key rather than downloading one — a v6 key with a post-quantum
+ * subkey is several times the size of a classical one. Measured from a phone,
+ * `keys.openpgp.org` regularly takes upwards of fifteen seconds to answer, so
+ * the typing budget aborted every attempt before it could finish.
+ */
+export const PUBLISH_TIMEOUT_MS = 45_000;
 
 const ARMOR_BEGIN = '-----BEGIN PGP PUBLIC KEY BLOCK-----';
 const ARMOR_END = '-----END PGP PUBLIC KEY BLOCK-----';
@@ -100,15 +123,26 @@ export function wkdUrls(email: string): string[] {
 /**
  * Look up a public key by address.
  *
- * Returns `null` only when every source answered definitively "nothing
- * published". If no source could be reached, this throws — see `DiscoveryError`.
+ * Returns `null` only when **VKS** answered definitively "nothing published".
+ * If it could not be reached, this throws — see `DiscoveryError`.
+ *
+ * The asymmetry between the two sources is deliberate, and getting it wrong is
+ * how a message ends up queued forever. VKS is the source that can speak for an
+ * address: it serves a key only after the address owner confirmed it, so its
+ * 404 is a real answer. WKD is a supplement — the *majority* of domains publish
+ * none at all, so a 404 there is the norm and says nothing about whether the
+ * person uses encryption. Letting a WKD 404 stand in for an answer would turn
+ * every keyserver outage into "this person does not use encryption", and the
+ * send path would invite them and hold the message against a key that existed
+ * the whole time.
  */
 export async function lookupKey(email: string, deps: DiscoveryDeps): Promise<DiscoveryResult | null> {
   const address = email.trim().toLowerCase();
   if (!address.includes('@')) return null;
 
   let lastFailure: DiscoveryError | null = null;
-  let sawDefiniteMiss = false;
+  /** VKS said, in so many words, "no key for that address". */
+  let answered = false;
 
   const attempts: { url: string; source: DiscoverySource }[] = [
     { url: vksLookupUrl(address), source: 'vks' },
@@ -119,13 +153,14 @@ export async function lookupKey(email: string, deps: DiscoveryDeps): Promise<Dis
     try {
       const armored = await fetchKey(attempt.url, deps);
       if (armored) return { armored, source: attempt.source };
-      sawDefiniteMiss = true;
+      if (attempt.source === 'vks') answered = true;
     } catch (e) {
       lastFailure = e instanceof DiscoveryError ? e : new DiscoveryError(message(e), 'network');
     }
   }
 
-  if (lastFailure && !sawDefiniteMiss) throw lastFailure;
+  if (answered) return null;
+  if (lastFailure) throw lastFailure;
   return null;
 }
 
@@ -170,8 +205,9 @@ export async function publishKey(
       body: JSON.stringify({ keytext: armored }),
     },
     deps,
+    PUBLISH_TIMEOUT_MS,
   );
-  if (!upload.ok) throw new DiscoveryError(`Key upload failed (${upload.status}).`, 'server');
+  if (!upload.ok) throw new DiscoveryError(await refusal('Key upload failed', upload), 'server');
 
   const body = await parseJson(upload);
   const token = typeof body?.token === 'string' ? body.token : undefined;
@@ -187,8 +223,9 @@ export async function publishKey(
       body: JSON.stringify({ token, addresses: [address] }),
     },
     deps,
+    PUBLISH_TIMEOUT_MS,
   );
-  if (!verify.ok) throw new DiscoveryError(`Verification request failed (${verify.status}).`, 'server');
+  if (!verify.ok) throw new DiscoveryError(await refusal('Verification request failed', verify), 'server');
 
   const verified = await parseJson(verify);
   return { status: statusFor(verified, address) === 'published' ? 'published' : 'pending-verification' };
@@ -210,22 +247,53 @@ async function request(
   url: string,
   init: { method?: string; headers?: Record<string, string>; body?: string },
   deps: DiscoveryDeps,
+  fallbackBudget: number = LOOKUP_TIMEOUT_MS,
 ) {
-  const budget = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const budget = deps.timeoutMs ?? fallbackBudget;
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timer = setTimeout(() => controller?.abort(), budget);
+  // Whether *we* called it off. Every platform words an aborted fetch
+  // differently — a `DOMException` named `AbortError` in a browser, a plain
+  // `Error` reading "Fetch request has been canceled" in React Native — so
+  // recognising our own deadline by the shape of the error hands that judgement
+  // to whichever runtime we happen to be on. On Android it got it wrong, and
+  // the raw platform string was shown to the user in place of an explanation.
+  let expired = false;
+  const timer = setTimeout(() => {
+    expired = true;
+    controller?.abort();
+  }, budget);
   try {
     return await deps.fetch(url, { ...init, signal: controller?.signal });
   } catch (e) {
-    if (isAbort(e)) throw new DiscoveryError('The keyserver did not answer in time.', 'timeout');
+    if (expired || isAbort(e)) {
+      throw new DiscoveryError('The keyserver did not answer in time.', 'timeout');
+    }
     throw new DiscoveryError(message(e), 'network');
   } finally {
     clearTimeout(timer);
   }
 }
 
+/** A signal aborted by someone other than our own timer. Kept as a backstop. */
 const isAbort = (e: unknown) =>
   !!e && typeof e === 'object' && 'name' in e && (e as { name?: string }).name === 'AbortError';
+
+/**
+ * What the keyserver said, when it refuses.
+ *
+ * VKS explains a rejection in a JSON `error` field, and that sentence is the
+ * entire diagnosis: "unsupported key version" and "malformed" send whoever is
+ * reading it somewhere completely different, while a bare status code sends
+ * them nowhere. Falls back to the code when the body explains nothing — a
+ * proxy's HTML maintenance page is not an explanation.
+ */
+async function refusal(what: string, res: { status: number; text(): Promise<string> }): Promise<string> {
+  const said = (await parseJson(res))?.error;
+  // The server's sentence usually ends in a full stop of its own; a second one
+  // reads as a typo in our copy.
+  const detail = typeof said === 'string' ? said.trim().replace(/[.\s]+$/, '') : '';
+  return detail ? `${what} (${res.status}): ${detail}.` : `${what} (${res.status}).`;
+}
 
 async function parseJson(res: { text(): Promise<string> }): Promise<Record<string, unknown> | null> {
   try {
