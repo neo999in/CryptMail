@@ -233,9 +233,11 @@ export function KeysScreen({ navigation }: Props) {
           <Title>Publish your key</Title>
           {published === 'published' ? (
             <>
-              <Banner tone="ok" icon="shield">
-                Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
-              </Banner>
+              <View style={s.statusBanner}>
+                <Banner tone="ok" icon="shield">
+                  Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
+                </Banner>
+              </View>
               <Muted>
                 What is listed is your address and your public key. Nothing about your messages, and
                 nobody you correspond with.
@@ -243,10 +245,12 @@ export function KeysScreen({ navigation }: Props) {
             </>
           ) : published === 'pending' ? (
             <>
-              <Banner tone="warn" icon="clock">
-                Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
-                your key is stored but not served to anyone.
-              </Banner>
+              <View style={s.statusBanner}>
+                <Banner tone="warn" icon="clock">
+                  Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
+                  your key is stored but not served to anyone.
+                </Banner>
+              </View>
               {verifyLink ? (
                 <>
                   {/*
@@ -495,6 +499,16 @@ const s = StyleSheet.create({
     lineHeight: 26,
     textAlign: 'center',
   },
+
+  /**
+   * A status banner sitting straight under a `Title`.
+   *
+   * `type.heading` carries no line-height, so the title's box is tight to its
+   * glyphs and a banner placed after it reads as touching — every other card
+   * puts a `Muted` in between, whose leading hides the gap. This is the same
+   * 12px the rest of the card is spaced on.
+   */
+  statusBanner: { marginBottom: 12, marginTop: 12 },
 
   row: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
   address: { ...type.meta, color: color.inkFaint, flex: 1 },
