@@ -1,6 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   Platform,
@@ -27,10 +28,28 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
 /**
  * Compose — the fail-safe moment.
  *
- * A recipient with no key blocks the send outright. The prototype has no
- * secure-link or plaintext fallback (out of scope), so the only honest options
- * are: add their key, or remove them.
+ * A recipient whose key *changed* blocks the send outright; one with no key yet
+ * is invited and the message is held. Neither is ever resolved by sending in the
+ * clear.
+ *
+ * ## The two modes, and why the choice sits at the top
+ *
+ * encryption.md permits exactly one unencrypted path, and specifies its shape:
+ * "the independent 'send an unencrypted email' action, which the user picks **up
+ * front** for a message they never believed was encrypted."
+ *
+ * Up front is the whole of it. An unencrypted option offered *after* encryption
+ * has failed — next to "their key changed", or beside a queued message — is the
+ * plaintext downgrade rule 1 exists to forbid, no matter that a human taps it.
+ * So the mode is chosen before the message is written, it defaults to encrypted,
+ * and it does not appear in any of the blocked branches below. Switching *into*
+ * plaintext asks first; switching back is free.
+ *
+ * While the screen is in plaintext mode it makes no key lookups and reads no
+ * recipient key state: there is no decision here that could depend on one.
  */
+type SendMode = 'encrypted' | 'plain';
+
 export function ComposeScreen({ route, navigation }: Props) {
   const {
     resolveRecipients,
@@ -39,6 +58,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     undiscoverable,
     directoryName,
     sendEncrypted,
+    sendPlain,
     canSendEncrypted,
     drafts,
     saveDraft,
@@ -57,6 +77,8 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [body, setBody] = useState(existing?.body ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Encrypted unless the user says otherwise, every time this screen opens. */
+  const [mode, setMode] = useState<SendMode>('encrypted');
   /** Set when the message was held for a key rather than delivered. */
   const [queued, setQueued] = useState<string[] | null>(null);
   const toFocus = useFocus();
@@ -91,10 +113,16 @@ export function ComposeScreen({ route, navigation }: Props) {
   const discoverRef = useRef(discoverRecipients);
   discoverRef.current = discoverRecipients;
   const addressKey = to.join(',');
+  const plain = mode === 'plain';
   useEffect(() => {
+    // Nothing about a recipient's keys can change what a plaintext send does, so
+    // asking would be a keyserver query — one that tells a third party who is
+    // about to be written to — placed entirely for nothing. Switching back to
+    // encrypted re-runs this and looks them up then.
+    if (plain) return;
     if (addressKey.length === 0) return;
     void discoverRef.current(addressKey.split(','));
-  }, [addressKey]);
+  }, [addressKey, plain]);
 
   const recipients = useMemo(() => resolveRecipients(to), [resolveRecipients, to]);
   const missing = recipients.filter((r) => r.status === 'missing');
@@ -104,10 +132,42 @@ export function ComposeScreen({ route, navigation }: Props) {
 
   // A missing key no longer blocks: the message is held and an invite goes out.
   // A *changed* key still does — waiting cannot resolve a possible substitution.
-  const blocked = to.length === 0 || changed.length > 0 || looking || !gate.allowed;
+  //
+  // None of that applies in plaintext mode, and deliberately so: this is the one
+  // path that must not consult a recipient's key state, because a send that
+  // *becomes* possible when a key is absent is the downgrade wearing a hat. The
+  // only thing that can block it is having nobody to send to.
+  const blocked = plain ? to.length === 0 : to.length === 0 || changed.length > 0 || looking || !gate.allowed;
   // Only a real problem is coloured like one. Waiting on a lookup, or on a
-  // recipient who has yet to install anything, is not a warning.
-  const alarming = changed.length > 0 || !gate.allowed;
+  // recipient who has yet to install anything, is not a warning — an
+  // unencrypted message is, for as long as it is on screen.
+  const alarming = plain || changed.length > 0 || !gate.allowed;
+
+  /**
+   * Change mode, asking before the one direction that costs the user something.
+   *
+   * The prompt is the "explicit, logged action" encryption.md requires, and it
+   * happens here rather than at the send button on purpose: the point is that
+   * the message is written *knowing* it is not private, not that a warning is
+   * dismissed once it already exists.
+   */
+  const chooseMode = (next: SendMode) => {
+    if (next === mode) return;
+    if (next === 'encrypted') {
+      setMode('encrypted');
+      return;
+    }
+    Alert.alert(
+      'Write this one unencrypted?',
+      'It will leave as an ordinary email. Your provider, theirs, and anyone who ' +
+        'handles it in between can read the subject and every word of it.\n\n' +
+        'Your public key still goes with it, so they can answer you encrypted.',
+      [
+        { text: 'Keep it encrypted', style: 'cancel' },
+        { text: 'Write unencrypted', style: 'destructive', onPress: () => setMode('plain') },
+      ],
+    );
+  };
 
   const add = (candidates: string[]) =>
     setTo((prev) => {
@@ -188,6 +248,26 @@ export function ComposeScreen({ route, navigation }: Props) {
     }
   };
 
+  /**
+   * The unencrypted send. Reached only from the mode the user chose up front —
+   * never from `send`, and never from a failure of it (rule 1).
+   */
+  const sendUnencrypted = async () => {
+    setSending(true);
+    setError(null);
+    closingRef.current = true;
+    try {
+      await sendPlain({ to, subject: subject.trim() || '(no subject)', body });
+      await deleteDraft(draftId);
+      navigation.goBack();
+    } catch (e) {
+      closingRef.current = false;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
   const schedule = async (sendAt: Date) => {
     setError(null);
     closingRef.current = true;
@@ -208,11 +288,43 @@ export function ComposeScreen({ route, navigation }: Props) {
       keyboardVerticalOffset={90}
     >
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <Field label="To" focused={toFocus.focused} tone={changed.length > 0 ? 'warn' : 'default'}>
+        {/*
+          Above everything, because it decides what the rest of the screen means.
+          Hidden once a message has been queued: that one is already encrypted
+          and waiting, and offering to rewrite it in the clear at that point is
+          the downgrade this control is arranged to avoid.
+        */}
+        {queued ? null : (
+          <View style={s.modes}>
+            <ModeTab
+              active={!plain}
+              icon="lock"
+              label="Encrypted"
+              onPress={() => chooseMode('encrypted')}
+            />
+            <ModeTab
+              active={plain}
+              icon="alert"
+              label="Not encrypted"
+              onPress={() => chooseMode('plain')}
+              tone="warn"
+            />
+          </View>
+        )}
+
+        <Field label="To" focused={toFocus.focused} tone={changed.length > 0 && !plain ? 'warn' : 'default'}>
           {recipients.length > 0 ? (
             <View style={s.chips}>
               {recipients.map((r) => (
-                <RecipientChip key={r.email} state={r} onRemove={() => setTo(to.filter((t) => t !== r.email))} />
+                <RecipientChip
+                  key={r.email}
+                  state={r}
+                  // No key badge in plaintext mode: it is not consulted, it does
+                  // not change what happens, and showing it would invite reading
+                  // "they have no key" as a reason to send in the clear.
+                  showKeyState={!plain}
+                  onRemove={() => setTo(to.filter((t) => t !== r.email))}
+                />
               ))}
             </View>
           ) : null}
@@ -235,10 +347,12 @@ export function ComposeScreen({ route, navigation }: Props) {
           />
         </Field>
 
+        {/* The placeholders describe what will actually happen to this text.
+            Left unchanged they would promise privacy to a plaintext message. */}
         <Field label="Subject" focused={subjectFocus.focused}>
           <Input
             onChangeText={setSubject}
-            placeholder="Encrypted inside the payload"
+            placeholder={plain ? 'Sent in the clear, like any email' : 'Encrypted inside the payload'}
             value={subject}
             {...subjectFocus.bind}
           />
@@ -249,7 +363,7 @@ export function ComposeScreen({ route, navigation }: Props) {
             big
             multiline
             onChangeText={setBody}
-            placeholder="Only the recipients can read this."
+            placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
             value={body}
             {...bodyFocus.bind}
           />
@@ -280,7 +394,15 @@ export function ComposeScreen({ route, navigation }: Props) {
           <Text style={[s.statusText, { color: alarming ? color.coral : color.mintInk }]}>{statusLine()}</Text>
         </View>
 
-        {queued ? (
+        {plain ? (
+          <PrimaryButton
+            busy={sending}
+            disabled={blocked}
+            icon="mail"
+            onPress={() => void sendUnencrypted()}
+            title={`Send unencrypted${to.length > 1 ? ` to ${to.length}` : ''}`}
+          />
+        ) : queued ? (
           <View style={s.fallbacks}>
             <SecondaryButton title="Done" icon="check" onPress={() => navigation.goBack()} />
             <SecondaryButton title="See queued messages" icon="clock" onPress={() => navigation.navigate('Scheduled')} />
@@ -331,12 +453,25 @@ export function ComposeScreen({ route, navigation }: Props) {
           </>
         )}
 
-        {gate.reason && gate.allowed ? <Text style={s.gateNote}>{gate.reason}</Text> : null}
+        {/* The demo-crypto note describes what happens to an *encrypted* send.
+            A plaintext one is not encoded-instead-of-encrypted; it is exactly
+            what it says, in demo mode and live alike. */}
+        {gate.reason && gate.allowed && !plain ? <Text style={s.gateNote}>{gate.reason}</Text> : null}
       </Glass>
     </KeyboardAvoidingView>
   );
 
   function statusLine(): string {
+    // First, and with no reference to keys: in this mode there is nothing to
+    // report about them, and the one fact worth stating is the one the rest of
+    // the app exists to avoid.
+    if (plain) {
+      if (to.length === 0) return 'Add a recipient. This message will not be encrypted.';
+      return (
+        'Not encrypted. Your provider, theirs, and anyone who handles it in between can read the ' +
+        'subject and the body. Your public key goes with it, so they can answer you encrypted.'
+      );
+    }
     if (queued) {
       return `Encrypted and queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
     }
@@ -384,7 +519,48 @@ const SCHEDULE_PRESETS: { label: string; at: () => Date }[] = [
   },
 ];
 
-function RecipientChip({ state, onRemove }: { state: RecipientState; onRemove: () => void }) {
+/** One half of the encrypted / not-encrypted choice at the top of the screen. */
+function ModeTab({
+  active,
+  icon,
+  label,
+  onPress,
+  tone,
+}: {
+  active: boolean;
+  icon: 'lock' | 'alert';
+  label: string;
+  onPress: () => void;
+  tone?: 'warn';
+}) {
+  const tint = active ? (tone === 'warn' ? color.coral : color.brassInk) : color.inkDim;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        s.mode,
+        active && (tone === 'warn' ? s.modeActiveWarn : s.modeActive),
+        pressed && !active && { backgroundColor: color.press },
+      ]}
+    >
+      <Icon name={icon} size={14} color={tint} />
+      <Text style={[s.modeText, { color: tint }, active && s.modeTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function RecipientChip({
+  state,
+  showKeyState,
+  onRemove,
+}: {
+  state: RecipientState;
+  /** False in plaintext mode, where a recipient's key changes nothing. */
+  showKeyState: boolean;
+  onRemove: () => void;
+}) {
   const badge =
     state.status === 'verified'
       ? { tone: 'enc' as const, icon: 'lock' as const, label: 'verified' }
@@ -394,14 +570,16 @@ function RecipientChip({ state, onRemove }: { state: RecipientState; onRemove: (
           ? { tone: 'warn' as const, icon: 'alert' as const, label: 'key changed' }
           : { tone: 'plain' as const, icon: 'clock' as const, label: 'will be invited' };
 
-  const warn = state.status === 'changed';
+  const warn = showKeyState && state.status === 'changed';
 
   return (
     <View style={[s.chip, warn && s.chipWarn]}>
       <Text style={s.chipText}>{state.email}</Text>
-      <Badge tone={badge.tone} icon={badge.icon}>
-        {badge.label}
-      </Badge>
+      {showKeyState ? (
+        <Badge tone={badge.tone} icon={badge.icon}>
+          {badge.label}
+        </Badge>
+      ) : null}
       <Pressable
         accessibilityLabel={`Remove ${state.email}`}
         accessibilityRole="button"
@@ -417,6 +595,25 @@ function RecipientChip({ state, onRemove }: { state: RecipientState; onRemove: (
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
+
+  modes: { flexDirection: 'row', gap: 7, marginBottom: 14 },
+  mode: {
+    alignItems: 'center',
+    backgroundColor: color.panel,
+    borderColor: color.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+  },
+  modeActive: { backgroundColor: color.brass, borderColor: color.brass },
+  // Not the brass fill: the unencrypted mode is the one state on this screen
+  // that should never look like the app's primary, endorsed action.
+  modeActiveWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine },
+  modeText: { fontFamily: font.sansSemibold, fontSize: 12.5 },
+  modeTextActive: { fontFamily: font.sansBold },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 9 },
   chip: {

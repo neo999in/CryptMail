@@ -588,7 +588,9 @@ const s = StyleSheet.create({
   },
   demoText: { color: color.brass, fontFamily: font.mono, fontSize: 10.5, letterSpacing: 0.6 },
 
-  controls: { paddingHorizontal: 16, paddingTop: 12 },
+  // Symmetrical: without the bottom padding the filter pills sat flush against
+  // the frosted bar's own edge, so the glass read as clipping them.
+  controls: { paddingBottom: 12, paddingHorizontal: 16, paddingTop: 12 },
   searchField: { marginBottom: 10, paddingVertical: 9 },
   searchRow: { alignItems: 'center', flexDirection: 'row', gap: 9 },
   searchInput: { flex: 1, fontSize: 14 },

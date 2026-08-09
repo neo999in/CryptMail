@@ -81,6 +81,20 @@ The backend is designed so a breach doesn't break confidentiality:
 - Constant-time crypto via vetted libraries (Sequoia/rPGP/OpenPGP.js); no custom
   crypto primitives.
 - Strict TLS to providers and backend; certificate validation, no plaintext ports.
+- **Links in message bodies are `http(s)` only, and confirmed before opening.**
+  A body is attacker-supplied text, so what becomes tappable is a security
+  decision: `app/src/lib/links.ts` linkifies `http://` and `https://` and nothing
+  else — no bare `www.` (that would mean inventing a scheme the sender never
+  wrote), and above all no `javascript:`, `data:` or `file:`. A tap opens a sheet
+  showing the host on its own line and the full URL, with Open / Copy / Cancel,
+  rather than opening the browser: tapping a link in an email is the classic
+  phishing move, and the extra tap is what makes a spoofed destination visible
+  while it can still be declined. The link text displayed is always the URL
+  itself — a label that differs from its target is how a link lies.
+  - The one link opened without that sheet is the keyserver's own confirmation
+    link, because three checks have already established more about it than a
+    human reading a URL could — see
+    [key-management.md](key-management.md) §Publishing.
 
 ## Fail-safe UX rules
 

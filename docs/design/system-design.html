@@ -3,7 +3,10 @@
   *, *::before, *::after { box-sizing: border-box; }
 
   :root {
-    --ground:   #0C0F14;
+    /* True black: on an OLED panel the pixel is off. Every surface above the
+       ground is transparent, so this one value is the whole background. */
+    --ground:   #000000;
+    /* No longer a second ground — the recessed inset inside a panel. */
     --ground-2: #0A0D11;
     --panel:    #141A22;
     --panel-2:  #1A222D;
@@ -38,12 +41,12 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Flat, unlit ground. The two ambient radial glows that used to sit here were
+     dropped along with the app's: they lifted every pixel off true black, which
+     is the one thing an OLED panel is best at. */
   .page {
     min-height: 100vh;
-    background:
-      radial-gradient(900px 500px at 12% -8%, rgba(235,184,99,.10), transparent 60%),
-      radial-gradient(800px 520px at 100% 8%, rgba(87,214,163,.06), transparent 55%),
-      linear-gradient(var(--ground-2), var(--ground));
+    background: var(--ground);
   }
 
   .i { width: 1em; height: 1em; flex: none; stroke: currentColor; fill: none;
