@@ -26,15 +26,9 @@ import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { ScheduledScreen } from './src/screens/ScheduledScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
-import { SimpleComposeScreen } from './src/screens/simple/SimpleComposeScreen';
-import { SimpleInboxScreen } from './src/screens/simple/SimpleInboxScreen';
-import { SimpleKeysScreen } from './src/screens/simple/SimpleKeysScreen';
-import { SimpleMessageScreen } from './src/screens/simple/SimpleMessageScreen';
 import { AppProvider, useApp } from './src/state/AppState';
-import { loadUiMode, saveUiMode, UiMode } from './src/store/uiModeStore';
 import { color, font } from './src/theme';
 import { AuroraBackground } from './src/ui/AuroraBackground';
-import { SecondaryButton } from './src/ui/primitives';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -60,27 +54,7 @@ const screenOptions = {
   contentStyle: { backgroundColor: 'transparent' },
 } as const;
 
-/**
- * The four-screen UI (docs/simple-ui-plan.md). Sign in, read, read encrypted,
- * send — encrypted or, by explicit choice, not.
- */
-function SimpleStack() {
-  return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="SimpleInbox" component={SimpleInboxScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="SimpleMessage" component={SimpleMessageScreen} options={{ title: '' }} />
-      <Stack.Screen
-        name="SimpleCompose"
-        component={SimpleComposeScreen}
-        options={{ title: 'New message', presentation: 'modal' }}
-        initialParams={{}}
-      />
-      <Stack.Screen name="SimpleKeys" component={SimpleKeysScreen} options={{ title: 'Keys' }} />
-    </Stack.Navigator>
-  );
-}
-
-/** The original eight-screen UI, unchanged and still reachable. */
+/** The eight-screen UI — the only one. */
 function FullStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -103,7 +77,6 @@ function FullStack() {
 
 function Root() {
   const { booting, session, identity } = useApp();
-  const [uiMode, setUiMode] = useState<UiMode | null>(null);
   // Opened by a signed-in account with no key on this device, and closed by the
   // setup screen itself — not by `identity` becoming non-null, which happens
   // half way through and would unmount the screen before it has asked about
@@ -111,26 +84,10 @@ function Root() {
   const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    void loadUiMode().then((m) => {
-      if (!cancelled) setUiMode(m);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (session && !identity) setSetupOpen(true);
   }, [identity, session]);
 
-  async function toggle() {
-    const next: UiMode = uiMode === 'simple' ? 'full' : 'simple';
-    setUiMode(next);
-    await saveUiMode(next);
-  }
-
-  if (booting || uiMode === null) {
+  if (booting) {
     return (
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
         <ActivityIndicator color={color.brass} />
@@ -142,18 +99,9 @@ function Root() {
   if (setupOpen) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
-    <View style={{ flex: 1 }}>
-      <NavigationContainer theme={navTheme}>
-        {uiMode === 'simple' ? <SimpleStack /> : <FullStack />}
-      </NavigationContainer>
-      {/* Neither UI is a trapdoor: the other one is always one tap away. */}
-      <View style={{ alignItems: 'center', paddingBottom: 6 }}>
-        <SecondaryButton
-          title={uiMode === 'simple' ? 'Switch to full UI' : 'Switch to simple UI'}
-          onPress={() => void toggle()}
-        />
-      </View>
-    </View>
+    <NavigationContainer theme={navTheme}>
+      <FullStack />
+    </NavigationContainer>
   );
 }
 

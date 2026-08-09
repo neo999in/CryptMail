@@ -64,12 +64,28 @@ fn the_identity_is_stage_one_hybrid() {
     let armored_cert = armored(&identity(&core, "alice@example.com"));
     let (cert, _) = SignedPublicKey::from_string(&armored_cert).unwrap();
 
+    // EdDSALegacy (algorithm 22), not Ed25519 (27): 27 is RFC 9580's codepoint
+    // and a v4-era OpenPGP implementation does not recognise it, so emitting it
+    // in a v4 key would produce a certificate that is nominally compatible and
+    // practically unreadable — the exact failure this key shape exists to avoid.
     assert_eq!(
         format!("{:?}", KeyDetails::algorithm(&cert.primary_key)),
-        "Ed25519",
-        "primary key is not Ed25519"
+        "EdDSALegacy",
+        "primary key is not the v4-compatible Ed25519 codepoint"
     );
-    assert_eq!(cert.primary_key.version(), KeyVersion::V6, "RFC 9980 requires V6 keys");
+
+    // V4, deliberately. The PQC spec confines new algorithms to v6 keys with a
+    // single exception — ML-KEM-768+X25519 may sit on a *v4* encryption subkey —
+    // and docs/post-quantum.md picks that exception precisely because the
+    // existing install base reads v4. It is also the only version
+    // keys.openpgp.org accepts: it answers a v6 upload with
+    // `400 OpenPGP v6 (RFC 9580) is not yet supported`, which left every user
+    // unable to publish and therefore undiscoverable.
+    assert_eq!(
+        cert.primary_key.version(),
+        KeyVersion::V4,
+        "primary key is not V4 — v6 cannot be published to keys.openpgp.org"
+    );
 
     let subkeys: Vec<String> = cert
         .public_subkeys
@@ -81,6 +97,13 @@ fn the_identity_is_stage_one_hybrid() {
         "no ML-KEM-768+X25519 encryption subkey — got {subkeys:?}. \
          Without it this is not post-quantum at all."
     );
+
+    // The subkey must be v4 too. A v6 subkey under a v4 primary would be the
+    // half-migration that looks right in this test's algorithm check and is
+    // still refused by the keyserver.
+    for sub in &cert.public_subkeys {
+        assert_eq!(sub.key.version(), KeyVersion::V4, "an encryption subkey is not V4");
+    }
 }
 
 #[test]
