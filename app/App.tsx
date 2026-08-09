@@ -25,6 +25,7 @@ import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { ScheduledScreen } from './src/screens/ScheduledScreen';
+import { SetupScreen } from './src/screens/SetupScreen';
 import { SimpleComposeScreen } from './src/screens/simple/SimpleComposeScreen';
 import { SimpleInboxScreen } from './src/screens/simple/SimpleInboxScreen';
 import { SimpleKeysScreen } from './src/screens/simple/SimpleKeysScreen';
@@ -101,8 +102,13 @@ function FullStack() {
 }
 
 function Root() {
-  const { booting, session } = useApp();
+  const { booting, session, identity } = useApp();
   const [uiMode, setUiMode] = useState<UiMode | null>(null);
+  // Opened by a signed-in account with no key on this device, and closed by the
+  // setup screen itself — not by `identity` becoming non-null, which happens
+  // half way through and would unmount the screen before it has asked about
+  // publishing.
+  const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,6 +119,10 @@ function Root() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (session && !identity) setSetupOpen(true);
+  }, [identity, session]);
 
   async function toggle() {
     const next: UiMode = uiMode === 'simple' ? 'full' : 'simple';
@@ -129,6 +139,7 @@ function Root() {
   }
 
   if (!session) return <ConnectScreen />;
+  if (setupOpen) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
     <View style={{ flex: 1 }}>

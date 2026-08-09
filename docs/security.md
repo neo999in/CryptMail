@@ -22,8 +22,9 @@ and the assumptions behind each guarantee.
   exposes past ciphertext it can unwrap. Mitigated by rotation, not eliminated.
 - **The endpoint.** A compromised/malware-infected device sees plaintext because
   that's where decryption happens. No email crypto can fix a hostile endpoint.
-- **Recipients who aren't users** get plaintext or a secure-link — not the same
-  guarantee (and we say so before sending).
+- **Recipients who aren't users** get an invite and a wait, not a downgrade. The
+  message is never sent in the clear, but it is also not delivered until they
+  have a key — and it may never be. We say so before sending.
 
 ## Actors and adversaries
 

@@ -22,6 +22,7 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 
 import {
+  autocryptKeydata,
   buildEncryptedEnvelope,
   buildProtectedInner,
   extractArmor,
@@ -30,7 +31,7 @@ import {
   parseRfc822,
 } from './mime';
 import { generateRecoveryCode, normaliseRecoveryCode } from './recoveryCode';
-import { decodeUtf8Base64, encodeUtf8Base64 } from '../lib/base64';
+import { decodeUtf8Base64 } from '../lib/base64';
 import {
   BuildRequest,
   CoreError,
@@ -183,7 +184,7 @@ export function getNativeCore(
         from: request.from,
         to: request.to,
         armored,
-        autocryptKeydata: request.autocryptKey ? encodeUtf8Base64(request.autocryptKey) : undefined,
+        autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
       });
     },
 

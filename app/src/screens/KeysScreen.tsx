@@ -35,12 +35,39 @@ import {
 type Props = NativeStackScreenProps<RootStackParamList, 'Keys'>;
 
 export function KeysScreen({ navigation }: Props) {
-  const { identity, keyring, recovery, importKey, forgetKey, markVerified, safetyNumberFor } = useApp();
+  const {
+    identity,
+    keyring,
+    recovery,
+    directoryName,
+    publishStatus,
+    publishOwnKey,
+    declinePublish,
+    importKey,
+    forgetKey,
+    markVerified,
+    safetyNumberFor,
+  } = useApp();
   const insets = useSafeAreaInsets();
   const [paste, setPaste] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const pasteFocus = useFocus();
+
+  const published = publishStatus();
+
+  const doPublish = async () => {
+    setPublishing(true);
+    setError(null);
+    try {
+      await publishOwnKey();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   /** The contact currently mid-ceremony, and the digits being compared. */
   const [verifying, setVerifying] = useState<{ email: string; number: string } | null>(null);
@@ -167,6 +194,64 @@ export function KeysScreen({ navigation }: Props) {
           <Muted>No identity key yet.</Muted>
         )}
       </Card>
+
+      {/*
+        Publishing is asked for, never assumed. The listing is public — it tells
+        anyone who looks that this address has a key — and it is also the only
+        thing that lets a stranger's first message to this address be encrypted.
+        Both halves of that are said out loud rather than one of them buried.
+      */}
+      {identity ? (
+        <Card style={{ marginTop: 14 }}>
+          <Title>Publish your key</Title>
+          {published === 'published' ? (
+            <>
+              <Banner tone="ok" icon="shield">
+                Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
+              </Banner>
+              <Muted>
+                What is listed is your address and your public key. Nothing about your messages, and
+                nobody you correspond with.
+              </Muted>
+            </>
+          ) : published === 'pending' ? (
+            <>
+              <Banner tone="warn" icon="clock">
+                Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
+                your key is stored but not served to anyone.
+              </Banner>
+              <Muted>
+                CryptMail checks on each sync and will notice once the link has been opened, on this
+                device or any other.
+              </Muted>
+            </>
+          ) : (
+            <>
+              <Muted>
+                Listing your public key is what lets someone send you encrypted mail the first time
+                they write, without asking you for anything first.
+              </Muted>
+              <View style={{ marginTop: 10 }}>
+                <Callout>
+                  The listing is public: anyone who tries your address learns that it has a key. Your
+                  messages and your contacts are not part of it.
+                </Callout>
+              </View>
+              <View style={s.row}>
+                <PrimaryButton
+                  title={`Publish to ${directoryName}`}
+                  icon="shield"
+                  busy={publishing}
+                  onPress={() => void doPublish()}
+                />
+                {published === 'declined' ? null : (
+                  <SecondaryButton title="Not now" icon="close" onPress={() => void declinePublish()} />
+                )}
+              </View>
+            </>
+          )}
+        </Card>
+      ) : null}
 
       <Card style={{ marginTop: 14 }}>
         <Title>Add someone&apos;s key</Title>

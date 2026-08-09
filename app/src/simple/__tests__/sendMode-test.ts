@@ -27,27 +27,38 @@ describe('evaluateSendModes — encrypted', () => {
     expect(encrypted.warning).toMatch(/^Some recipient keys/);
   });
 
-  it('blocks encryption and names the recipient when a key is missing', () => {
+  it('queues rather than blocks when a recipient has no key — and says so', () => {
     const { encrypted } = evaluateSendModes(live([rcpt('a@x.com', 'verified'), rcpt('nokey@x.com', 'missing')]));
-    expect(encrypted.available).toBe(false);
-    expect(encrypted.blockedReason).toContain('nokey@x.com');
+    expect(encrypted.available).toBe(true);
+    expect(encrypted.queued).toBe(true);
+    expect(encrypted.pending).toEqual(['nokey@x.com']);
+    expect(encrypted.warning).toContain('nokey@x.com');
+    // The one thing it must never imply is that the message has gone.
+    expect(encrypted.warning).toMatch(/not delivered/i);
   });
 
   it('lists every recipient that is missing a key', () => {
     const { encrypted } = evaluateSendModes(live([rcpt('one@x.com', 'missing'), rcpt('two@x.com', 'missing')]));
-    expect(encrypted.blockedReason).toContain('one@x.com');
-    expect(encrypted.blockedReason).toContain('two@x.com');
+    expect(encrypted.pending).toEqual(['one@x.com', 'two@x.com']);
+    expect(encrypted.warning).toContain('one@x.com');
+    expect(encrypted.warning).toContain('two@x.com');
   });
 
   it('blocks encryption when a key changed fingerprint — never a warning', () => {
     const { encrypted } = evaluateSendModes(live([rcpt('mitm@x.com', 'changed')]));
     expect(encrypted.available).toBe(false);
+    expect(encrypted.queued).toBeFalsy();
     expect(encrypted.blockedReason).toMatch(/changed fingerprint/i);
   });
 
-  it('reports a missing key before a changed one when both are present', () => {
+  it('blocks on a changed key even when another recipient is merely missing one', () => {
+    // The two are not comparable: a missing key is something to wait for, a
+    // changed one is a possible key substitution. Waiting never resolves it, so
+    // the changed key decides the outcome for the whole message.
     const { encrypted } = evaluateSendModes(live([rcpt('gone@x.com', 'missing'), rcpt('mitm@x.com', 'changed')]));
-    expect(encrypted.blockedReason).toContain('gone@x.com');
+    expect(encrypted.available).toBe(false);
+    expect(encrypted.queued).toBeFalsy();
+    expect(encrypted.blockedReason).toContain('mitm@x.com');
   });
 
   it('blocks encryption with no recipients', () => {
@@ -62,9 +73,11 @@ describe('evaluateSendModes — encrypted', () => {
     expect(encrypted.warning).toMatch(/encoded, not encrypted/i);
   });
 
-  it('checks recipient keys before the core gate, so the actionable error wins', () => {
+  it('reports the queue and the demo core together — neither hides the other', () => {
     const { encrypted } = evaluateSendModes(demo([rcpt('nokey@x.com', 'missing')]));
-    expect(encrypted.blockedReason).toContain('nokey@x.com');
+    expect(encrypted.queued).toBe(true);
+    expect(encrypted.warning).toContain('nokey@x.com');
+    expect(encrypted.warning).toMatch(/encoded, not encrypted/i);
   });
 });
 
@@ -89,8 +102,12 @@ describe('defaultSendMode', () => {
     expect(defaultSendMode(evaluateSendModes(live([rcpt('a@x.com', 'verified')])))).toBe('encrypted');
   });
 
+  it('stays on encrypted for a queued message — waiting is not a reason to downgrade', () => {
+    expect(defaultSendMode(evaluateSendModes(live([rcpt('nokey@x.com', 'missing')])))).toBe('encrypted');
+  });
+
   it('never falls back to plain when encryption is blocked — the user must choose', () => {
-    const modes = evaluateSendModes(live([rcpt('nokey@x.com', 'missing')]));
+    const modes = evaluateSendModes(live([rcpt('mitm@x.com', 'changed')]));
     expect(modes.plain.available).toBe(true);
     expect(defaultSendMode(modes)).toBeNull();
   });

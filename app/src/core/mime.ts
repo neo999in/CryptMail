@@ -7,6 +7,7 @@
  * byte-identical envelopes, and so the app has one place that knows the shape
  * of a message when it needs to render raw headers.
  */
+import { encodeUtf8Base64 } from '../lib/base64';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
@@ -63,6 +64,22 @@ export function dearmor(block: string): string {
 }
 
 /**
+ * Flatten an armored public key into an `Autocrypt` header's `keydata` value.
+ *
+ * One place, because two message shapes now carry the header — the encrypted
+ * envelope below and `buildPlaintext` (which the invite goes out as) — and a
+ * second copy of this would be a second thing to get wrong.
+ */
+export function autocryptKeydata(armoredPublicKey: string): string {
+  return encodeUtf8Base64(armoredPublicKey);
+}
+
+/** The one `Autocrypt:` header line both message shapes emit. */
+export function autocryptHeaderLine(addr: string, keydata: string): string {
+  return `Autocrypt: addr=${addr}; prefer-encrypt=mutual; keydata=${keydata}`;
+}
+
+/**
  * The outer envelope from message-format.md: placeholder subject, Autocrypt
  * header, `multipart/encrypted` with the fixed `Version: 1` part.
  */
@@ -87,9 +104,7 @@ export function buildEncryptedEnvelope(args: {
     `Message-ID: ${messageId}`,
   ];
   if (args.autocryptKeydata) {
-    headers.push(
-      `Autocrypt: addr=${args.from}; prefer-encrypt=mutual; keydata=${args.autocryptKeydata}`,
-    );
+    headers.push(autocryptHeaderLine(args.from, args.autocryptKeydata));
   }
   headers.push(
     'MIME-Version: 1.0',
@@ -159,22 +174,31 @@ export function parseProtectedInner(inner: string): { subject: string; body: str
   return { subject, body: body.trim() };
 }
 
-/** A plain, unencrypted RFC 5322 message — used for M4's plaintext-send check. */
+/**
+ * A plain, unencrypted RFC 5322 message — used for M4's plaintext-send check.
+ *
+ * `autocryptKey` is the sender's *public* key, armored. Carrying it costs
+ * nothing and is what lets a recipient's fresh install answer encrypted without
+ * a setup step: the invite in `AppState` is a plaintext message whose only real
+ * payload is this header.
+ */
 export function buildPlaintext(args: {
   from: string;
   to: string[];
   subject: string;
   body: string;
+  autocryptKey?: string;
 }): string {
-  return [
+  const headers = [
     `From: ${args.from}`,
     `To: ${args.to.join(', ')}`,
     `Date: ${new Date().toUTCString()}`,
     `Subject: ${args.subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    args.body,
-    '',
-  ].join('\n');
+  ];
+  if (args.autocryptKey) {
+    headers.push(autocryptHeaderLine(args.from, autocryptKeydata(args.autocryptKey)));
+  }
+  headers.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8');
+
+  return [...headers, '', args.body, ''].join('\n');
 }

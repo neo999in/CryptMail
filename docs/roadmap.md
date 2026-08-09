@@ -19,9 +19,13 @@ ciphertext, and CryptMail on B shows the plaintext.
 
 Goal: the seamless experience for two CryptMail users.
 
-- [ ] Autocrypt headers on send; auto-cache received keys.
-- [ ] Backend **key directory** (publish/lookup) with address ownership proof.
-- [ ] Discovery pipeline: keyring → Autocrypt → directory → WKD.
+- [x] Autocrypt headers on send; auto-cache received keys *during inbox sync*.
+- [x] ~~Backend key directory~~ → **key publication to `keys.openpgp.org`**, behind
+      an explicit consent step. Running our own directory is a closed decision:
+      see [key-management.md](key-management.md) §Discovery.
+- [x] Discovery pipeline: keyring → Autocrypt → `keys.openpgp.org` → WKD.
+- [x] Invite + `awaiting-key` queue: the first message to a stranger encrypts,
+      or waits — never downgrades ([encryption.md](encryption.md)).
 - [ ] Encrypted subject (protected headers) + encrypted attachments.
 - [ ] Encryption-status UI per recipient; fail-safe send (no silent plaintext).
 - [ ] Encrypted local store (SQLCipher) + OS keychain for the wrapped key.
@@ -36,14 +40,17 @@ manual key steps, and a lost device can be recovered.
 - [ ] Generic IMAP/SMTP connector (iCloud, Yahoo, Fastmail, custom).
 - [ ] Mobile apps (iOS/Android) with Keychain/Keystore + push relay.
 - [ ] Multi-device sync + device approval.
-- [ ] Secure-link fallback for key-less recipients (web reader).
+- [x] ~~Secure-link fallback for key-less recipients (web reader)~~ — **dropped.**
+      It would make CryptMail a service; invite-and-queue covers the case.
 - [ ] Key rotation, expiry, revocation flows.
 - [ ] Search over locally-decrypted mail.
 
 ## Phase 3 — Hardening & trust
 
 - [ ] Fingerprint/safety-number verification UX (QR in person).
-- [ ] Key transparency log for the directory (CONIKS/KT-style).
+- [ ] Key transparency log (CONIKS/KT-style) — the one thing that would justify
+      running a directory of our own, since it makes keyserver misbehaviour
+      detectable rather than merely bounded by the `changed` check.
 - [ ] Independent security audit of the crypto core.
 - [ ] Google/Microsoft OAuth app verification + CASA security assessment.
 - [ ] "No plaintext cache" high-security mode; auto-lock.
@@ -179,7 +186,7 @@ is honest about.
 |---|---|---|---|---|
 | Remote-content / tracking-pixel blocking + image proxy | 🆕 | M | M | Default-off remote images; proxy on request. Core to the privacy promise. |
 | Message size padding | 🆕 | S | S | security.md admits size is a metadata leak; pad to buckets to blunt size fingerprinting. |
-| Expiring / self-destruct messages | 🆕 | M | M | Client-enforced (honest about its limits) + shorter TTL on secure links. |
+| Expiring / self-destruct messages | 🆕 | M | M | Client-enforced only, and honest about its limits — there are no secure links to put a TTL on. |
 | Header minimisation on send | 🆕 | S | S | Strip `User-Agent`/`X-Mailer`/client fingerprints from outgoing MIME. |
 | Encrypted local search index | 🆕 | M | M | See "next 5" — lets search coexist with no-plaintext-cache mode. |
 | Signature-only (sign, don't encrypt) mode | 🆕 | S | S | For broadcast / mailing lists / recipients with no key but who still verify. |
@@ -195,7 +202,7 @@ Deepens the Phase 3 verification story and closes the abuse gaps E2EE opens up.
 | SAS "verify over a call/video" | 🆕 | S | M | Short authentication string for people who won't scan QR in person. |
 | **Client-side spam / malware scanning** | 🆕 | M | L | security.md flags that E2EE kills server-side scanning — a real gap. Scan after local decrypt. |
 | Report phishing / block sender | 🆕 | M | S | Basic safety hygiene; feeds a local blocklist. |
-| Proof-of-work + rate limits on secure-link & directory lookups | 🆕 | M | M | Blunts enumeration of the key directory and abuse of the link relay. |
+| ~~Proof-of-work + rate limits on secure-link & directory lookups~~ | ❌ dropped | — | — | Nothing of ours to enumerate: there is no CryptMail directory and no link relay. Rate limiting `keys.openpgp.org` is its operators' problem, not ours. |
 
 ### 4. Onboarding, recovery & growth
 
@@ -226,7 +233,7 @@ The prototype is Android-only; the architecture already imagines more.
 
 | Feature | Status | Impact | Effort | Notes |
 |---|---|---|---|---|
-| Push relay | 📋 Phase 2 | L | M | Payload carries "new mail" only, never content ([api.md](api.md)). |
+| Push relay | 📋 Phase 2 | L | M | Payload carries "new mail" only, never content. The only backend service still argued for ([api.md](api.md)) — it is also what would let a queued message leave a device that is not open. |
 | **Privacy-preserving notifications** | 🆕 | M | S | Never leak subject/sender to the OS lock screen; fetch+decrypt then optionally reveal. |
 | VIP / priority alerts | 🆕 | S | S | Per-contact notification rules, evaluated locally. |
 | Battery-aware background sync scheduling | 🆕 | S | M | Coalesce fetches; respect Doze / low-power. |
@@ -237,7 +244,7 @@ The prototype is Android-only; the architecture already imagines more.
 |---|---|---|---|---|
 | Send-as / aliases | 🆕 | M | M | One account, multiple From addresses. |
 | Multiple identities (separate keypairs) | 🆕 | S | M | Data model already allows N `identity_keys` per account. |
-| Publish own key via WKD / keyserver | 🆕 | S | M | WKD *lookup* is planned; *publishing* aids interop with non-users. |
+| Publish own key via WKD / keyserver | ✅ built | S | M | Publication to `keys.openpgp.org` behind a consent step; lookup falls back to WKD for people on their own domains. [`keys/discovery.ts`](../app/src/keys/discovery.ts). |
 | Sign / verify / encrypt arbitrary files | 🆕 | S | S | Reuses the core; useful power-user surface. |
 | S/MIME support | 🆕 | M | L | Enterprise-interop alternative to PGP; large surface. |
 | Interop test suite (Thunderbird / Proton / GnuPG) | 📋 Phase 4 | M | M | Protected-headers behaviour varies across clients. |
