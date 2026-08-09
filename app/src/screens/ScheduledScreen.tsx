@@ -3,7 +3,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { listScheduled, Scheduled } from '../outbox/outbox';
+import { Held, holdReason, listScheduled, stillPending } from '../outbox/outbox';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
@@ -11,13 +11,18 @@ import { EmptyState, SecondaryButton } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Scheduled'>;
 
-/** The outbox: messages queued to send later. Send now, or cancel back to drafts. */
+/**
+ * The outbox: everything written but not yet delivered. Two kinds live here —
+ * messages scheduled for a time, and messages held because a recipient has no
+ * key yet. The second kind has no send time at all, so the screen says what it
+ * is actually waiting for rather than implying a clock is running.
+ */
 export function ScheduledScreen({ navigation }: Props) {
-  const { scheduled, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
+  const { scheduled, keyring, identity, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   const items = listScheduled(scheduled);
 
-  const cancelToDraft = async (item: Scheduled) => {
+  const cancelToDraft = async (item: Held) => {
     await saveDraft({
       id: item.id,
       to: item.to,
@@ -33,8 +38,8 @@ export function ScheduledScreen({ navigation }: Props) {
       <View style={s.screen}>
         <EmptyState
           icon="clock"
-          title="Nothing scheduled"
-          hint="Messages you schedule from compose wait here until their send time."
+          title="Nothing waiting"
+          hint="Messages you schedule, and messages held for a recipient who has no key yet, wait here."
           action={<SecondaryButton title="New message" icon="plus" onPress={() => navigation.navigate('Compose', {})} />}
         />
       </View>
@@ -42,48 +47,45 @@ export function ScheduledScreen({ navigation }: Props) {
   }
 
   return (
-    <ScheduledList insets={insets} items={items} onSendNow={sendScheduledNow} onCancel={cancelToDraft} />
-  );
-}
-
-function ScheduledList({
-  insets,
-  items,
-  onSendNow,
-  onCancel,
-}: {
-  insets: { bottom: number };
-  items: Scheduled[];
-  onSendNow: (id: string) => Promise<void>;
-  onCancel: (item: Scheduled) => Promise<void>;
-}) {
-  return (
     <View style={s.screen}>
       <View style={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}>
-        {items.map((item) => (
-          <View key={item.id} style={s.card}>
-            <View style={s.top}>
-              <Text numberOfLines={1} style={s.title}>
-                {item.subject.trim() || '(no subject)'}
+        {items.map((item) => {
+          const awaitingKey = holdReason(item) === 'awaiting-key';
+          const pending = awaitingKey ? stillPending(item, keyring, identity) : [];
+          return (
+            <View key={item.id} style={s.card}>
+              <View style={s.top}>
+                <Text numberOfLines={1} style={s.title}>
+                  {item.subject.trim() || '(no subject)'}
+                </Text>
+                <View style={[s.when, awaitingKey && s.whenHeld]}>
+                  <Text style={[s.whenText, awaitingKey && s.whenTextHeld]}>
+                    {awaitingKey ? 'waiting for a key' : whenLabel(item.sendAt)}
+                  </Text>
+                </View>
+              </View>
+              <Text numberOfLines={1} style={s.recipients}>
+                To: {item.to.length > 0 ? item.to.join(', ') : 'no recipients'}
               </Text>
-              <View style={s.when}>
-                <Text style={s.whenText}>{whenLabel(item.sendAt)}</Text>
+              {item.body.trim() ? (
+                <Text numberOfLines={2} style={s.preview}>
+                  {item.body.trim()}
+                </Text>
+              ) : null}
+              {awaitingKey ? (
+                <Text style={s.holdNote}>
+                  {pending.length > 0
+                    ? `Not delivered. ${pending.join(', ')} ${pending.length > 1 ? 'have' : 'has'} no key CryptMail can use yet — the message goes out by itself once ${pending.length > 1 ? 'they do' : 'they do'}.`
+                    : 'A key has turned up. This sends on the next check.'}
+                </Text>
+              ) : null}
+              <View style={s.actions}>
+                <SecondaryButton title="Send now" icon="send" onPress={() => void sendScheduledNow(item.id)} />
+                <SecondaryButton title="Cancel" icon="edit" onPress={() => void cancelToDraft(item)} />
               </View>
             </View>
-            <Text numberOfLines={1} style={s.recipients}>
-              To: {item.to.length > 0 ? item.to.join(', ') : 'no recipients'}
-            </Text>
-            {item.body.trim() ? (
-              <Text numberOfLines={2} style={s.preview}>
-                {item.body.trim()}
-              </Text>
-            ) : null}
-            <View style={s.actions}>
-              <SecondaryButton title="Send now" icon="send" onPress={() => void onSendNow(item.id)} />
-              <SecondaryButton title="Cancel" icon="edit" onPress={() => void onCancel(item)} />
-            </View>
-          </View>
-        ))}
+          );
+        })}
       </View>
     </View>
   );
@@ -127,6 +129,9 @@ const s = StyleSheet.create({
     paddingVertical: 2,
   },
   whenText: { color: color.brass, fontFamily: font.mono, fontSize: 10.5 },
+  whenHeld: { backgroundColor: color.chip, borderColor: color.lineSoft },
+  whenTextHeld: { color: color.inkDim },
+  holdNote: { ...type.small, color: color.inkDim, marginTop: 6 },
   recipients: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5 },
   preview: { ...type.small, color: color.inkFaint, marginTop: 2 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },

@@ -36,8 +36,10 @@ are unreadable to anyone in between, including the mail providers themselves.
 - **Not** metadata-hiding. Providers still see sender, recipient, timestamps, and
   message size. Hiding metadata requires a different architecture (see
   [security.md](security.md)). We encrypt *content*, not the *envelope*.
-- **Not** a guarantee of encryption to non-users. If a recipient has no key, we
-  warn and offer a fallback — we do not pretend it's encrypted.
+- **Not** a guarantee of *delivery* to non-users. If a recipient has no key the
+  message is encrypted and held, not downgraded: they are invited, and it is
+  delivered once they have a key. If they never install anything, they never
+  receive it — and the UI says *queued*, never *sent*.
 - **Not** a compliance/archival product (eDiscovery, DLP) in v1.
 
 ## Primary user stories
@@ -47,8 +49,9 @@ are unreadable to anyone in between, including the mail providers themselves.
   without me doing anything.
 - *As a recipient*, I get an email that looks encrypted in Gmail; I open
   CryptMail and read it normally.
-- *As a sender to a non-user*, I'm warned "this person can't receive encrypted
-  mail" and can choose: send plaintext, or send a secure link.
+- *As a sender to a non-user*, I'm told "nobody has published a key for this
+  person yet"; my message is queued, they get an invite that reveals nothing
+  about it, and it delivers itself when they can read it.
 - *As someone who lost their phone*, I recover my private key with a recovery
   code and read my history again.
 - *As a multi-device user*, I add CryptMail on my laptop and my existing

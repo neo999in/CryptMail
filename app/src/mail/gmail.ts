@@ -48,7 +48,10 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
       const details = await Promise.all(
         ids.map((m) =>
           call<GmailMessage>(
-            `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+            // `Autocrypt` rides along with the rest: it is cleartext, and asking
+            // for it here is what lets the sync harvest senders' keys without
+            // fetching a single message body.
+            `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Autocrypt`,
           ),
         ),
       );
@@ -117,6 +120,7 @@ function toSummary(message: GmailMessage): MailSummary {
     snippet: decodeEntities(message.snippet ?? ''),
     unread: message.labelIds?.includes('UNREAD') ?? false,
     starred: message.labelIds?.includes('STARRED') ?? false,
+    autocrypt: header('Autocrypt') || undefined,
   };
 }
 

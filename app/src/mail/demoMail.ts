@@ -184,6 +184,7 @@ function toStored(id: string, raw: string, unread: boolean, threadId?: string, d
       snippet: encrypted ? 'Encrypted — open to decrypt on this device.' : firstLine(raw),
       unread,
       starred: false,
+      autocrypt: headers['autocrypt'],
     },
   };
 }

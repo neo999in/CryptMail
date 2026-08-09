@@ -35,7 +35,7 @@ in the provider's own apps — it's a real email sitting in a real inbox.
 | [docs/message-format.md](docs/message-format.md) | Exactly what an encrypted email looks like on the wire |
 | [docs/data-model.md](docs/data-model.md) | Entities, local store, key-directory schema |
 | [docs/security.md](docs/security.md) | Threat model, guarantees, and honest limitations |
-| [docs/api.md](docs/api.md) | Optional backend: key directory + push |
+| [docs/api.md](docs/api.md) | A backend that is **not planned** — kept as a record of what was rejected and why |
 | [docs/roadmap.md](docs/roadmap.md) | MVP scope, phased plan, and the candidate-feature backlog |
 | [docs/prototype-plan.md](docs/prototype-plan.md) | Concrete build plan for the Phase 0 prototype |
 | [docs/features.md](docs/features.md) | Feature register: everything buildable next, by what's blocking it |
@@ -92,5 +92,6 @@ public keys to encrypt outgoing mail (PGP/MIME). Only the matching private key �
 which never leaves your device unencrypted — can decrypt it. Providers store and
 transport the ciphertext exactly like any other email, which is why their apps
 display gibberish. If a recipient isn't a CryptMail user and has no published
-key, CryptMail tells you before you send and offers a passphrase-protected
-"secure link" fallback instead of silently sending plaintext.
+key, the message is encrypted-or-nothing: CryptMail holds it, sends that person a
+short invite that says nothing about it, and delivers it by itself once they have
+a key. It never silently sends plaintext.
