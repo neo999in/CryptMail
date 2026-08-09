@@ -144,6 +144,15 @@ What remains:
 3. On every app launch, every scheduler tick and every inbox sync, the app looks
    again for a key for the pending addresses. When one appears, the held message
    is encrypted and sent — once.
+4. The outbox also offers that check on demand. The control on an `awaiting-key`
+   hold is **"Check for a key"**, not "Send now": the message is not waiting on a
+   clock, and a button promising to send it now would be promising something the
+   whole design forbids. It reports one of three answers, because a check whose
+   result is discarded is indistinguishable from a button that does nothing —
+   *they have not published a key yet*, *we could not reach the directory* (a
+   fault on our side, not a fact about them — see
+   [key-management.md](key-management.md)), or the refusal a **changed**
+   fingerprint produces.
 
 **Why hold rather than send now.** Encryption is not retroactive. A message
 sealed before the recipient had a key could never be opened by them afterwards,
