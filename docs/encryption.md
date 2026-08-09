@@ -79,42 +79,81 @@ Autocrypt: addr=alice@gmail.com; prefer-encrypt=mutual;
   keydata=<base64 public key>
 ```
 
-- Every outgoing message includes the sender's `Autocrypt` header.
+- Every outgoing message includes the sender's `Autocrypt` header — encrypted
+  mail and the plaintext invite alike.
 - On receipt, CryptMail caches the sender's public key in the local ring, keyed
-  by address.
+  by address. The header is cleartext, so this happens during **inbox sync**, on
+  every message, without decrypting anything and without the user opening it.
+  A header whose `addr=` is not the message's sender is ignored: otherwise
+  anyone could push a key for any address into a recipient's keyring.
 - After two people have exchanged **one** message each, both can encrypt to the
   other automatically — no manual step.
 - `prefer-encrypt=mutual` signals the peer also wants encryption by default.
 
 Autocrypt is opportunistic and deliberately low-friction; for stronger
-guarantees we layer the key directory and optional manual verification (see
+guarantees we layer keyserver discovery and optional manual verification (see
 [key-management.md](key-management.md)).
 
 ## Encryption decision at send time
 
-When the user hits Send, for **each** recipient the app determines a key source
-and a resulting mode:
+When the user hits Send, the app resolves a key for **each** recipient — local
+keyring, then Autocrypt cache, then the directory
+([key-management.md](key-management.md) §Discovery) — and the outcome is one of
+three. Plaintext is not among them.
 
-| Situation | Mode | UX |
-|-----------|------|-----|
-| Key known for every recipient | **Encrypted** | Lock icon, send normally |
-| Some recipient has no key | **Blocked / choose** | Warn; offer fallbacks below |
-| User explicitly opts out | **Plaintext** | Requires an explicit, logged action |
+| Situation | Outcome | UX |
+|-----------|---------|-----|
+| Key known for every recipient | **Encrypted, sent** | Lock icon, sends normally |
+| A recipient has no published key | **Encrypted, queued** | Message is held; that recipient is invited; it delivers itself when they have a key |
+| A recipient's key **changed** fingerprint | **Blocked** | Nothing is sent and nothing is held — see below |
+| User explicitly chooses a plaintext message | **Plaintext** | A separate action, chosen up front, never a fallback |
 
 **Fail safe:** the app never silently sends plaintext when the user believed the
 message was encrypted. A mixed-recipient message is never partially encrypted
-silently — either all recipients can be encrypted to, or the user makes an
-explicit choice.
+silently — either all recipients can be encrypted to, or the message waits.
 
-### Fallbacks for recipients without a key
+A **changed** fingerprint is deliberately *not* queued. A missing key is
+something waiting resolves; a changed key is a possible key substitution, and
+waiting resolves nothing. Only a person re-verifying the key clears it.
 
-1. **Secure link:** encrypt the message to a random passphrase, upload the
-   ciphertext to the backend (or attach it), and email the recipient a link to a
-   web reader. Deliver the passphrase out-of-band (the sender shares it via
-   another channel). The provider only ever sees the link + ciphertext.
-2. **Plaintext (explicit):** the user consciously downgrades this one message.
-3. **Invite:** send a normal email inviting them to install CryptMail; encrypt
-   future mail once they publish a key.
+### The only path for recipients without a key: invite and queue
+
+Earlier drafts of this document listed three fallbacks — a secure link, an
+explicit plaintext downgrade, and an invite. The first two are **out**:
+
+- **Secure link** (ciphertext behind a hosted web reader) would make CryptMail a
+  service rather than a client, which is the project's first architectural
+  commitment. The variants that avoid a server — a password-protected PDF, an
+  HTML attachment that asks for a passphrase — were rejected too: the last of
+  those trains people to open HTML attachments and type secrets into them, which
+  is indistinguishable from phishing.
+- **Plaintext downgrade for this one message** is the behaviour rule 1 exists to
+  forbid. It survives only as the independent "send an unencrypted email"
+  action, which the user picks up front for a message they never believed was
+  encrypted.
+
+What remains:
+
+1. The message is **held in the outbox**, encrypted-to-nobody-yet, marked
+   `awaiting-key`.
+2. The recipient gets a **contentless invite**: a plaintext email saying only
+   that someone sent them an encrypted message and how to read it. No subject,
+   no body, no hint of either. It carries the sender's `Autocrypt` header, so a
+   fresh install can reply encrypted with no setup step. At most one invite per
+   address per week.
+3. On every app launch, every scheduler tick and every inbox sync, the app looks
+   again for a key for the pending addresses. When one appears, the held message
+   is encrypted and sent — once.
+
+**Why hold rather than send now.** Encryption is not retroactive. A message
+sealed before the recipient had a key could never be opened by them afterwards,
+so "send it and let them catch up" is not a thing that can work. Holding it is
+the only alternative to the downgrade.
+
+**What this does not solve, stated plainly in the UI as well as here:** delivery
+to a non-user is not instant and cannot be time-bounded — it happens when they
+install. If they never install, they never receive it. The compose screen
+therefore says *queued*, never *sent*.
 
 ## Signing and verification
 
