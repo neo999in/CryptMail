@@ -11,7 +11,7 @@
  */
 import { RouteProp, useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { cryptoMode } from '../../config';
@@ -46,13 +46,15 @@ function parseRecipients(raw: string): string[] {
 export function SimpleComposeScreen() {
   const nav = useNavigation<Nav>();
   const { params } = useRoute<RouteProp<RootStackParamList, 'SimpleCompose'>>();
-  const { resolveRecipients, sendEncrypted, sendPlain } = useApp();
+  const { resolveRecipients, discoverRecipients, discovering, sendEncrypted, sendPlain } = useApp();
 
   const [to, setTo] = useState(params?.to ?? '');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** Set when the message was held for a key rather than delivered. */
+  const [queued, setQueued] = useState<string[] | null>(null);
   /** null until the user picks — never defaulted to `plain`. */
   const [chosen, setChosen] = useState<SendModeName | null>(null);
 
@@ -61,6 +63,17 @@ export function SimpleComposeScreen() {
   const bodyFocus = useFocus();
 
   const addresses = useMemo(() => parseRecipients(to), [to]);
+
+  // Ask the directory about anyone we hold no key for, so "no key" means "not
+  // published anywhere" rather than "not pasted in here yet".
+  const discoverRef = useRef(discoverRecipients);
+  discoverRef.current = discoverRecipients;
+  const addressKey = addresses.join(',');
+  useEffect(() => {
+    if (addressKey.length === 0) return;
+    void discoverRef.current(addressKey.split(','));
+  }, [addressKey]);
+
   const recipients = useMemo(() => resolveRecipients(addresses), [addresses, resolveRecipients]);
   const modes = useMemo(
     () => evaluateSendModes({ recipients, cryptoMode }),
@@ -71,7 +84,8 @@ export function SimpleComposeScreen() {
   // and the user has to make the plaintext decision deliberately.
   const mode = chosen ?? defaultSendMode(modes);
   const active = mode ? modes[mode] : null;
-  const canSend = !!mode && !!active?.available && addresses.length > 0 && !sending;
+  const looking = discovering.length > 0;
+  const canSend = !!mode && !!active?.available && addresses.length > 0 && !sending && !looking && !queued;
 
   async function send() {
     if (!mode || !canSend) return;
@@ -81,8 +95,17 @@ export function SimpleComposeScreen() {
       const payload = { to: addresses, subject, body };
       // Two calls, never one with a flag — there is no path from a failed
       // encrypted send into the plaintext one.
-      if (mode === 'encrypted') await sendEncrypted(payload);
-      else await sendPlain(payload);
+      if (mode === 'encrypted') {
+        const outcome = await sendEncrypted(payload);
+        // Held for a key: the screen stays and says so. Closing it here would
+        // be the app telling the user "sent" about a message that has not been.
+        if (outcome.status === 'queued') {
+          setQueued(outcome.pending);
+          return;
+        }
+      } else {
+        await sendPlain(payload);
+      }
       nav.goBack();
     } catch (e) {
       setFailure(e instanceof Error ? e.message : String(e));
@@ -112,8 +135,8 @@ export function SimpleComposeScreen() {
             <View key={r.email} style={styles.rcpt}>
               <Mono style={styles.rcptAddr}>{r.email}</Mono>
               <Badge
-                tone={r.status === 'missing' || r.status === 'changed' ? 'warn' : 'enc'}
-                icon={r.status === 'missing' ? 'alert' : r.status === 'changed' ? 'alert' : 'lock'}
+                tone={r.status === 'changed' ? 'warn' : r.status === 'missing' ? 'plain' : 'enc'}
+                icon={r.status === 'changed' ? 'alert' : r.status === 'missing' ? 'clock' : 'lock'}
               >
                 {r.status === 'verified'
                   ? 'Verified'
@@ -121,7 +144,9 @@ export function SimpleComposeScreen() {
                     ? 'Key on file'
                     : r.status === 'changed'
                       ? 'Key changed'
-                      : 'No key'}
+                      : looking
+                        ? 'Looking…'
+                        : 'No key yet'}
               </Badge>
             </View>
           ))}
@@ -182,14 +207,33 @@ export function SimpleComposeScreen() {
         </View>
       ) : null}
 
+      {queued ? (
+        <View style={{ marginTop: space.md }}>
+          <Callout>
+            Encrypted and queued for {queued.join(', ')}. They have been sent an invite that says
+            nothing about this message; it will be delivered on its own once they have a key.
+          </Callout>
+        </View>
+      ) : null}
+
       <View style={styles.actions}>
-        <PrimaryButton
-          busy={sending}
-          disabled={!canSend}
-          icon={mode === 'plain' ? 'mail' : 'lock'}
-          onPress={() => void send()}
-          title={mode === 'plain' ? 'Send unencrypted' : 'Send encrypted'}
-        />
+        {queued ? (
+          <PrimaryButton icon="check" onPress={() => nav.goBack()} title="Done" />
+        ) : (
+          <PrimaryButton
+            busy={sending}
+            disabled={!canSend}
+            icon={mode === 'plain' ? 'mail' : modes.encrypted.queued ? 'clock' : 'lock'}
+            onPress={() => void send()}
+            title={
+              mode === 'plain'
+                ? 'Send unencrypted'
+                : modes.encrypted.queued
+                  ? 'Encrypt and queue'
+                  : 'Send encrypted'
+            }
+          />
+        )}
         <SecondaryButton title="Cancel" icon="close" onPress={() => nav.goBack()} />
       </View>
     </ScrollView>

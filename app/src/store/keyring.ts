@@ -13,12 +13,29 @@ import { loadJson, saveJson } from './secureJson';
 export type ContactKey = PublicKeyInfo & {
   name?: string;
   trust: Trust;
-  source: 'manual' | 'autocrypt';
+  /**
+   * How this key reached the device. `directory` is a keyserver lookup — see
+   * `keys/discovery.ts` — and is never grounds for more trust than `seen`.
+   */
+  source: 'manual' | 'autocrypt' | 'directory';
   firstSeen: string;
   lastSeen: string;
   /** When the safety number was last compared out of band, if ever. */
   verifiedAt?: string;
 };
+
+/**
+ * Whether a key change is demonstrably the contact's own doing.
+ *
+ * `self-signed` means the new key carries a valid signature made by the key it
+ * replaces, which only its holder could produce — so the change is a rotation,
+ * not a substitution, and blocking it would be a support burden with no
+ * security value (docs/key-management.md, "Key rotation and expiry").
+ *
+ * Producing that evidence is a core operation and needs the Rust core; until it
+ * exists every caller passes `none`, which is today's behaviour exactly.
+ */
+export type RotationEvidence = 'none' | 'self-signed';
 
 export const KEYRING_STORE_KEY = 'cryptmail.keyring.v1';
 
@@ -36,14 +53,17 @@ export async function saveKeyring(keyring: Keyring): Promise<void> {
  * Add or refresh a contact key.
  *
  * A key that arrives for an address we already know, with a *different*
- * fingerprint, is marked `changed` — never silently replaced. The prototype has
- * no verification UI (known debt), but it must not lose that signal.
+ * fingerprint, is marked `changed` — never silently replaced — unless it comes
+ * with `rotation: 'self-signed'`, which is proof the contact rotated it
+ * themselves. Without that proof the change is indistinguishable from key
+ * substitution, and rule 1 applies: sending stops until a human looks at it.
  */
 export function upsertKey(
   keyring: Keyring,
   key: PublicKeyInfo,
   source: ContactKey['source'],
   name?: string,
+  options: { rotation?: RotationEvidence } = {},
 ): Keyring {
   const now = new Date().toISOString();
   const existing = keyring[key.email];
@@ -55,7 +75,10 @@ export function upsertKey(
         ...existing,
         ...key,
         name: name ?? existing.name,
-        trust: 'changed',
+        // A proven rotation lands where any newly-seen key lands: trusted on
+        // first use, and *not* verified — the signature says the same person
+        // made this key, not that anyone has compared its safety number.
+        trust: options.rotation === 'self-signed' ? 'seen' : 'changed',
         source,
         lastSeen: now,
         // The old verification attested to the *old* key. Carrying the

@@ -17,6 +17,7 @@ import { decodeUtf8Base64, encodeUtf8Base64, utf8ToBytes } from '../lib/base64';
 import { generateRecoveryCode, normaliseRecoveryCode } from './recoveryCode';
 import {
   armor,
+  autocryptKeydata,
   buildEncryptedEnvelope,
   buildProtectedInner,
   dearmor,
@@ -166,7 +167,7 @@ export const demoCore: CryptCore = {
       from: request.from,
       to: request.to,
       armored: armor(payload),
-      autocryptKeydata: request.autocryptKey ? encodeUtf8Base64(request.autocryptKey) : undefined,
+      autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
     });
   },
 

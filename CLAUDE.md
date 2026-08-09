@@ -63,11 +63,12 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 screens/  ──▶  state/AppState.tsx  ──▶  core/    (crypto + PGP/MIME)
                                    ──▶  mail/    (Gmail REST | demo fixtures)
                                    ──▶  auth/    (Google OAuth PKCE | demo)
-                                   ──▶  store/   (AsyncStorage: keyring, drafts, outbox, search index)
+                                   ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
+                                   ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
 [app/src/state/AppState.tsx](app/src/state/AppState.tsx) is a single React context
-that is the **only** place aware of all four subsystems. Screens never call a
+that is the **only** place aware of all five subsystems. Screens never call a
 provider, the core, or a store directly — they call actions on `useApp()`. Keep
 that seam; it is what makes the demo/live swap and the future Rust core a
 drop-in.
@@ -89,6 +90,7 @@ and `demoReason()` explains a downgrade to the user rather than hiding it.
 | Trigger | no OAuth client **or** no native core | both present |
 | Mail | fixtures in `src/mail/demoMail.ts` | Gmail REST |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
+| Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
 
 To reach live mode: build the native core (M2), register the Kotlin module as
 `CryptMailCore` with the five methods in
@@ -110,15 +112,30 @@ using the signature and the keyring. Decrypted subjects/bodies are indexed into
 `searchIndex` so encrypted mail is searchable — only content decrypted on this
 device is ever stored.
 
+Key discovery runs *before* the pure resolver, never inside it:
+`resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))
+stays synchronous and network-free because it decides whether a send is allowed.
+`discoverRecipients` in AppState fetches missing keys first, then delegates to it.
+Directory keys land as `trust: 'seen'`, never `verified`.
+
 ## Rules that are not style preferences
 
 These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
 
-1. **No plaintext downgrade.** If a recipient has no usable key, or their key
-   changed fingerprint, sending and scheduling must fail with an explanation.
-   Never "send unencrypted just this once". Enforced in `deliver`/`sendEncrypted`
-   in [app/src/state/AppState.tsx](app/src/state/AppState.tsx), and it holds in
-   demo mode too.
+1. **No plaintext downgrade.** Never "send unencrypted just this once".
+   Two cases, and neither of them puts the message on the wire in the clear:
+   - a recipient whose key **changed fingerprint** blocks the send outright —
+     nothing is sent and nothing is queued, because waiting cannot resolve a
+     possible key substitution;
+   - a recipient with **no key yet** has the message *held* in the outbox
+     (`awaiting-key`) while a contentless invite goes to them; it delivers itself
+     once a key exists. The UI must say *queued*, never *sent*.
+
+   Enforced in `deliver`/`sendEncrypted` in
+   [app/src/state/AppState.tsx](app/src/state/AppState.tsx), and it holds in demo
+   mode too. `sendPlain` is the user's separate, explicit choice to write an
+   unencrypted email; nothing on the encrypted path may reach it — including the
+   invite, which builds its own message.
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)
    base64-encodes the inner MIME tree into a correctly-shaped armor block. Never
    remove the `kind: 'demo'` reporting or the UI banners that surface it, and
