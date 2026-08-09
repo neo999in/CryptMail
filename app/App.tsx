@@ -28,11 +28,12 @@ import { ScheduledScreen } from './src/screens/ScheduledScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
 import { color, font } from './src/theme';
-import { AuroraBackground } from './src/ui/AuroraBackground';
+import { AppBackground } from './src/ui/AppBackground';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// Transparent surfaces everywhere so the aurora shows through every screen.
+// Transparent surfaces everywhere so the app's single ground colour shows
+// through every screen.
 const navTheme = {
   ...DarkTheme,
   colors: {
@@ -47,7 +48,10 @@ const navTheme = {
 };
 
 const screenOptions = {
-  headerStyle: { backgroundColor: 'rgba(10,13,17,0.55)' },
+  // Transparent like every other surface, so the stack header merges into the
+  // black ground instead of sitting on it as a near-black bar. There is no
+  // separator to lose: `headerShadowVisible` is already off.
+  headerStyle: { backgroundColor: 'transparent' },
   headerTintColor: color.ink,
   headerTitleStyle: { fontFamily: font.display, fontSize: 16 },
   headerShadowVisible: false,
@@ -131,7 +135,7 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <AppProvider>
-        <AuroraBackground>
+        <AppBackground>
           {fontsLoaded ? (
             <Root />
           ) : (
@@ -139,7 +143,7 @@ export default function App() {
               <ActivityIndicator color={color.brass} />
             </View>
           )}
-        </AuroraBackground>
+        </AppBackground>
       </AppProvider>
     </SafeAreaProvider>
   );

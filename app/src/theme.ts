@@ -1,12 +1,29 @@
 /**
- * Design tokens, ported 1:1 from docs/design/system-design.html.
+ * Design tokens, ported from docs/design/system-design.html.
  * Keep names aligned with the CSS custom properties so the mockup and the app
  * stay comparable.
+ *
+ * One deliberate divergence, carried back into that file: the ground is **true
+ * black** rather than the mockup's near-black, and the ambient radial glows are
+ * gone. See `ui/AppBackground.tsx` for why.
  */
 import { TextStyle, ViewStyle } from 'react-native';
 
 export const color = {
-  ground: '#0C0F14',
+  /**
+   * True black, and deliberately not the mockup's `#0C0F14`.
+   *
+   * On an OLED panel a `#000000` pixel is switched off — no light, no power, and
+   * a contrast ratio nothing else can reach. Every surface above this one is
+   * transparent, so this single value is the app's whole background.
+   */
+  ground: '#000000',
+  /**
+   * The recessed inset inside a panel — a code block, a ciphertext dump. Named
+   * for the mockup's `--ground-2`, but it is no longer a *ground*: against true
+   * black it reads as a block lifted slightly off it, which is what an inset
+   * with its own hairline should do.
+   */
   ground2: '#0A0D11',
   panel: '#141A22',
   panel2: '#1A222D',
@@ -33,11 +50,8 @@ export const color = {
   /** Focus ring + pressed wash, derived from brass so states stay on-palette. */
   focus: 'rgba(235,184,99,0.55)',
   press: 'rgba(235,184,99,0.10)',
-  /** Scrim behind sheets and popovers. */
-  scrim: 'rgba(6,8,11,0.72)',
-
-  /** Cool accent — used only for the ambient aurora glow, never for UI chrome. */
-  violet: '#8CA0FF',
+  /** Scrim behind sheets and popovers — black, so it dims towards the ground. */
+  scrim: 'rgba(0,0,0,0.78)',
 } as const;
 
 /**
