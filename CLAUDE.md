@@ -162,8 +162,12 @@ aligned with that file's CSS custom properties. Build screens out of
   `fontWeight` — custom faces don't synthesize weights reliably.
 - Use `shadow.*` (`boxShadow`) — the RN `shadow*` props are deprecated in 0.81+
   and warn on every render.
-- Every surface is transparent so `AuroraBackground` shows through; `frost()` in
+- Every surface is transparent so `AppBackground` shows through; `frost()` in
   primitives is the web fallback for `expo-blur`, which does not blur on web.
+- The ground is **true black** and carries no ambient light — the aurora glows
+  and film grain were removed for AMOLED, where `#000000` means the pixel is
+  off. Don't reintroduce a background wash to make glass "read as glass": the
+  `glass.*` fills are opaque enough to stand alone, which is why they exist.
 
 ## Git — never run write commands
 

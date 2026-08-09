@@ -1,8 +1,9 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { describeCheck } from '../outbox/checkResult';
 import { Held, holdReason, listScheduled, stillPending } from '../outbox/outbox';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
@@ -18,9 +19,40 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Scheduled'>;
  * is actually waiting for rather than implying a clock is running.
  */
 export function ScheduledScreen({ navigation }: Props) {
-  const { scheduled, keyring, identity, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
+  const { scheduled, keyring, identity, undiscoverable, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   const items = listScheduled(scheduled);
+
+  /** The id being tried right now, and what the last try said about it. */
+  const [checking, setChecking] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{ id: string; text: string; tone: 'ok' | 'warn' } | null>(null);
+
+  /**
+   * Try a queued message, and always say what happened.
+   *
+   * Three answers, and the third is the one that is easy to lose: `deliver`
+   * *throws* when a recipient's key changed fingerprint, so without this catch,
+   * tapping on a message whose recipient substituted their key would look
+   * exactly like tapping on nothing.
+   */
+  const check = async (item: Held) => {
+    setChecking(item.id);
+    setOutcome(null);
+    try {
+      const result = await sendScheduledNow(item.id);
+      if (result === null) {
+        setOutcome({ id: item.id, tone: 'ok', text: 'This message has already left the outbox.' });
+      } else if (result.status === 'sent') {
+        setOutcome({ id: item.id, tone: 'ok', text: 'Encrypted and sent.' });
+      } else {
+        setOutcome({ id: item.id, tone: 'warn', text: describeCheck(result.pending, undiscoverable).text });
+      }
+    } catch (e) {
+      setOutcome({ id: item.id, tone: 'warn', text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setChecking(null);
+    }
+  };
 
   const cancelToDraft = async (item: Held) => {
     await saveDraft({
@@ -49,6 +81,14 @@ export function ScheduledScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}>
+        {/*
+          A message that went out is no longer in the list, so its own card
+          cannot report the outcome — and "the row vanished" is a poor way to
+          learn that a check succeeded.
+        */}
+        {outcome && !scheduled[outcome.id] ? (
+          <Text style={[s.outcome, outcome.tone === 'ok' ? s.outcomeOk : s.outcomeWarn]}>{outcome.text}</Text>
+        ) : null}
         {items.map((item) => {
           const awaitingKey = holdReason(item) === 'awaiting-key';
           const pending = awaitingKey ? stillPending(item, keyring, identity) : [];
@@ -79,8 +119,24 @@ export function ScheduledScreen({ navigation }: Props) {
                     : 'A key has turned up. This sends on the next check.'}
                 </Text>
               ) : null}
+              {outcome?.id === item.id ? (
+                <Text style={[s.outcome, outcome.tone === 'ok' ? s.outcomeOk : s.outcomeWarn]}>
+                  {outcome.text}
+                </Text>
+              ) : null}
               <View style={s.actions}>
-                <SecondaryButton title="Send now" icon="send" onPress={() => void sendScheduledNow(item.id)} />
+                {/*
+                  An awaiting-key hold is not waiting on a clock, so "Send now"
+                  promises something this button cannot do — the message goes out
+                  when the recipient has a key and not before. What it actually
+                  does is ask the directory again, and it says what came back.
+                */}
+                <SecondaryButton
+                  title={checking === item.id ? 'Checking…' : awaitingKey ? 'Check for a key' : 'Send now'}
+                  icon={awaitingKey ? 'refresh' : 'send'}
+                  disabled={checking !== null}
+                  onPress={() => void check(item)}
+                />
                 <SecondaryButton title="Cancel" icon="edit" onPress={() => void cancelToDraft(item)} />
               </View>
             </View>
@@ -132,6 +188,16 @@ const s = StyleSheet.create({
   whenHeld: { backgroundColor: color.chip, borderColor: color.lineSoft },
   whenTextHeld: { color: color.inkDim },
   holdNote: { ...type.small, color: color.inkDim, marginTop: 6 },
+  outcome: {
+    ...type.small,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  outcomeOk: { backgroundColor: color.mintBg, borderColor: color.mintLine, color: color.mintInk },
+  outcomeWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine, color: color.coralInk },
   recipients: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5 },
   preview: { ...type.small, color: color.inkFaint, marginTop: 2 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },

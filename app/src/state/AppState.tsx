@@ -16,6 +16,7 @@ import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/dem
 import { createGmailClient } from '../mail/gmail';
 import { Draft, Drafts, removeDraft, upsertDraft } from '../drafts/drafts';
 import { directory, DiscoveryError, harvestAutocrypt } from '../keys';
+import { isKeyserverSender, verifyLinkFrom } from '../keys/verifyLink';
 import { applyFlagPatch } from '../mail/flags';
 import { plainBodyOf } from '../mail/plainBody';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
@@ -91,6 +92,14 @@ type State = {
   recovery: RecoveryState;
   /** Whether this device's public key is listed in the key directory. */
   publish: PublishState;
+  /**
+   * The directory's own confirmation link, found in this mailbox.
+   *
+   * Only ever set while publication is `pending`, and only for a link that
+   * passed every check in `keys/verifyLink.ts`. Null means there is nothing to
+   * offer — which is the normal state, and the state the copy already covers.
+   */
+  verifyLink: string | null;
   /** Where a published key ends up, in words. Screens never import the directory. */
   directoryName: string;
   /** Addresses currently being looked up in the directory. Drives compose. */
@@ -174,7 +183,11 @@ type Actions = {
   archiveMessage(id: string): Promise<void>;
   scheduleSend(input: { id?: string; to: string[]; subject: string; body: string; sendAt: string }): Promise<void>;
   cancelScheduled(id: string): Promise<void>;
-  sendScheduledNow(id: string): Promise<void>;
+  /**
+   * Try a queued message now. Returns what happened — `null` when the id is no
+   * longer in the outbox — and throws when a recipient's key changed.
+   */
+  sendScheduledNow(id: string): Promise<SendOutcome | null>;
 };
 
 const AppContext = createContext<(State & Actions) | null>(null);
@@ -188,6 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     identity: null,
     recovery: { backedUpAt: null, fingerprint: null },
     publish: { status: 'unpublished', fingerprint: null, updatedAt: null },
+    verifyLink: null,
     directoryName: directory.listedAt,
     discovering: [],
     undiscoverable: [],
@@ -222,11 +236,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const invitesRef = useRef<InviteLog>(state.invites);
   const sessionRef = useRef<Session | null>(state.session);
   const publishRef = useRef<PublishState>(state.publish);
+  // The synced inbox, for work that runs inside the same sync that fetched it:
+  // `refreshPublish` reads it looking for the directory's confirmation mail, and
+  // `state.messages` is still the previous list at that point.
+  const messagesRef = useRef<MailSummary[]>(state.messages);
+  const verifyLinkRef = useRef<string | null>(state.verifyLink);
   keyringRef.current = state.keyring;
   identityRef.current = state.identity;
   invitesRef.current = state.invites;
   sessionRef.current = state.session;
   publishRef.current = state.publish;
+  messagesRef.current = state.messages;
+  verifyLinkRef.current = state.verifyLink;
 
   // Late-bound so the inbox sync can trigger a queue drain and a publish-state
   // check without being defined after them; both need `deliver`, which needs
@@ -269,6 +290,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       searchIndex: SearchIndex;
       drafts: Drafts;
       scheduled: ScheduledOutbox;
+      /** Nothing found for a previous account belongs to this one. */
+      verifyLink: null;
     }> => {
       mailRef.current =
         session.provider === 'demo'
@@ -301,7 +324,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       keyringRef.current = keyring;
       identityRef.current = identity;
       invitesRef.current = invites;
-      return { identity, recovery, publish, invites, keyring, searchIndex, drafts, scheduled };
+      verifyLinkRef.current = null;
+      return { identity, recovery, publish, invites, keyring, searchIndex, drafts, scheduled, verifyLink: null };
     },
     [],
   );
@@ -346,10 +370,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (e: unknown): boolean => {
       if (!needsReauth(e)) return false;
       mailRef.current = null;
+      messagesRef.current = [];
+      verifyLinkRef.current = null;
       patch({
         session: null,
         identity: null,
         messages: [],
+        verifyLink: null,
         loadingInbox: false,
         error: message(e),
       });
@@ -384,6 +411,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     patch({ loadingInbox: true, error: null });
     try {
       const messages = await mailRef.current.listInbox(20);
+      // Ahead of the patch, for the same reason `signIn` sets `sessionRef`:
+      // everything awaited below runs before React re-renders.
+      messagesRef.current = messages;
       patch({ messages, loadingInbox: false });
       await harvestFrom(messages);
       // Someone installing CryptMail is an external event with no notification
@@ -410,7 +440,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     await auth.signOut();
     mailRef.current = null;
-    patch({ session: null, identity: null, messages: [] });
+    messagesRef.current = [];
+    verifyLinkRef.current = null;
+    patch({ session: null, identity: null, messages: [], verifyLink: null });
   }, [patch]);
 
   /** Inbox-row state, from headers only — no decryption, no network. */
@@ -609,7 +641,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!session) throw new Error('Not connected.');
     const identity = await core.generateIdentity(session.email);
     identityRef.current = identity;
-    patch({ identity });
+    // Nothing found for the old key says anything about this one.
+    verifyLinkRef.current = null;
+    patch({ identity, verifyLink: null });
     return identity;
   }, [patch]);
 
@@ -634,23 +668,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status === 'published' ? 'published' : 'pending',
       identity.fingerprint,
     );
-    patch({ publish });
+    // A fresh upload means a fresh confirmation mail. Any link found before this
+    // belongs to the previous attempt, and offering it would send the user to a
+    // token the keyserver has already superseded.
+    verifyLinkRef.current = null;
+    patch({ publish, verifyLink: null });
     return publish;
   }, [patch]);
 
   const declinePublish = useCallback(async (): Promise<PublishState> => {
     const publish = await savePublishState('declined', identityRef.current?.fingerprint ?? null);
-    patch({ publish });
+    verifyLinkRef.current = null;
+    patch({ publish, verifyLink: null });
     return publish;
   }, [patch]);
+
+  /**
+   * Find the directory's confirmation link in the mailbox it was sent to.
+   *
+   * The link is what turns a stored key into a *findable* one, and it arrives as
+   * an ordinary email in the account CryptMail is already syncing. Sending the
+   * user off to another mail client to finish something they started here is
+   * where this flow loses people.
+   *
+   * Deliberately no new `MailClient` method: the seam is provider-agnostic, and
+   * adding a search primitive to it for one feature is not a trade worth making.
+   * This reads the messages the last sync already returned, which is also the
+   * honest limitation — see `verifyLink` in the Keys screen copy.
+   *
+   * Costs one `getRaw` per keyserver message in the synced window, which in
+   * practice is zero or one, and only while publication is pending.
+   */
+  const findVerifyLink = useCallback(
+    async (identity: Identity) => {
+      if (!mailRef.current || verifyLinkRef.current) return;
+
+      // Newest first: publishing twice means two confirmation mails, and only
+      // the most recent one names the key this device now holds.
+      const candidates = messagesRef.current
+        .filter((m) => isKeyserverSender(m.from.address))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      for (const summary of candidates) {
+        try {
+          const raw = await mailRef.current.getRaw(summary.id);
+          const link = verifyLinkFrom({
+            from: summary.from.address,
+            body: plainBodyOf(raw),
+            fingerprint: identity.fingerprint,
+          });
+          if (link) {
+            verifyLinkRef.current = link;
+            patch({ verifyLink: link });
+            return;
+          }
+        } catch {
+          // A message that will not fetch is not a reason to stop looking, and
+          // not a reason to say anything: the pending copy already stands on
+          // its own without this button.
+        }
+      }
+    },
+    [patch],
+  );
 
   /**
    * Notice that a pending publication has been confirmed.
    *
    * `keys.openpgp.org` will not serve a key by address until the address owner
-   * clicks the link it emails. Rather than parse that mail, the app asks the
-   * directory the same question a stranger would: is this key served for this
-   * address yet? A yes is the confirmation, whichever device clicked the link.
+   * clicks the link it emails. Rather than parse that mail *for the answer*, the
+   * app asks the directory the same question a stranger would: is this key
+   * served for this address yet? A yes is the confirmation, whichever device
+   * clicked the link.
+   *
+   * Only if the answer is still no does it look for the link itself — an offer
+   * to finish the job, never the thing that decides the state.
    */
   const refreshPublish = useCallback(async () => {
     const identity = identityRef.current;
@@ -659,14 +751,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const found = await directory.lookup(identity.email);
-      if (!found) return;
-      const info = await core.importPublicKey(found.armored);
-      if (normaliseFingerprint(info.fingerprint) !== normaliseFingerprint(identity.fingerprint)) return;
-      patch({ publish: await savePublishState('published', identity.fingerprint) });
+      const info = found ? await core.importPublicKey(found.armored) : null;
+      if (info && normaliseFingerprint(info.fingerprint) === normaliseFingerprint(identity.fingerprint)) {
+        verifyLinkRef.current = null;
+        patch({ publish: await savePublishState('published', identity.fingerprint), verifyLink: null });
+        return;
+      }
     } catch {
       // The directory being unreachable says nothing about the key's state.
     }
-  }, [patch]);
+
+    await findVerifyLink(identity);
+  }, [findVerifyLink, patch]);
 
   const importKey = useCallback(
     async (armored: string, name?: string) => {
@@ -775,7 +871,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const restoreFromRecovery = useCallback(
     async (blob: string, code: string): Promise<Identity> => {
       const identity = await core.importRecoveryBackup(blob, code);
-      patch({ identity, recovery: await clearBackupRecord() });
+      identityRef.current = identity;
+      verifyLinkRef.current = null;
+      patch({ identity, recovery: await clearBackupRecord(), verifyLink: null });
       return identity;
     },
     [patch],
@@ -1006,6 +1104,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * `sendEncrypted` may ever call this, and this never inspects the keyring —
    * consulting keys here would be the first step toward "encrypt if we can,
    * send clear if we can't", which is exactly the behaviour rule 1 forbids.
+   *
+   * It does still carry the sender's own `Autocrypt` header, which
+   * encryption.md requires of *every* outgoing message — "encrypted mail and
+   * the plaintext invite alike". Omitting it here was an oversight, and a
+   * costly one: a deliberately-unencrypted email is precisely the message that
+   * has to bootstrap, and without the header the recipient learns nothing about
+   * how to answer encrypted.
+   *
+   * That is not a crack in rule 1, and the difference is worth being exact
+   * about, because it decides how this is written. The invariant is not "the
+   * plaintext path touches no key material" — it is that **nothing here may
+   * branch on the recipient's key state**. Our own public key is attached
+   * unconditionally: nothing is read about the recipient, no decision is made
+   * from one, and the sentence above stays literally true.
    */
   const sendPlain = useCallback(
     async (input: { to: string[]; subject: string; body: string }) => {
@@ -1018,6 +1130,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           to: input.to,
           subject: input.subject,
           body: input.body,
+          // Undefined until the user has generated a key — being signed in
+          // without an identity is a real state, since setup is its own step —
+          // and `buildPlaintext` simply omits the header when it is.
+          autocryptKey: identityRef.current?.publicKeyArmored,
         }),
       );
       await refreshInbox();
@@ -1065,22 +1181,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [patch, state.scheduled],
   );
 
+  /**
+   * Try a queued message now, and say what happened.
+   *
+   * The outcome is returned rather than swallowed because for an `awaiting-key`
+   * hold this action is not "send", it is *"check whether they have a key yet"* —
+   * and a check whose answer is discarded is indistinguishable from a button
+   * that does nothing. `null` means the id was no longer in the outbox.
+   *
+   * Note that this can still *throw*: `deliver` refuses outright when a
+   * recipient's key changed fingerprint. That is a third outcome, and the caller
+   * has to show it.
+   */
   const sendScheduledNow = useCallback(
-    async (id: string) => {
-      const item = state.scheduled[id];
-      if (!item) return;
+    async (id: string): Promise<SendOutcome | null> => {
+      const item = scheduledRef.current[id];
+      if (!item) return null;
       // The same id goes back in: if this turns out to be un-sendable yet,
       // `deliver` re-holds *this* message rather than leaving a duplicate, and
       // the removal below is skipped so nothing is silently dropped.
       const outcome = await deliver({ id, to: item.to, subject: item.subject, body: item.body });
-      if (outcome.status !== 'sent') return;
+      if (outcome.status !== 'sent') return outcome;
       const scheduled = removeScheduled(scheduledRef.current, id);
       scheduledRef.current = scheduled;
       await saveOutbox(scheduled);
       patch({ scheduled });
       await refreshInbox();
+      return outcome;
     },
-    [deliver, patch, refreshInbox, state.scheduled],
+    [deliver, patch, refreshInbox],
   );
 
   /**

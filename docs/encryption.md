@@ -132,6 +132,25 @@ explicit plaintext downgrade, and an invite. The first two are **out**:
   action, which the user picks up front for a message they never believed was
   encrypted.
 
+  **Built, and the shape is the point.** Compose carries an
+  encrypted / not-encrypted choice at the very top, defaulting to encrypted,
+  and it is the *only* way to reach `sendPlain`. Three properties keep it from
+  becoming the downgrade it resembles:
+
+  - it appears **before** the message is written, never after a send is
+    refused — there is no unencrypted button beside "their key changed", and
+    none beside a queued message;
+  - switching into it asks first, and the screen then says plainly, everywhere
+    it can — placeholders, status line, send button — that this message is not
+    private;
+  - while it is selected, Compose looks up **no keys and reads no recipient key
+    state**. Nothing here may depend on one, because a send that becomes
+    possible precisely when a key is *absent* is the downgrade under another
+    name.
+
+  The message still carries the sender's `Autocrypt` header, so an unencrypted
+  email is still a way for the recipient to learn how to answer encrypted.
+
 What remains:
 
 1. The message is **held in the outbox**, encrypted-to-nobody-yet, marked
@@ -144,6 +163,15 @@ What remains:
 3. On every app launch, every scheduler tick and every inbox sync, the app looks
    again for a key for the pending addresses. When one appears, the held message
    is encrypted and sent — once.
+4. The outbox also offers that check on demand. The control on an `awaiting-key`
+   hold is **"Check for a key"**, not "Send now": the message is not waiting on a
+   clock, and a button promising to send it now would be promising something the
+   whole design forbids. It reports one of three answers, because a check whose
+   result is discarded is indistinguishable from a button that does nothing —
+   *they have not published a key yet*, *we could not reach the directory* (a
+   fault on our side, not a fact about them — see
+   [key-management.md](key-management.md)), or the refusal a **changed**
+   fingerprint produces.
 
 **Why hold rather than send now.** Encryption is not retroactive. A message
 sealed before the recipient had a key could never be opened by them afterwards,
