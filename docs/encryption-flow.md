@@ -59,7 +59,7 @@ nor the passphrase appears anywhere in the serialised document.
 Encryption cannot start until you hold a public key for the recipient. Two
 routes:
 
-**Manual** — `SimpleKeysScreen`. You copy your armored key to them; you paste
+**Manual** — `KeysScreen`. You copy your armored key to them; you paste
 theirs. `core.importPublicKey()` → [`keys::import`](../core/src/keys.rs) parses
 the block, runs `verify_bindings()`, and extracts the address from the User ID.
 `upsertKey` stores it in the keyring.

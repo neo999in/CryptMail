@@ -51,6 +51,13 @@ export function KeysScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [paste, setPaste] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Kept apart from `error`, which belongs to the import/verify card further
+   * down: a publish failure reported *there* reads as though pasting a key
+   * failed, and on most screens it is below the fold — so the button would
+   * simply stop spinning and nothing would appear to have happened.
+   */
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const pasteFocus = useFocus();
@@ -59,11 +66,11 @@ export function KeysScreen({ navigation }: Props) {
 
   const doPublish = async () => {
     setPublishing(true);
-    setError(null);
+    setPublishError(null);
     try {
       await publishOwnKey();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setPublishError(e instanceof Error ? e.message : String(e));
     } finally {
       setPublishing(false);
     }
@@ -248,6 +255,13 @@ export function KeysScreen({ navigation }: Props) {
                   <SecondaryButton title="Not now" icon="close" onPress={() => void declinePublish()} />
                 )}
               </View>
+              {publishError ? (
+                <View style={{ marginTop: 12 }}>
+                  <Banner tone="warn" icon="alert">
+                    {publishError} Your key is not listed; nothing was sent.
+                  </Banner>
+                </View>
+              ) : null}
             </>
           )}
         </Card>

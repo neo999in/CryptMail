@@ -1,6 +1,34 @@
 import { bytesToBase64, utf8ToBytes } from '../../lib/base64';
-import { parseArmoredPublicKey, sha1Hex, userIdDisplayName } from '../parseArmoredKey';
+import { addressesInKey, parseArmoredPublicKey, sha1Hex, userIdDisplayName } from '../parseArmoredKey';
 import { ADA_ARMORED, ADA_EMAIL, ADA_FINGERPRINT, ADA_USERID } from './fixtures';
+
+/**
+ * A key carrying several User IDs, assembled packet by packet.
+ *
+ * Real ones are everywhere — `dkg@debian.org` and `dkg@fifthhorseman.net` sit on
+ * one key, and `keys.openpgp.org` serves that same key for either address — but
+ * the GnuPG fixture beside this file has only one, so the multi-UID case needs
+ * building here rather than pretending one User ID is the general shape.
+ */
+function keyWithUserIds(...userIds: string[]): string {
+  const bytes: number[] = [];
+  const packet = (tag: number, body: Uint8Array) => {
+    bytes.push(0xc0 | tag, body.length); // new-format header, one-octet length
+    bytes.push(...body);
+  };
+  // v4, created 0, algorithm 22 (EdDSA). The parser reads these bytes and
+  // SHA-1s the packet for the fingerprint; no key material is needed.
+  packet(6, new Uint8Array([4, 0, 0, 0, 0, 22]));
+  for (const id of userIds) packet(13, utf8ToBytes(id));
+
+  const base64 = bytesToBase64(new Uint8Array(bytes));
+  return [
+    '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+    '',
+    ...(base64.match(/.{1,64}/g) ?? []),
+    '-----END PGP PUBLIC KEY BLOCK-----',
+  ].join('\n');
+}
 
 /**
  * The fixture is a real key exported from GnuPG 2.4 (`gpg --armor --export`),
@@ -71,6 +99,36 @@ describe('parseArmoredPublicKey', () => {
       '-----END PGP PUBLIC KEY BLOCK-----',
     ].join('\n');
     expect(() => parseArmoredPublicKey(block)).toThrow(/version/i);
+  });
+});
+
+describe('addressesInKey', () => {
+  it('returns every address the key claims, in User ID order', () => {
+    expect(
+      addressesInKey(keyWithUserIds('Daniel <dkg@debian.org>', '<dkg@fifthhorseman.net>')),
+    ).toEqual(['dkg@debian.org', 'dkg@fifthhorseman.net']);
+  });
+
+  it('finds an address that is not the primary User ID', () => {
+    // The whole point: a keyserver answers `dkg@fifthhorseman.net` with this
+    // key, whose *first* User ID is a different address. Judging the answer by
+    // the first User ID alone throws the key away and reports the recipient as
+    // having none — a message held forever for a key that exists.
+    const key = keyWithUserIds('Daniel <dkg@debian.org>', '<dkg@fifthhorseman.net>');
+    expect(addressesInKey(key)).toContain('dkg@fifthhorseman.net');
+    expect(parseArmoredPublicKey(key).email).toBe('dkg@debian.org');
+  });
+
+  it('lower-cases addresses so they match keyring lookups', () => {
+    expect(addressesInKey(keyWithUserIds('Ada <Ada@Example.COM>'))).toEqual(['ada@example.com']);
+  });
+
+  it('agrees with the single-User-ID fixture', () => {
+    expect(addressesInKey(ADA_ARMORED)).toEqual([ADA_EMAIL]);
+  });
+
+  it('returns nothing for text that is not an armored key', () => {
+    expect(addressesInKey('good morning')).toEqual([]);
   });
 });
 

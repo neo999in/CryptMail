@@ -15,7 +15,7 @@ import {
 import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
 import { Draft, Drafts, removeDraft, upsertDraft } from '../drafts/drafts';
-import { directory, harvestAutocrypt } from '../keys';
+import { directory, DiscoveryError, harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
 import { plainBodyOf } from '../mail/plainBody';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
@@ -30,7 +30,7 @@ import {
   stillPending,
   upsertScheduled,
 } from '../outbox/outbox';
-import { userIdDisplayName } from '../pgp/parseArmoredKey';
+import { addressesInKey, userIdDisplayName } from '../pgp/parseArmoredKey';
 import { normaliseFingerprint, safetyNumber } from '../pgp/safetyNumber';
 import { indexContent, SearchIndex } from '../search/search';
 import { loadDrafts, saveDrafts } from '../store/draftsStore';
@@ -95,6 +95,15 @@ type State = {
   directoryName: string;
   /** Addresses currently being looked up in the directory. Drives compose. */
   discovering: string[];
+  /**
+   * Addresses whose last lookup settled nothing — the directory was unreachable
+   * or slow, or it answered with a key the core refused to import.
+   *
+   * Kept apart from "has no key" because they are different facts and only one
+   * of them is about the recipient. Compose says so rather than announcing that
+   * someone does not use encryption on the strength of a request that failed.
+   */
+  undiscoverable: string[];
   /** When each address was last invited, so nobody is invited twice a week. */
   invites: InviteLog;
   keyring: Keyring;
@@ -181,6 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     publish: { status: 'unpublished', fingerprint: null, updatedAt: null },
     directoryName: directory.listedAt,
     discovering: [],
+    undiscoverable: [],
     invites: {},
     keyring: {},
     searchIndex: {},
@@ -532,26 +542,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       patch({ discovering: unknown });
       let keyring = keyringRef.current;
+      // Rebuilt from this round rather than accumulated: an address that
+      // resolves on a retry must stop being reported as unresolved.
+      const unresolved: string[] = [];
       try {
         for (const email of unknown) {
           try {
             const found = await directory.lookup(email);
             if (!found) continue;
             const info = await core.importPublicKey(found.armored);
-            // The directory answering an address with a key for a *different*
-            // address is either a bug or an attempt to get a key into the ring
-            // under someone else's name. Either way it is not an answer.
-            if (info.email.trim().toLowerCase() !== email) continue;
-            keyring = upsertKey(keyring, info, 'directory');
+            // The directory answering an address with a key that does not claim
+            // that address is either a bug or an attempt to get a key into the
+            // ring under someone else's name. Either way it is not an answer.
+            //
+            // "Claims it" means *any* of the key's User IDs, not just the
+            // primary one the core reports: one key commonly carries several
+            // addresses, and a keyserver serves it for each. Comparing against
+            // the primary alone rejects a perfectly good key and reports the
+            // recipient as having none — which holds their message forever.
+            // (`addressesInKey` reads real OpenPGP packets, which demo armor is
+            // not — so the core's own answer is checked first and demo mode
+            // keeps working exactly as before.)
+            const claims =
+              info.email.trim().toLowerCase() === email || addressesInKey(found.armored).includes(email);
+            if (!claims) continue;
+            // Filed under the address we asked about, which is what every
+            // keyring lookup uses. The same key legitimately appears under each
+            // of its addresses; `fingerprint` still identifies the one key.
+            keyring = upsertKey(keyring, { ...info, email }, 'directory');
           } catch {
-            // A lookup that failed and a key that will not parse are the same
-            // thing here: no key for this address, this time. The send path
-            // treats that as "not yet", never as "send it in the clear".
+            // Reaching here means we did *not* establish that the address has no
+            // key: a definite "nothing published" leaves via `continue` above,
+            // never by throwing. What throws is a directory we could not reach,
+            // or a key that came back and would not import — and neither is
+            // evidence about whether this person uses encryption.
+            //
+            // The send path treats all of it as "not yet", never as "send it in
+            // the clear". But the *user* is owed the difference, because "they
+            // have no key" invites them and waits, while "we could not find out"
+            // is a fault on our side that may clear on the next attempt.
+            unresolved.push(email);
           }
         }
         return await commitKeyring(keyring);
       } finally {
-        patch({ discovering: [] });
+        patch({ discovering: [], undiscoverable: unresolved });
       }
     },
     [commitKeyring, patch],

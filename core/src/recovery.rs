@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use pgp::composed::{Deserializable as _, SignedSecretKey};
-use pgp::types::{KeyDetails as _, Password, S2kParams};
+use pgp::types::{KeyVersion, Password, S2kParams};
 use rand::thread_rng;
 
 use crate::{identity, CoreError, Result};
@@ -49,23 +49,37 @@ fn rewrap(secret: &mut SignedSecretKey, from: &Password, to: &Password) -> Resul
         .primary_key
         .remove_password(from)
         .map_err(|e| CoreError::DecryptFailed(format!("could not unlock the key: {e}")))?;
-    let s2k = S2kParams::new_default(&mut rng, secret.primary_key.version());
     secret
         .primary_key
-        .set_password_with_s2k(to, s2k)
+        .set_password_with_s2k(to, recovery_s2k(&mut rng))
         .map_err(|e| CoreError::Unavailable(format!("could not re-lock the key: {e}")))?;
 
     for sub in &mut secret.secret_subkeys {
         sub.key
             .remove_password(from)
             .map_err(|e| CoreError::DecryptFailed(format!("could not unlock a subkey: {e}")))?;
-        let s2k = S2kParams::new_default(&mut rng, sub.key.version());
         sub.key
-            .set_password_with_s2k(to, s2k)
+            .set_password_with_s2k(to, recovery_s2k(&mut rng))
             .map_err(|e| CoreError::Unavailable(format!("could not re-lock a subkey: {e}")))?;
     }
 
     Ok(())
+}
+
+/// Argon2id + AES-256-OCB, stated rather than inherited.
+///
+/// This used to read `S2kParams::new_default(rng, key.version())`, which ties
+/// the strength of every backup to the *key's version* — v6 defaults to
+/// Argon2id, v4 to iterated-and-salted SHA-256 under CFB. Changing the key
+/// version for an unrelated reason then silently weakened every backup taken
+/// afterwards, with the whole suite green: the guard test below asks rPGP for
+/// the V6 default and so never noticed that production had stopped using it.
+///
+/// The recovery code is the only thing standing between a stolen blob and the
+/// user's entire mailbox (docs/key-management.md, "Recovery"), so the KDF is
+/// named here and pinned by a test that reads what was actually written.
+fn recovery_s2k<R: rand::CryptoRng + rand::Rng>(rng: &mut R) -> S2kParams {
+    S2kParams::new_default(rng, KeyVersion::V6)
 }
 
 /// Wrap this device's secret key under `code`, returning an armored blob.
@@ -100,7 +114,8 @@ pub(crate) fn import(
 
 #[cfg(test)]
 mod tests {
-    use super::normalise;
+    use super::{normalise, recovery_s2k};
+    use pgp::types::S2kParams;
 
     /// These pairs are copied from `app/src/core/__tests__/recoveryCode-test.ts`.
     /// No test can span both languages; if you change one table, change both.
@@ -126,21 +141,27 @@ mod tests {
         assert_eq!(normalise(""), "");
     }
 
-    /// The Argon2id choice is inherited from rPGP's V6 default rather than
-    /// spelled out, which is only safe if the default is what the spec says it
-    /// is. A dependency bump that quietly changed it would otherwise weaken
-    /// every backup taken afterwards, silently and with all tests green.
+    /// `recovery_s2k` still reaches for rPGP's V6 default rather than spelling
+    /// out every Argon2 parameter, which is only safe while that default is
+    /// what the spec says. A dependency bump that quietly changed it would
+    /// weaken every backup taken afterwards.
+    ///
+    /// This asserts on the function the code actually calls, not on a version
+    /// looked up a second time — the earlier form asked rPGP about V6 while
+    /// production had moved to a v4 key, and so kept passing while the blobs
+    /// it was meant to protect were being wrapped with SHA-256. The end-to-end
+    /// guard is `the_blob_is_wrapped_with_argon2id_whatever_version_the_key_is`
+    /// in `tests/recovery.rs`, which reads what was written.
     #[test]
-    fn the_v6_default_s2k_is_argon2id() {
-        use pgp::types::{S2kParams, StringToKey};
+    fn the_recovery_s2k_is_argon2id() {
+        use pgp::types::StringToKey;
 
-        let params = S2kParams::new_default(rand::thread_rng(), pgp::types::KeyVersion::V6);
-        match params {
+        match recovery_s2k(&mut rand::thread_rng()) {
             S2kParams::Aead { s2k: StringToKey::Argon2 { t, p, m_enc, .. }, .. } => {
                 // RFC 9106 parameter choice 2: 64 MiB, 3 passes, 4 lanes.
                 assert_eq!((t, p, m_enc), (3, 4, 16));
             }
-            other => panic!("rPGP's V6 default S2K is no longer Argon2id: {other:?}"),
+            other => panic!("the recovery S2K is no longer Argon2id: {other:?}"),
         }
     }
 }

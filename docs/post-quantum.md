@@ -161,6 +161,25 @@ one exception — **ML-KEM-768 + X25519 may be carried on a v4 encryption subkey
 the format the existing OpenPGP install base already understands. That exception
 exists precisely for this migration shape.
 
+**As built: v4, and that is load-bearing.** `identity.rs` shipped v6 keys at
+first, on the mistaken reading that RFC 9980 required them. It costs more than
+compatibility with old software: `keys.openpgp.org` rejects a v6 upload with
+`400 OpenPGP v6 (RFC 9580) is not yet supported`, so a v6 identity is one its
+owner can never publish — and an address that cannot be published is one no
+stranger can encrypt to on a first message. Measured 2026-08-09; the same
+keyserver accepts the v4 key and serves the ML-KEM subkey back untouched.
+
+Two details are easy to get wrong and neither is caught by size or by a
+round-trip test:
+
+- the primary must use **`Ed25519Legacy`, algorithm 22** — algorithm 27 is
+  RFC 9580's codepoint, is accepted by the keyserver, and is *not* readable by
+  the v4-era software this whole choice exists to interoperate with;
+- the **subkey must be v4 too**, since a v6 subkey under a v4 primary is still
+  refused on upload.
+
+`tests/roundtrip.rs::the_identity_is_stage_one_hybrid` pins both.
+
 **Stage 1 buys the property that expires; Stage 2 buys the property that
 doesn't.** Do them in that order.
 

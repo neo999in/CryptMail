@@ -43,7 +43,6 @@ in the provider's own apps — it's a real email sitting in a real inbox.
 | [docs/encryption-flow.md](docs/encryption-flow.md) | One message end to end: keygen → key exchange → send → wire → receive |
 | [docs/post-quantum.md](docs/post-quantum.md) | RFC 9980 hybrid migration plan, with measured certificate sizes |
 | [docs/running-it.md](docs/running-it.md) | Turning on real Gmail and real encryption — what you must do |
-| [docs/simple-ui-plan.md](docs/simple-ui-plan.md) | The four-screen UI and the plaintext-send decision |
 
 ## Repo layout
 

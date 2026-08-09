@@ -36,6 +36,8 @@ export function ComposeScreen({ route, navigation }: Props) {
     resolveRecipients,
     discoverRecipients,
     discovering,
+    undiscoverable,
+    directoryName,
     sendEncrypted,
     canSendEncrypted,
     drafts,
@@ -344,6 +346,15 @@ export function ComposeScreen({ route, navigation }: Props) {
       return `${changed[0].email}'s key changed since you last saw it. Verify it before sending.`;
     }
     if (missing.length > 0) {
+      // "We could not ask" is not "they have no key". Saying the second when the
+      // first is true tells the user this person does not use encryption on the
+      // strength of a failed request — and the message waits on a key that may
+      // have been published all along.
+      const stranded = missing.filter((r) => undiscoverable.includes(r.email));
+      if (stranded.length > 0) {
+        const names = stranded.map((r) => r.email).join(', ');
+        return `Couldn't get a usable key for ${names} from ${directoryName}. CryptMail keeps trying, and will hold this message — encrypted, undelivered — rather than send it in the clear.`;
+      }
       const names = missing.map((r) => r.email).join(', ');
       return `No key published for ${names} yet. CryptMail will invite them and hold this message — encrypted, undelivered — until there is a key to send it to.`;
     }

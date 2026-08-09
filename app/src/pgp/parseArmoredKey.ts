@@ -56,6 +56,33 @@ export function parseArmoredPublicKey(armored: string): ParsedPublicKey {
   return { email, userId, ...primary };
 }
 
+/**
+ * Every address the key claims, lower-cased, in User ID order.
+ *
+ * A key routinely carries more than one User ID — `dkg@debian.org` and
+ * `dkg@fifthhorseman.net` are the same key — and `keys.openpgp.org` serves it
+ * for each of them. `parseArmoredPublicKey` reports the *primary* User ID,
+ * which is the right answer for "who is this key for?" but the wrong one for
+ * "does this key claim the address I asked about?": judging a directory answer
+ * by the primary alone discards a valid key and reports the recipient as having
+ * none, which under rule 1 holds their message forever.
+ *
+ * Returns an empty list rather than throwing — a caller asking "does this claim
+ * that address?" gets "no", and the parse error surfaces from the core instead.
+ */
+export function addressesInKey(armored: string): string[] {
+  const base64 = extractArmorBody(armored);
+  if (base64 === null) return [];
+
+  const found: string[] = [];
+  for (const packet of readPackets(base64ToBytes(base64))) {
+    if (packet.tag !== TAG_USER_ID) continue;
+    const email = extractEmail(bytesToUtf8(packet.body).trim());
+    if (email && !found.includes(email)) found.push(email);
+  }
+  return found;
+}
+
 /** The display name of a User ID ("Ada Lovelace <ada@…>" → "Ada Lovelace"), if any. */
 export function userIdDisplayName(userId: string): string | undefined {
   const m = userId.match(/^\s*(.+?)\s*<[^>]+>\s*$/);
