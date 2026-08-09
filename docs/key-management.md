@@ -105,9 +105,42 @@ learns that it has a key. That is stated before anything is uploaded, and
 declining is remembered rather than re-asked on every launch.
 
 VKS then emails a confirmation link and will not serve the key by address until
-it is opened. The app does not parse that mail; it asks the directory the same
-question a stranger would — *is this key served for this address yet?* — on each
-sync, and a yes is the confirmation, whichever device opened the link.
+it is opened. The app does not decide the state from that mail; it asks the
+directory the same question a stranger would — *is this key served for this
+address yet?* — on each sync, and a yes is the confirmation, whichever device
+opened the link.
+
+#### Opening the confirmation link from inside the app
+
+The link arrives in the very mailbox CryptMail is signed into. Sending the user
+to another mail client to finish something they started here is where the flow
+loses people, so while publication is `pending` the app looks for that email in
+the messages the last sync already returned and, if it finds it, offers **"Open
+the confirmation link"** on the pending card.
+
+It opens **directly**, with no confirmation sheet — unlike every other link in a
+message body ([security.md](security.md), client-side hardening). What justifies
+the difference is that `app/src/keys/verifyLink.ts` requires **all three** of:
+
+1. the sender is exactly `keyserver@keys.openpgp.org`;
+2. the body names **this device's own key fingerprint**;
+3. the URL's host is exactly `keys.openpgp.org` **and** its path starts
+   `/verify/`.
+
+Check 2 is what makes it safe: a `From:` line is forgeable, but a forger cannot
+name the fingerprint of a key that was generated on this device and has only just
+been uploaded. Check 3 is not decoration either — the genuine email also contains
+`https://keys.openpgp.org/about` and the bare domain, so "the first
+`keys.openpgp.org` URL in the body" picks the wrong one. Host parsing reads the
+text after the last `@`, so `https://keys.openpgp.org@evil.example/verify/x` is a
+request to `evil.example` and fails check 3. Plain `http` is refused as well: the
+verification token is the whole secret in this exchange.
+
+**Stated limitation.** It only sees the last twenty synced inbox messages, and it
+adds no search method to the provider seam — that seam is provider-agnostic, and
+one feature is not worth widening it. If the provider files the mail as spam or
+volume pushes it out of that window, the button simply does not appear and the
+existing copy ("open the link from your mail app") stands.
 
 #### The key must be v4, or it cannot be published at all
 
