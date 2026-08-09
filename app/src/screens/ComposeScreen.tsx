@@ -32,7 +32,17 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
  * are: add their key, or remove them.
  */
 export function ComposeScreen({ route, navigation }: Props) {
-  const { resolveRecipients, sendEncrypted, canSendEncrypted, drafts, saveDraft, deleteDraft, scheduleSend } = useApp();
+  const {
+    resolveRecipients,
+    discoverRecipients,
+    discovering,
+    sendEncrypted,
+    canSendEncrypted,
+    drafts,
+    saveDraft,
+    deleteDraft,
+    scheduleSend,
+  } = useApp();
   const insets = useSafeAreaInsets();
 
   // Resume an existing draft, or mint a fresh id for this compose session.
@@ -45,6 +55,8 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [body, setBody] = useState(existing?.body ?? '');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Set when the message was held for a key rather than delivered. */
+  const [queued, setQueued] = useState<string[] | null>(null);
   const toFocus = useFocus();
   const subjectFocus = useFocus();
   const bodyFocus = useFocus();
@@ -71,12 +83,29 @@ export function ComposeScreen({ route, navigation }: Props) {
     return () => clearTimeout(handle);
   }, [to, subject, body, draftId]);
 
+  // Look up anyone we hold no key for. The result lands in the keyring, which
+  // re-runs the memo below — so the "no key" state is what remains *after*
+  // asking the directory, not before.
+  const discoverRef = useRef(discoverRecipients);
+  discoverRef.current = discoverRecipients;
+  const addressKey = to.join(',');
+  useEffect(() => {
+    if (addressKey.length === 0) return;
+    void discoverRef.current(addressKey.split(','));
+  }, [addressKey]);
+
   const recipients = useMemo(() => resolveRecipients(to), [resolveRecipients, to]);
   const missing = recipients.filter((r) => r.status === 'missing');
   const changed = recipients.filter((r) => r.status === 'changed');
+  const looking = discovering.length > 0;
   const gate = canSendEncrypted();
 
-  const blocked = to.length === 0 || missing.length > 0 || changed.length > 0 || !gate.allowed;
+  // A missing key no longer blocks: the message is held and an invite goes out.
+  // A *changed* key still does — waiting cannot resolve a possible substitution.
+  const blocked = to.length === 0 || changed.length > 0 || looking || !gate.allowed;
+  // Only a real problem is coloured like one. Waiting on a lookup, or on a
+  // recipient who has yet to install anything, is not a warning.
+  const alarming = changed.length > 0 || !gate.allowed;
 
   const add = (candidates: string[]) =>
     setTo((prev) => {
@@ -143,9 +172,12 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await sendEncrypted({ to, subject: subject.trim() || '(no subject)', body });
+      const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body });
       await deleteDraft(draftId);
-      navigation.goBack();
+      // A held message has *not* been sent, and the screen does not get to
+      // close as if it had. It stays put and says what actually happened.
+      if (outcome.status === 'queued') setQueued(outcome.pending);
+      else navigation.goBack();
     } catch (e) {
       closingRef.current = false;
       setError(e instanceof Error ? e.message : String(e));
@@ -174,7 +206,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       keyboardVerticalOffset={90}
     >
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-        <Field label="To" focused={toFocus.focused} tone={missing.length + changed.length > 0 ? 'warn' : 'default'}>
+        <Field label="To" focused={toFocus.focused} tone={changed.length > 0 ? 'warn' : 'default'}>
           {recipients.length > 0 ? (
             <View style={s.chips}>
               {recipients.map((r) => (
@@ -233,25 +265,30 @@ export function ComposeScreen({ route, navigation }: Props) {
         radius={0}
         border="transparent"
         intensity={glass.blur.strong}
-        fill={blocked ? glass.fillWarn : glass.fillStrong}
-        style={[s.sendbar, blocked && s.sendbarWarn]}
+        fill={alarming ? glass.fillWarn : glass.fillStrong}
+        style={[s.sendbar, alarming && s.sendbarWarn]}
         contentStyle={[s.sendbarInner, { paddingBottom: insets.bottom + 14 }]}
       >
         <View style={s.status}>
           <Icon
-            name={blocked ? 'alert' : 'lock'}
+            name={alarming ? 'alert' : queued || missing.length > 0 ? 'clock' : 'lock'}
             size={17}
-            color={blocked ? color.coral : color.mint}
+            color={alarming ? color.coral : color.mint}
           />
-          <Text style={[s.statusText, { color: blocked ? color.coral : color.mintInk }]}>{statusLine()}</Text>
+          <Text style={[s.statusText, { color: alarming ? color.coral : color.mintInk }]}>{statusLine()}</Text>
         </View>
 
-        {missing.length > 0 ? (
+        {queued ? (
           <View style={s.fallbacks}>
-            <SecondaryButton title="Add their key" icon="key" onPress={() => navigation.navigate('Keys')} />
+            <SecondaryButton title="Done" icon="check" onPress={() => navigation.goBack()} />
+            <SecondaryButton title="See queued messages" icon="clock" onPress={() => navigation.navigate('Scheduled')} />
+          </View>
+        ) : changed.length > 0 ? (
+          <View style={s.fallbacks}>
+            <SecondaryButton title="Check their key" icon="key" onPress={() => navigation.navigate('Keys')} />
             <SecondaryButton
-              title={`Remove ${missing[0].email}`}
-              onPress={() => setTo(to.filter((t) => t !== missing[0].email))}
+              title={`Remove ${changed[0].email}`}
+              onPress={() => setTo(to.filter((t) => t !== changed[0].email))}
             />
           </View>
         ) : (
@@ -259,11 +296,15 @@ export function ComposeScreen({ route, navigation }: Props) {
             <PrimaryButton
               busy={sending}
               disabled={blocked}
-              icon="send"
+              icon={missing.length > 0 ? 'clock' : 'send'}
               onPress={() => void send()}
-              title={`Send encrypted${to.length > 1 ? ` to ${to.length}` : ''}`}
+              title={
+                missing.length > 0
+                  ? 'Encrypt and queue'
+                  : `Send encrypted${to.length > 1 ? ` to ${to.length}` : ''}`
+              }
             />
-            {!blocked ? (
+            {!blocked && missing.length === 0 ? (
               <View style={s.schedule}>
                 <Pressable accessibilityRole="button" onPress={() => setShowSchedule((v) => !v)} style={s.scheduleToggle}>
                   <Icon name="clock" size={14} color={color.inkDim} />
@@ -294,13 +335,17 @@ export function ComposeScreen({ route, navigation }: Props) {
   );
 
   function statusLine(): string {
-    if (to.length === 0) return 'Add a recipient. CryptMail only sends to people you hold a key for.';
-    if (missing.length > 0) {
-      const names = missing.map((r) => r.email).join(', ');
-      return `${names} ${missing.length > 1 ? 'have' : 'has'} no key — CryptMail will not send this as plaintext.`;
+    if (queued) {
+      return `Encrypted and queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
     }
+    if (to.length === 0) return 'Add a recipient. CryptMail encrypts every message it sends.';
+    if (looking) return `Looking up keys for ${discovering.join(', ')}…`;
     if (changed.length > 0) {
       return `${changed[0].email}'s key changed since you last saw it. Verify it before sending.`;
+    }
+    if (missing.length > 0) {
+      const names = missing.map((r) => r.email).join(', ');
+      return `No key published for ${names} yet. CryptMail will invite them and hold this message — encrypted, undelivered — until there is a key to send it to.`;
     }
     if (!gate.allowed) return gate.reason ?? 'Sending is disabled.';
     const verified = recipients.filter((r) => r.status === 'verified').length;
@@ -336,9 +381,9 @@ function RecipientChip({ state, onRemove }: { state: RecipientState; onRemove: (
         ? { tone: 'enc' as const, icon: 'lock' as const, label: 'key found' }
         : state.status === 'changed'
           ? { tone: 'warn' as const, icon: 'alert' as const, label: 'key changed' }
-          : { tone: 'warn' as const, icon: 'alert' as const, label: 'no key' };
+          : { tone: 'plain' as const, icon: 'clock' as const, label: 'will be invited' };
 
-  const warn = state.status === 'missing' || state.status === 'changed';
+  const warn = state.status === 'changed';
 
   return (
     <View style={[s.chip, warn && s.chipWarn]}>

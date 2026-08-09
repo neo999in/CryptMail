@@ -24,6 +24,15 @@ describe('adding a key', () => {
     expect(keyring[ANYA.email].verifiedAt).toBeUndefined();
   });
 
+  it('records a keyserver key as trusted on first use and nothing more', () => {
+    // A keyserver is a party that can hand out the wrong key. Nothing it says
+    // can amount to verification; only comparing a safety number does.
+    const keyring = upsertKey({}, ANYA, 'directory');
+    expect(keyring[ANYA.email].source).toBe('directory');
+    expect(keyring[ANYA.email].trust).toBe('seen');
+    expect(keyring[ANYA.email].verifiedAt).toBeUndefined();
+  });
+
   it('keeps the first-seen time when the same key is seen again', () => {
     const first = upsertKey({}, ANYA, 'autocrypt');
     const again = upsertKey(first, ANYA, 'autocrypt');
@@ -72,6 +81,48 @@ describe('when the fingerprint changes', () => {
     expect(upsertKey(verified, ANYA_ROTATED, 'autocrypt')[ANYA.email].fingerprint).toBe(
       ANYA_ROTATED.fingerprint,
     );
+  });
+
+  it('blocks the same way whether the key arrived by header or by keyserver', () => {
+    // Discovery makes this the common path: once every client fetches every
+    // key, a keyserver quietly swapping one is the attack that matters.
+    expect(upsertKey(verified, ANYA_ROTATED, 'directory')[ANYA.email].trust).toBe('changed');
+  });
+});
+
+/**
+ * Self-authenticated rotation (docs/key-management.md, "Key rotation").
+ *
+ * A key change signed by the key it replaces is something only its holder could
+ * produce, so it is a rotation and not a substitution. Without that signature
+ * the two are indistinguishable and rule 1 applies.
+ *
+ * Producing the evidence is a core operation and needs the Rust core; the trust
+ * transition it drives is here, tested, and every caller passes `none` today.
+ */
+describe('a key change that proves it is a rotation', () => {
+  const seen: Keyring = upsertKey({}, ANYA, 'autocrypt');
+
+  it('is accepted, and lands at trust-on-first-use', () => {
+    const after = upsertKey(seen, ANYA_ROTATED, 'autocrypt', undefined, { rotation: 'self-signed' });
+    expect(after[ANYA.email].trust).toBe('seen');
+    expect(after[ANYA.email].fingerprint).toBe(ANYA_ROTATED.fingerprint);
+  });
+
+  it('is not treated as verified — nobody compared the new safety number', () => {
+    const wasVerified: Keyring = {
+      [ANYA.email]: { ...seen[ANYA.email], trust: 'verified', verifiedAt: '2026-01-02T00:00:00.000Z' },
+    };
+    const after = upsertKey(wasVerified, ANYA_ROTATED, 'manual', undefined, { rotation: 'self-signed' });
+    expect(after[ANYA.email].trust).toBe('seen');
+    expect(after[ANYA.email].verifiedAt).toBeUndefined();
+  });
+
+  it('blocks when the evidence is absent, which is today’s behaviour', () => {
+    expect(upsertKey(seen, ANYA_ROTATED, 'autocrypt', undefined, { rotation: 'none' })[ANYA.email].trust).toBe(
+      'changed',
+    );
+    expect(upsertKey(seen, ANYA_ROTATED, 'autocrypt')[ANYA.email].trust).toBe('changed');
   });
 });
 
