@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -40,6 +40,7 @@ export function KeysScreen({ navigation }: Props) {
     keyring,
     recovery,
     directoryName,
+    verifyLink,
     publishStatus,
     publishOwnKey,
     declinePublish,
@@ -73,6 +74,25 @@ export function KeysScreen({ navigation }: Props) {
       setPublishError(e instanceof Error ? e.message : String(e));
     } finally {
       setPublishing(false);
+    }
+  };
+
+  /**
+   * Open the directory's own confirmation link, found in this mailbox.
+   *
+   * Directly, with no "are you sure" — unlike a link in a message body, which
+   * gets a confirmation sheet. The difference is what is known about it:
+   * `keys/verifyLink.ts` has already established the sender, that the mail names
+   * *this device's* fingerprint, and that the URL is a `/verify/` path on the
+   * keyserver itself. That is more than a human squinting at a URL can check.
+   */
+  const openVerifyLink = async () => {
+    if (!verifyLink) return;
+    setPublishError(null);
+    try {
+      await Linking.openURL(verifyLink);
+    } catch (e) {
+      setPublishError(`Could not open the confirmation link: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
 
@@ -213,9 +233,11 @@ export function KeysScreen({ navigation }: Props) {
           <Title>Publish your key</Title>
           {published === 'published' ? (
             <>
-              <Banner tone="ok" icon="shield">
-                Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
-              </Banner>
+              <View style={s.statusBanner}>
+                <Banner tone="ok" icon="shield">
+                  Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
+                </Banner>
+              </View>
               <Muted>
                 What is listed is your address and your public key. Nothing about your messages, and
                 nobody you correspond with.
@@ -223,14 +245,42 @@ export function KeysScreen({ navigation }: Props) {
             </>
           ) : published === 'pending' ? (
             <>
-              <Banner tone="warn" icon="clock">
-                Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
-                your key is stored but not served to anyone.
-              </Banner>
-              <Muted>
-                CryptMail checks on each sync and will notice once the link has been opened, on this
-                device or any other.
-              </Muted>
+              <View style={s.statusBanner}>
+                <Banner tone="warn" icon="clock">
+                  Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
+                  your key is stored but not served to anyone.
+                </Banner>
+              </View>
+              {verifyLink ? (
+                <>
+                  {/*
+                    The link came out of this mailbox, and CryptMail checked that
+                    it was sent by the keyserver, that it names this device's own
+                    fingerprint, and that it points at a /verify/ path on
+                    keys.openpgp.org — see keys/verifyLink.ts. Hence a button
+                    rather than "go and find the email".
+                  */}
+                  <Muted>
+                    The confirmation email is here. CryptMail checked that {directoryName} sent it and
+                    that it names this device&apos;s key.
+                  </Muted>
+                  <View style={s.row}>
+                    <PrimaryButton title="Open the confirmation link" icon="link" onPress={() => void openVerifyLink()} />
+                  </View>
+                </>
+              ) : (
+                <Muted>
+                  CryptMail checks on each sync and will notice once the link has been opened, on this
+                  device or any other. It also watches your recent inbox for the confirmation email —
+                  if your provider filed it as spam, or it has scrolled out of the last twenty
+                  messages, open the link from your mail app instead.
+                </Muted>
+              )}
+              {publishError ? (
+                <View style={{ marginTop: 12 }}>
+                  <Banner tone="warn" icon="alert">{publishError}</Banner>
+                </View>
+              ) : null}
             </>
           ) : (
             <>
@@ -449,6 +499,16 @@ const s = StyleSheet.create({
     lineHeight: 26,
     textAlign: 'center',
   },
+
+  /**
+   * A status banner sitting straight under a `Title`.
+   *
+   * `type.heading` carries no line-height, so the title's box is tight to its
+   * glyphs and a banner placed after it reads as touching — every other card
+   * puts a `Muted` in between, whose leading hides the gap. This is the same
+   * 12px the rest of the card is spaced on.
+   */
+  statusBanner: { marginBottom: 12, marginTop: 12 },
 
   row: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
   address: { ...type.meta, color: color.inkFaint, flex: 1 },
