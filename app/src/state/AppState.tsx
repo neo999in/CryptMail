@@ -1104,6 +1104,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * `sendEncrypted` may ever call this, and this never inspects the keyring —
    * consulting keys here would be the first step toward "encrypt if we can,
    * send clear if we can't", which is exactly the behaviour rule 1 forbids.
+   *
+   * It does still carry the sender's own `Autocrypt` header, which
+   * encryption.md requires of *every* outgoing message — "encrypted mail and
+   * the plaintext invite alike". Omitting it here was an oversight, and a
+   * costly one: a deliberately-unencrypted email is precisely the message that
+   * has to bootstrap, and without the header the recipient learns nothing about
+   * how to answer encrypted.
+   *
+   * That is not a crack in rule 1, and the difference is worth being exact
+   * about, because it decides how this is written. The invariant is not "the
+   * plaintext path touches no key material" — it is that **nothing here may
+   * branch on the recipient's key state**. Our own public key is attached
+   * unconditionally: nothing is read about the recipient, no decision is made
+   * from one, and the sentence above stays literally true.
    */
   const sendPlain = useCallback(
     async (input: { to: string[]; subject: string; body: string }) => {
@@ -1116,6 +1130,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           to: input.to,
           subject: input.subject,
           body: input.body,
+          // Undefined until the user has generated a key — being signed in
+          // without an identity is a real state, since setup is its own step —
+          // and `buildPlaintext` simply omits the header when it is.
+          autocryptKey: identityRef.current?.publicKeyArmored,
         }),
       );
       await refreshInbox();
