@@ -274,13 +274,22 @@ yours and you can take it out. Also a de-risking story for account loss.
 
 **Done when.** An export opens cleanly in Thunderbird.
 
-### 0.14 Sign-only / verify-only mode · Impact S · Effort S
+### 0.14 Sign-only / verify-only mode · Impact S · Effort S — ◐ partly built
 
 **What.** Send signed-but-unencrypted mail to recipients with no key.
 
 **Why.** The current fail-safe correctly refuses to send. A signed plaintext
 option is a middle path that never *pretends* to be private — but it must be an
 explicit, clearly-labelled choice, never a fallback the app takes on its own.
+
+**Built:** the *unsigned* half. Compose has an encrypted / not-encrypted mode
+chosen up front, and it is the only route to `sendPlain`
+([encryption.md](encryption.md), invite-and-queue). It is not a fallback: it
+never appears after a send is refused, and it consults no recipient key state.
+
+**Still open:** the signature. `CryptCore` ([app/src/core/types.ts](../app/src/core/types.ts))
+exposes `buildEncrypted` and nothing that signs without encrypting, so
+"signed only" is a third mode that cannot be built until the core grows one.
 
 **Done when.** The UI distinguishes "encrypted", "signed only", and "refused"
 without ambiguity, and signing never happens implicitly.
