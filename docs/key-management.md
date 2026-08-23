@@ -288,8 +288,8 @@ Three divergences from the plan above, all deliberate:
 2. **Device approval is not built.** See Multi-device below — it genuinely needs
    a server to coordinate, and it is marked optional there.
 
-3. **Recovery is offered before an identity is generated.** `AppState.attach`
-   used to generate one at sign-in, so a fresh device held a throwaway key by the
+3. **Recovery is offered before an identity is generated.** `attach`
+   (`app/src/state/session.ts`) used to generate one at sign-in, so a fresh device held a throwaway key by the
    time the user reached the Recovery screen, and restoring discarded it — a
    fingerprint change every correspondent saw, caused by the app, for nothing.
    It now loads an identity and stops. A signed-in account with no key lands on
