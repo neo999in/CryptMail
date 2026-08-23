@@ -20,7 +20,8 @@ assembles the envelope, Rust does only what must not happen in JavaScript.**
 
 ## Phase 0 — Identity, once per device
 
-`AppState.attach()` calls `core.loadIdentity(email) ?? core.generateIdentity(email)`.
+`attach()` (`app/src/state/session.ts`) calls `core.loadIdentity(email)`;
+generation is a separate, explicit step on the setup screen.
 
 In [`identity::generate`](../core/src/identity.rs), rPGP builds a **V6** key:
 
