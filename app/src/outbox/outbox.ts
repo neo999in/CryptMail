@@ -21,7 +21,7 @@
  * so a message can't leave a device that never reopens, and an awaiting-key hold
  * may wait days. docs/encryption.md records the intended fix (holding the
  * message as a self-addressed encrypted draft in the user's own mailbox). The
- * scheduler lives in state/AppState.tsx; persistence in store/outboxStore.ts.
+ * scheduler lives in state/scheduler.ts; persistence in store/outboxStore.ts.
  */
 import { Identity } from '../core';
 import { resolveRecipientStates } from '../state/recipients';
