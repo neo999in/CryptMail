@@ -49,7 +49,7 @@ docs(security): note the metadata that stays visible to the provider
 
 1. **No plaintext downgrade.** If a recipient has no usable key, sending must
    fail with an explanation. Never "send unencrypted just this once". This is
-   enforced in `sendEncrypted` in [app/src/state/AppState.tsx](app/src/state/AppState.tsx)
+   enforced in `sendEncrypted` in [app/src/state/send.ts](app/src/state/send.ts)
    and it holds in demo mode too.
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)
    base64-encodes; it does not encrypt. Never remove the `kind: 'demo'` reporting

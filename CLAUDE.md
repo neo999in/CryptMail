@@ -60,18 +60,38 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 ## Architecture
 
 ```
-screens/  ──▶  state/AppState.tsx  ──▶  core/    (crypto + PGP/MIME)
-                                   ──▶  mail/    (Gmail REST | demo fixtures)
-                                   ──▶  auth/    (Google OAuth PKCE | demo)
-                                   ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
-                                   ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
+screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
+                                ──▶  mail/    (Gmail REST | demo fixtures)
+                                ──▶  auth/    (Google OAuth PKCE | demo)
+                                ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
+                                ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
-[app/src/state/AppState.tsx](app/src/state/AppState.tsx) is a single React context
-that is the **only** place aware of all five subsystems. Screens never call a
-provider, the core, or a store directly — they call actions on `useApp()`. Keep
-that seam; it is what makes the demo/live swap and the future Rust core a
-drop-in.
+[app/src/state/](app/src/state/) is the **only** layer aware of all five
+subsystems. Screens never call a provider, the core, or a store directly — they
+call actions on `useApp()`. Keep that seam; it is what makes the demo/live swap
+and the future Rust core a drop-in.
+
+Inside it, React and the work are kept apart:
+
+- [app/src/state/AppState.tsx](app/src/state/AppState.tsx) is the React end —
+  the context, the two effects, and the object `useApp()` returns. Nothing else.
+- [app/src/state/store.ts](app/src/state/store.ts) holds the state. `patch()`
+  updates it **synchronously** and then re-renders, so async work that resumes
+  after an `await` reads current values through `store.get()` rather than a
+  render-time snapshot. Do not reintroduce `useRef` mirrors of state fields.
+- `session` · `mailbox` · `contacts` · `identity` · `publish` · `send` ·
+  `scheduler` · `drafts` are plain TypeScript service modules — no React, so
+  they are directly testable. Each takes a `Ctx` and reaches siblings through
+  `ctx.services.*` at call time, which is what lets a sync trigger a drain, a
+  drain deliver, and a delivery trigger a sync without ordering games.
+  [app/src/state/contracts.ts](app/src/state/contracts.ts) declares that surface;
+  [app/src/state/services.ts](app/src/state/services.ts) assembles it.
+
+Every action `useApp()` exposes is stable for the life of the app, *except*
+`encryptionFor`, `resolveRecipients` and `publishStatus`: screens read those
+during render and memoise on their identity, so they are re-created when the
+state they read changes. See [app/src/state/derive.ts](app/src/state/derive.ts).
 
 Two interfaces define the swappable edges:
 
@@ -115,7 +135,8 @@ device is ever stored.
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))
 stays synchronous and network-free because it decides whether a send is allowed.
-`discoverRecipients` in AppState fetches missing keys first, then delegates to it.
+`discoverRecipients` ([app/src/state/contacts.ts](app/src/state/contacts.ts))
+fetches missing keys first, then delegates to it.
 Directory keys land as `trust: 'seen'`, never `verified`.
 
 ## Rules that are not style preferences
@@ -132,8 +153,10 @@ These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
      once a key exists. The UI must say *queued*, never *sent*.
 
    Enforced in `deliver`/`sendEncrypted` in
-   [app/src/state/AppState.tsx](app/src/state/AppState.tsx), and it holds in demo
-   mode too. `sendPlain` is the user's separate, explicit choice to write an
+   [app/src/state/send.ts](app/src/state/send.ts) and covered by
+   [app/src/state/__tests__/send-test.ts](app/src/state/__tests__/send-test.ts),
+   which asserts it against the bytes a fake provider was handed. It holds in
+   demo mode too. `sendPlain` is the user's separate, explicit choice to write an
    unencrypted email; nothing on the encrypted path may reach it — including the
    invite, which builds its own message.
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)
@@ -208,3 +231,7 @@ Branch off `main` as `feat/…`, `fix/…`, `docs/…`; never commit straight to
 `main`. Conventional-ish commit subjects, imperative, one concern each:
 `feat(compose): block send when a recipient key changed fingerprint`. PRs need
 one review and the "does this touch the send path?" box filled in.
+
+[commit.md](commit.md) spells this out — identity, branch prefixes, subject
+format, and the pre-commit checks. It is gitignored and local-only, so it may
+not be present in every checkout.
