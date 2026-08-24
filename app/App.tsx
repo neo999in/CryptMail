@@ -36,6 +36,7 @@ import { AppearanceProvider } from './src/ui/appearance';
 import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
 import { DestinationProvider } from './src/ui/destination';
+import { ToastProvider } from './src/ui/ToastContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<InboxDrawerParamList>();
@@ -200,16 +201,18 @@ export default function App() {
         <AppearanceProvider>
           <AppProvider>
             <AppBackground>
-              {fontsLoaded ? (
-                <>
-                  <Root />
-                  <DialogHost />
-                </>
-              ) : (
-                <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-                  <ActivityIndicator color={defaultAccent} />
-                </View>
-              )}
+              <ToastProvider>
+                {fontsLoaded ? (
+                  <>
+                    <Root />
+                    <DialogHost />
+                  </>
+                ) : (
+                  <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                    <ActivityIndicator color={defaultAccent} />
+                  </View>
+                )}
+              </ToastProvider>
             </AppBackground>
           </AppProvider>
         </AppearanceProvider>
