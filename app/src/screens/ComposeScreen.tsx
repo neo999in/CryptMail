@@ -22,6 +22,7 @@ import { RecipientState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, type } from '../theme';
 import { Icon } from '../ui/Icon';
 import { Badge, Field, Glass, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
+import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
 
@@ -64,7 +65,9 @@ export function ComposeScreen({ route, navigation }: Props) {
     saveDraft,
     deleteDraft,
     scheduleSend,
+    cancelScheduled,
   } = useApp();
+  const { showToast } = useToast();
   const insets = useSafeAreaInsets();
 
   // Resume an existing draft, or mint a fresh id for this compose session.
@@ -235,17 +238,68 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
   };
 
+  /** How long the undo-send window lasts (ms). */
+  const UNDO_DELAY_MS = 5_000;
+
   const send = async () => {
     setSending(true);
     setError(null);
     closingRef.current = true;
     try {
-      const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
+      // Check recipient state first: a held message (queued for a key) goes
+      // through sendEncrypted directly — there is no undo for a message that
+      // will not leave until a key is found.
+      const states = await discoverRecipients(to);
+      const hasMissing = states.some((r) => r.status === 'missing');
+      const hasChanged = states.some((r) => r.status === 'changed');
+
+      if (hasChanged) {
+        // A changed key blocks outright — same as before.
+        const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
+        await deleteDraft(draftId);
+        if (outcome.status === 'queued') setQueued(outcome.pending);
+        else navigation.goBack();
+        return;
+      }
+
+      if (hasMissing) {
+        // Missing-key messages are held in the outbox with an invite; no undo
+        // window because the message stays local until a key arrives.
+        const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
+        await deleteDraft(draftId);
+        if (outcome.status === 'queued') setQueued(outcome.pending);
+        else navigation.goBack();
+        return;
+      }
+
+      // Happy path: schedule the send with a short delay for the undo window.
+      const sendAt = new Date(Date.now() + UNDO_DELAY_MS).toISOString();
+      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt });
       await deleteDraft(draftId);
-      // A held message has *not* been sent, and the screen does not get to
-      // close as if it had. It stays put and says what actually happened.
-      if (outcome.status === 'queued') setQueued(outcome.pending);
-      else navigation.goBack();
+      navigation.goBack();
+
+      // Capture what we need for the undo closure — the screen is about to
+      // unmount, so no setState is possible after this.
+      const undoData = { id: draftId, to: [...to], subject, body, inReplyTo, references };
+      showToast({
+        message: 'Sending message…',
+        actionLabel: 'Undo',
+        durationMs: UNDO_DELAY_MS,
+        onAction: () => {
+          void (async () => {
+            await cancelScheduled(undoData.id);
+            await saveDraft({
+              id: undoData.id,
+              to: undoData.to,
+              subject: undoData.subject,
+              body: undoData.body,
+              inReplyTo: undoData.inReplyTo,
+              references: undoData.references,
+              updatedAt: new Date().toISOString(),
+            });
+          })();
+        },
+      });
     } catch (e) {
       closingRef.current = false;
       setError(e instanceof Error ? e.message : String(e));

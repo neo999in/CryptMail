@@ -33,6 +33,7 @@ import { AppProvider, useApp } from './src/state/AppState';
 import { color, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { CategoryFilterProvider } from './src/ui/inboxFilter';
+import { ToastProvider } from './src/ui/ToastContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<InboxDrawerParamList>();
@@ -166,13 +167,15 @@ export default function App() {
         <StatusBar style="light" />
         <AppProvider>
           <AppBackground>
-            {fontsLoaded ? (
-              <Root />
-            ) : (
-              <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-                <ActivityIndicator color={color.brass} />
-              </View>
-            )}
+            <ToastProvider>
+              {fontsLoaded ? (
+                <Root />
+              ) : (
+                <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                  <ActivityIndicator color={color.brass} />
+                </View>
+              )}
+            </ToastProvider>
           </AppBackground>
         </AppProvider>
       </SafeAreaProvider>

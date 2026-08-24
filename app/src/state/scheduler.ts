@@ -41,6 +41,38 @@ export function createScheduler(ctx: Ctx): SchedulerService {
   const inFlight = new Set<string>();
   /** When the queue last asked the directory about its pending addresses. */
   let lastDirectoryRetry = 0;
+  /** One-shot timer for near-future sends (e.g. undo-send windows). */
+  let oneShotTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Ensure `run()` fires at or just after `sendAt` — even if the next 15 s
+   * scheduler tick would miss it. Harmless when `sendAt` is far away; essential
+   * for an undo-send window of 5 s.
+   */
+  function scheduleOneShot(sendAt: string) {
+    const delayMs = Math.max(0, new Date(sendAt).getTime() - Date.now());
+    // Only bother when the message would arrive before the next interval tick.
+    if (delayMs > 15_000) return;
+    // If an existing one-shot fires sooner, keep it — `run` is idempotent.
+    if (oneShotTimer !== null) return;
+    oneShotTimer = setTimeout(() => {
+      oneShotTimer = null;
+      void service.run();
+    }, delayMs + 50); // +50 ms so `dueScheduled(now)` includes this entry.
+  }
+
+  /** Clear any pending one-shot when a near-future send is cancelled. */
+  function clearOneShotIfEmpty() {
+    const scheduled = store.get().scheduled;
+    const now = Date.now();
+    const hasNearFuture = Object.values(scheduled).some(
+      (s) => holdReason(s) === 'time' && new Date(s.sendAt).getTime() - now < 15_000,
+    );
+    if (!hasNearFuture && oneShotTimer !== null) {
+      clearTimeout(oneShotTimer);
+      oneShotTimer = null;
+    }
+  }
 
   /** Drop entries that went out, against whatever the outbox holds *now*. */
   async function forget(ids: string[]) {
@@ -90,10 +122,12 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         inReplyTo: input.inReplyTo,
         references: input.references,
       });
+      scheduleOneShot(input.sendAt);
     },
 
     async cancelScheduled(id: string) {
       await forget([id]);
+      clearOneShotIfEmpty();
     },
 
     /**
