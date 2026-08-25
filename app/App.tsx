@@ -1,3 +1,4 @@
+import { createDrawerNavigator } from '@react-navigation/drawer';
 import { DarkTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useFonts } from 'expo-font';
@@ -13,14 +14,16 @@ import { SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from '@expo-google-fonts
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { RootStackParamList } from './src/navigation';
+import { InboxDrawerParamList, RootStackParamList } from './src/navigation';
 import { ComposeScreen } from './src/screens/ComposeScreen';
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { ConversationScreen } from './src/screens/ConversationScreen';
 import { DraftsScreen } from './src/screens/DraftsScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
+import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
@@ -29,8 +32,10 @@ import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
 import { color, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
+import { CategoryFilterProvider } from './src/ui/inboxFilter';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Drawer = createDrawerNavigator<InboxDrawerParamList>();
 
 // Transparent surfaces everywhere so the app's single ground colour shows
 // through every screen.
@@ -58,11 +63,33 @@ const screenOptions = {
   contentStyle: { backgroundColor: 'transparent' },
 } as const;
 
+/** The inbox lives behind a category drawer; every other screen is a stack push
+ *  on top, so the drawer gesture only applies to the inbox itself. */
+function InboxDrawer() {
+  return (
+    <Drawer.Navigator
+      drawerContent={(props) => <CategoryDrawer {...props} />}
+      screenOptions={{
+        headerShown: false,
+        drawerType: 'front',
+        drawerStyle: {
+          backgroundColor: color.ground,
+          borderRightColor: color.line,
+          borderRightWidth: 1,
+          width: 300,
+        },
+      }}
+    >
+      <Drawer.Screen name="Inbox" component={InboxScreen} />
+    </Drawer.Navigator>
+  );
+}
+
 /** The eight-screen UI — the only one. */
 function FullStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="Inbox" component={InboxScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Home" component={InboxDrawer} options={{ headerShown: false }} />
       <Stack.Screen name="Conversation" component={ConversationScreen} options={{ title: 'Conversation' }} />
       <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
       <Stack.Screen
@@ -103,9 +130,11 @@ function Root() {
   if (setupOpen) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
-    <NavigationContainer theme={navTheme}>
-      <FullStack />
-    </NavigationContainer>
+    <CategoryFilterProvider>
+      <NavigationContainer theme={navTheme}>
+        <FullStack />
+      </NavigationContainer>
+    </CategoryFilterProvider>
   );
 }
 
@@ -132,19 +161,21 @@ export default function App() {
   });
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <AppProvider>
-        <AppBackground>
-          {fontsLoaded ? (
-            <Root />
-          ) : (
-            <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-              <ActivityIndicator color={color.brass} />
-            </View>
-          )}
-        </AppBackground>
-      </AppProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <AppProvider>
+          <AppBackground>
+            {fontsLoaded ? (
+              <Root />
+            ) : (
+              <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                <ActivityIndicator color={color.brass} />
+              </View>
+            )}
+          </AppBackground>
+        </AppProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
