@@ -26,7 +26,8 @@ export type IconName =
   | 'edit'
   | 'star'
   | 'archive'
-  | 'clock';
+  | 'clock'
+  | 'menu';
 
 type Props = {
   name: IconName;
@@ -180,6 +181,8 @@ function glyph(name: IconName, p: object) {
           <Path d="M12 7.5V12l3 2" {...p} />
         </>
       );
+    case 'menu':
+      return <Path d="M4 7h16M4 12h16M4 17h16" {...p} />;
     default:
       return <Ellipse cx={12} cy={12} rx={8} ry={8} {...p} />;
   }

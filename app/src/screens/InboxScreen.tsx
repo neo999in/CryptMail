@@ -1,3 +1,5 @@
+import { DrawerScreenProps } from '@react-navigation/drawer';
+import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import { MotiView } from 'moti';
@@ -16,14 +18,16 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { appMode, cryptoMode, mailMode } from '../config';
+import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
 import { messageMatchesQuery } from '../search/search';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
-import { RootStackParamList } from '../navigation';
+import { InboxDrawerParamList, RootStackParamList } from '../navigation';
 import { Icon, IconName } from '../ui/Icon';
+import { useCategoryFilter } from '../ui/inboxFilter';
 import {
   Avatar,
   Badge,
@@ -40,7 +44,10 @@ import {
   useFocus,
 } from '../ui/primitives';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Inbox'>;
+type Props = CompositeScreenProps<
+  DrawerScreenProps<InboxDrawerParamList, 'Inbox'>,
+  NativeStackScreenProps<RootStackParamList>
+>;
 
 /** Filters that matter for this product: everything, protected, or needs a decision. */
 type Filter = 'all' | 'encrypted' | 'attention';
@@ -55,6 +62,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 export function InboxScreen({ navigation }: Props) {
   const { session, messages, loadingInbox, error, refreshInbox, encryptionFor, signOut, searchIndex, toggleStar } =
     useApp();
+  const { category, setCategory } = useCategoryFilter();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
@@ -71,10 +79,15 @@ export function InboxScreen({ navigation }: Props) {
     const visible = messages
       .map((summary) => ({ summary, encryption: encryptionFor(summary) }))
       .filter(({ summary, encryption }) => {
-        if (filter === 'encrypted' && encryption.kind !== 'encrypted') return false;
+        const encrypted = encryption.kind === 'encrypted';
+        if (filter === 'encrypted' && !encrypted) return false;
         if (filter === 'attention' && !needsAttention(encryption)) return false;
+        // The drawer's category filter reads only on-device content, exactly like
+        // search: categorizeMessage classifies unopened encrypted mail as 'primary'
+        // rather than reading its ciphertext (categorizer/categorizer.ts).
+        if (category !== null && categorizeMessage(summary, encrypted, searchIndex) !== category) return false;
         // Encrypted mail is matched on its decrypted content once opened (search/search.ts).
-        return messageMatchesQuery(summary, encryption.kind === 'encrypted', searchIndex, query);
+        return messageMatchesQuery(summary, encrypted, searchIndex, query);
       })
       .map((r) => r.summary);
 
@@ -92,7 +105,7 @@ export function InboxScreen({ navigation }: Props) {
       else buckets.set(bucket, [row]);
     }
     return [...buckets].map(([title, data]) => ({ title, data }));
-  }, [encryptionFor, filter, messages, query, searchIndex]);
+  }, [category, encryptionFor, filter, messages, query, searchIndex]);
 
   const unread = messages.filter((m) => m.unread).length;
   const attention = useMemo(
@@ -100,7 +113,7 @@ export function InboxScreen({ navigation }: Props) {
     [encryptionFor, messages],
   );
   const firstLoad = loadingInbox && messages.length === 0;
-  const filtering = query.trim().length > 0 || filter !== 'all';
+  const filtering = query.trim().length > 0 || filter !== 'all' || category !== null;
 
   const renderItem = useCallback(
     ({ item, index }: { item: { thread: Thread; encryption: EncryptionState }; index: number }) => (
@@ -139,6 +152,7 @@ export function InboxScreen({ navigation }: Props) {
         style={s.topbar}
       >
         <View style={s.header}>
+          <IconButton icon="menu" label="Categories" onPress={() => navigation.openDrawer()} />
           <Pressable
             accessibilityLabel="Account"
             accessibilityRole="button"
@@ -146,8 +160,12 @@ export function InboxScreen({ navigation }: Props) {
             style={({ pressed }) => [s.identity, pressed && { opacity: 0.7 }]}
           >
             <View style={s.titleRow}>
-              <Text style={s.headerTitle}>Inbox</Text>
-              {unread > 0 ? (
+              <Text numberOfLines={1} style={s.headerTitle}>
+                {category ? CATEGORY_LABELS[category] : 'Inbox'}
+              </Text>
+              {/* The count is the mailbox's total unread; beside a category label it
+                  would read as that category's count, so it only shows unfiltered. */}
+              {category === null && unread > 0 ? (
                 <View style={s.count}>
                   <Text style={s.countText}>{unread}</Text>
                 </View>
@@ -160,6 +178,11 @@ export function InboxScreen({ navigation }: Props) {
               <Icon name="chevron" size={11} color={color.inkFaint} />
             </View>
           </Pressable>
+          {/* A sibling of the identity button, never nested — clears the drawer's
+              category filter back to All mail. */}
+          {category !== null ? (
+            <IconButton icon="close" label="Show all mail" onPress={() => setCategory(null)} />
+          ) : null}
           <IconButton icon="edit" label="Drafts" onPress={() => navigation.navigate('Drafts')} />
           <IconButton icon="key" label="Keys" onPress={() => navigation.navigate('Keys')} />
           <IconButton icon="refresh" label="Refresh" onPress={() => void refreshInbox()} />
@@ -254,6 +277,7 @@ export function InboxScreen({ navigation }: Props) {
                     onPress={() => {
                       setQuery('');
                       setFilter('all');
+                      setCategory(null);
                     }}
                   />
                 }
