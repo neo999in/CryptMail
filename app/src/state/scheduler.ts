@@ -87,6 +87,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         body: input.body,
         sendAt: input.sendAt,
         reason: 'time',
+        inReplyTo: input.inReplyTo,
+        references: input.references,
       });
     },
 
@@ -117,6 +119,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         to: item.to,
         subject: item.subject,
         body: item.body,
+        inReplyTo: item.inReplyTo,
+        references: item.references,
       });
       if (outcome.status !== 'sent') return outcome;
       await forget([id]);
@@ -166,6 +170,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             to: item.to,
             subject: item.subject,
             body: item.body,
+            inReplyTo: item.inReplyTo,
+            references: item.references,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {
@@ -203,6 +209,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             to: item.to,
             subject: item.subject,
             body: item.body,
+            inReplyTo: item.inReplyTo,
+            references: item.references,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {
@@ -214,6 +222,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             to: item.to,
             subject: item.subject,
             body: item.body,
+            inReplyTo: item.inReplyTo,
+            references: item.references,
             updatedAt: new Date().toISOString(),
           });
         } finally {

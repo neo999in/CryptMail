@@ -71,10 +71,16 @@ export function ComposeScreen({ route, navigation }: Props) {
   const existing = route.params?.draftId ? drafts[route.params.draftId] : undefined;
   const draftId = useRef(route.params?.draftId ?? makeDraftId()).current;
 
-  const [to, setTo] = useState<string[]>(existing?.to ?? (route.params?.to ? [route.params.to] : []));
+  const [to, setTo] = useState<string[]>(existing?.to ?? route.params?.to ?? []);
   const [draft, setDraft] = useState('');
   const [subject, setSubject] = useState(existing?.subject ?? route.params?.subject ?? '');
-  const [body, setBody] = useState(existing?.body ?? '');
+  const [body, setBody] = useState(existing?.body ?? route.params?.quotedBody ?? '');
+  // Threading metadata for a reply/forward. Read-only for the life of this
+  // compose session — a reply's conversation is fixed the moment it opens — so
+  // it is derived, not state: from a resumed draft first, then the route params.
+  // It rides onto the wire (In-Reply-To/References) so the response threads.
+  const inReplyTo = existing?.inReplyTo ?? route.params?.inReplyTo;
+  const references = existing?.references ?? route.params?.references;
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Encrypted unless the user says otherwise, every time this screen opens. */
@@ -102,7 +108,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     const handle = setTimeout(() => {
       if (closingRef.current) return;
       if (isDraftEmpty({ to, subject, body })) void deleteDraftRef.current(draftId);
-      else void saveDraftRef.current({ id: draftId, to, subject, body, updatedAt: new Date().toISOString() });
+      else void saveDraftRef.current({ id: draftId, to, subject, body, inReplyTo, references, updatedAt: new Date().toISOString() });
     }, 600);
     return () => clearTimeout(handle);
   }, [to, subject, body, draftId]);
@@ -234,7 +240,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body });
+      const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
       await deleteDraft(draftId);
       // A held message has *not* been sent, and the screen does not get to
       // close as if it had. It stays put and says what actually happened.
@@ -257,7 +263,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await sendPlain({ to, subject: subject.trim() || '(no subject)', body });
+      await sendPlain({ to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
       await deleteDraft(draftId);
       navigation.goBack();
     } catch (e) {
@@ -272,7 +278,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, sendAt: sendAt.toISOString() });
+      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt: sendAt.toISOString() });
       await deleteDraft(draftId);
       navigation.goBack();
     } catch (e) {

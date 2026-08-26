@@ -26,7 +26,10 @@ export type IconName =
   | 'edit'
   | 'star'
   | 'archive'
-  | 'clock';
+  | 'clock'
+  | 'reply'
+  | 'reply-all'
+  | 'forward';
 
 type Props = {
   name: IconName;
@@ -178,6 +181,28 @@ function glyph(name: IconName, p: object) {
         <>
           <Circle cx={12} cy={12} r={9} {...p} />
           <Path d="M12 7.5V12l3 2" {...p} />
+        </>
+      );
+    case 'reply':
+      return (
+        <>
+          <Path d="M9 17 4 12l5-5" {...p} />
+          <Path d="M20 18v-2a4 4 0 0 0-4-4H4" {...p} />
+        </>
+      );
+    case 'reply-all':
+      return (
+        <>
+          <Path d="M7 17 2 12l5-5" {...p} />
+          <Path d="M12 17 7 12l5-5" {...p} />
+          <Path d="M22 18v-2a4 4 0 0 0-4-4H7" {...p} />
+        </>
+      );
+    case 'forward':
+      return (
+        <>
+          <Path d="M15 17 20 12l-5-5" {...p} />
+          <Path d="M4 18v-2a4 4 0 0 1 4-4h12" {...p} />
         </>
       );
     default:

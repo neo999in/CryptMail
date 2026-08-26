@@ -44,7 +44,15 @@ export type OpenedMessage = {
 export type SendOutcome = { status: 'sent' } | { status: 'queued'; pending: string[] };
 
 /** What a send asks for. The same shape a held message is replayed from. */
-export type SendInput = { id?: string; to: string[]; subject: string; body: string };
+export type SendInput = {
+  id?: string;
+  to: string[];
+  subject: string;
+  body: string;
+  /** Threading headers, emitted in the clear on the outer envelope (message-format.md). */
+  inReplyTo?: string;
+  references?: string[];
+};
 
 export type State = {
   booting: boolean;
@@ -136,7 +144,7 @@ export type Actions = {
    * encryption fails — see `sendPlain` in `state/send.ts` for why that
    * distinction is the whole of rule 1.
    */
-  sendPlain(input: { to: string[]; subject: string; body: string }): Promise<void>;
+  sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }): Promise<void>;
   canSendEncrypted(): { allowed: boolean; reason?: string };
   saveDraft(draft: Draft): Promise<void>;
   deleteDraft(id: string): Promise<void>;

@@ -91,6 +91,9 @@ export function buildEncryptedEnvelope(args: {
   /** Base64 `keydata` value for the Autocrypt header (the sender's public key). */
   autocryptKeydata?: string;
   messageId?: string;
+  /** Threading, in the clear — provider metadata, see message-format.md. */
+  inReplyTo?: string;
+  references?: string[];
 }): string {
   const boundary = `=-=-=cryptmail-${Math.random().toString(36).slice(2, 10)}=-=-=`;
   const date = (args.date ?? new Date()).toUTCString();
@@ -103,6 +106,8 @@ export function buildEncryptedEnvelope(args: {
     `Subject: ${PLACEHOLDER_SUBJECT}`,
     `Message-ID: ${messageId}`,
   ];
+  if (args.inReplyTo) headers.push(`In-Reply-To: ${args.inReplyTo}`);
+  if (args.references?.length) headers.push(`References: ${args.references.join(' ')}`);
   if (args.autocryptKeydata) {
     headers.push(autocryptHeaderLine(args.from, args.autocryptKeydata));
   }
@@ -188,6 +193,9 @@ export function buildPlaintext(args: {
   subject: string;
   body: string;
   autocryptKey?: string;
+  /** Threading, so an unencrypted reply still lands in its conversation. */
+  inReplyTo?: string;
+  references?: string[];
 }): string {
   const headers = [
     `From: ${args.from}`,
@@ -195,6 +203,8 @@ export function buildPlaintext(args: {
     `Date: ${new Date().toUTCString()}`,
     `Subject: ${args.subject}`,
   ];
+  if (args.inReplyTo) headers.push(`In-Reply-To: ${args.inReplyTo}`);
+  if (args.references?.length) headers.push(`References: ${args.references.join(' ')}`);
   if (args.autocryptKey) {
     headers.push(autocryptHeaderLine(args.from, autocryptKeydata(args.autocryptKey)));
   }

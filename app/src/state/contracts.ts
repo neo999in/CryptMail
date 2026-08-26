@@ -75,7 +75,7 @@ export type SendService = {
   /** Encrypt and send, or hold — never plaintext. The whole of rule 1 lives here. */
   deliver(input: SendInput): Promise<SendOutcome>;
   sendEncrypted(input: SendInput): Promise<SendOutcome>;
-  sendPlain(input: { to: string[]; subject: string; body: string }): Promise<void>;
+  sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }): Promise<void>;
 };
 
 export type SchedulerService = {
