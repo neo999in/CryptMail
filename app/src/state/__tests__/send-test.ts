@@ -257,3 +257,83 @@ describe('sendPlain', () => {
     expect(wire[0]).toContain('Autocrypt:');
   });
 });
+
+describe('deliver — threading rides on the wire (feature 0.7)', () => {
+  const THREADING = {
+    inReplyTo: '<orig-42@partner.com>',
+    references: ['<root-1@partner.com>', '<orig-42@partner.com>'],
+  };
+
+  it('emits In-Reply-To / References on the envelope while the real subject stays hidden', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendEncrypted({ ...MESSAGE, ...THREADING });
+
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).toContain('In-Reply-To: <orig-42@partner.com>');
+    expect(wire[0]).toContain('References: <root-1@partner.com> <orig-42@partner.com>');
+    // Threading is provider metadata and rides in the clear; the message itself
+    // still does not — the subject is the placeholder, the body absent.
+    expect(wire[0]).toContain(PLACEHOLDER_SUBJECT);
+    expect(wire[0]).not.toContain(MESSAGE.subject);
+    expect(wire[0]).not.toContain(MESSAGE.body);
+  });
+
+  it('threads a plaintext reply too', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendPlain({ ...MESSAGE, ...THREADING });
+
+    expect(wire[0]).toContain('In-Reply-To: <orig-42@partner.com>');
+    expect(wire[0]).toContain('References: <root-1@partner.com> <orig-42@partner.com>');
+  });
+});
+
+describe('deliver — Reply-All to a mix of keyed and keyless recipients (rule 1)', () => {
+  const REPLY_ALL = {
+    to: ['ada@example.com', 'stranger@example.com'],
+    subject: 'Re: Quarterly numbers',
+    body: 'Looping in the team.',
+    inReplyTo: '<orig-42@partner.com>',
+    references: ['<orig-42@partner.com>'],
+  };
+
+  it('holds the whole reply and preserves its threading, putting nothing in the clear', async () => {
+    // ada has a key; stranger does not — so the send is held for everyone, not
+    // split into "encrypt the ones we can". The reply must not go out plaintext.
+    const { services, store, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    const outcome = await services.send.sendEncrypted(REPLY_ALL);
+
+    expect(outcome).toEqual({ status: 'queued', pending: ['stranger@example.com'] });
+
+    const held = Object.values(store.get().scheduled);
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({
+      to: REPLY_ALL.to,
+      inReplyTo: REPLY_ALL.inReplyTo,
+      references: REPLY_ALL.references,
+      pending: ['stranger@example.com'],
+    });
+
+    // Only the contentless invite left the device — never the reply, and the
+    // invite is its own message, so it carries no thread headers.
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).not.toContain(REPLY_ALL.body);
+    expect(wire[0]).not.toContain('In-Reply-To:');
+  });
+
+  it('a changed key among the recipients blocks the whole reply outright', async () => {
+    const { services, store, wire } = harness({
+      keyring: {
+        'ada@example.com': contact(),
+        'stranger@example.com': contact({ email: 'stranger@example.com', trust: 'changed' }),
+      },
+    });
+
+    await expect(services.send.sendEncrypted(REPLY_ALL)).rejects.toThrow(/changed fingerprint/);
+
+    expect(wire).toEqual([]);
+    expect(store.get().scheduled).toEqual({});
+  });
+});

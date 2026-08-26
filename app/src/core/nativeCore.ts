@@ -185,6 +185,8 @@ export function getNativeCore(
         to: request.to,
         armored,
         autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+        inReplyTo: request.inReplyTo,
+        references: request.references,
       });
     },
 

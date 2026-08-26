@@ -92,7 +92,7 @@ export function createSend(ctx: Ctx): SendService {
      *    fingerprint is a possible key substitution, and waiting cannot resolve
      *    it; only a person re-verifying the key can.
      */
-    async deliver({ id, to, subject, body }: SendInput): Promise<SendOutcome> {
+    async deliver({ id, to, subject, body, inReplyTo, references }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
 
@@ -117,6 +117,8 @@ export function createSend(ctx: Ctx): SendService {
           sendAt: new Date().toISOString(),
           reason: 'awaiting-key',
           pending: missing,
+          inReplyTo,
+          references,
         });
         await sendInvites(missing);
         return { status: 'queued', pending: missing };
@@ -136,6 +138,8 @@ export function createSend(ctx: Ctx): SendService {
         // it.
         recipientKeys: [...new Set([...recipients.map((r) => r.key!.armored), identity.publicKeyArmored])],
         autocryptKey: identity.publicKeyArmored,
+        inReplyTo,
+        references,
       });
 
       await mail.current.send(rfc822);
@@ -172,7 +176,7 @@ export function createSend(ctx: Ctx): SendService {
      * unconditionally: nothing is read about the recipient, no decision is made
      * from one, and the sentence above stays literally true.
      */
-    async sendPlain(input: { to: string[]; subject: string; body: string }) {
+    async sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }) {
       const { session, identity } = store.get();
       if (!mail.current || !session) throw new Error('Not connected.');
       if (input.to.length === 0) throw new Error('Add a recipient first.');
@@ -187,6 +191,8 @@ export function createSend(ctx: Ctx): SendService {
           // without an identity is a real state, since setup is its own step —
           // and `buildPlaintext` simply omits the header when it is.
           autocryptKey: identity?.publicKeyArmored,
+          inReplyTo: input.inReplyTo,
+          references: input.references,
         }),
       );
       await ctx.services.mailbox.refreshInbox();

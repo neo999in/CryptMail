@@ -31,7 +31,16 @@ import { Keyring } from '../store/keyring';
 export type HoldReason = 'time' | 'awaiting-key';
 
 /** A message queued to send at a future time. */
-export type Scheduled = { id: string; to: string[]; subject: string; body: string; sendAt: string };
+export type Scheduled = {
+  id: string;
+  to: string[];
+  subject: string;
+  body: string;
+  sendAt: string;
+  /** Threading, carried so a drained hold still lands in its conversation. */
+  inReplyTo?: string;
+  references?: string[];
+};
 
 /** A queued message plus why it has not gone yet. */
 export type Held = Scheduled & {
