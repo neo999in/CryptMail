@@ -186,6 +186,13 @@ export function MessageScreen({ route, navigation }: Props) {
                 </View>
               </View>
 
+              {summary.to.length ? (
+                <Text numberOfLines={2} style={s.recipients}>
+                  <Text style={s.recipientsLabel}>To: </Text>
+                  {summary.to.join(', ')}
+                </Text>
+              ) : null}
+
               <View style={s.keyLine}>
                 <Icon
                   name={own || key ? 'key' : 'alert'}
@@ -478,6 +485,8 @@ const s = StyleSheet.create({
   sender: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 16 },
   senderName: { ...type.strong, color: color.ink },
   senderAddress: { ...type.meta, color: color.inkFaint, marginTop: 2 },
+  recipients: { ...type.meta, color: color.inkFaint, marginTop: 8 },
+  recipientsLabel: { color: color.inkDim, fontFamily: font.sansSemibold },
 
   keyLine: {
     alignItems: 'center',
