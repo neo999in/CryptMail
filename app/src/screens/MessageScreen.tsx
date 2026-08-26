@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
 import { hostOf, linkify } from '../lib/links';
+import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplySource } from '../mail/reply';
 import { RootStackParamList } from '../navigation';
 import { OpenedMessage, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
@@ -38,7 +39,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 
 /** Reading — restored subject, trust chip, and the provider's view on demand. */
 export function MessageScreen({ route, navigation }: Props) {
-  const { messages, openMessage, keyring, identity, toggleStar, archiveMessage, setUnread } = useApp();
+  const { messages, openMessage, keyring, identity, session, toggleStar, archiveMessage, setUnread } = useApp();
   const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -102,152 +103,206 @@ export function MessageScreen({ route, navigation }: Props) {
   const key = keyring[summary.from.address];
   const own = opened?.encryption.kind === 'encrypted' && !!opened.encryption.own;
 
+  // Reply/forward act on the decrypted message held in memory (`opened`), never
+  // a re-fetch. Self is the same canonical address `resolveRecipientStates`
+  // excludes, so a Reply-All never addresses you. Available for a readable
+  // message — encrypted or plain; a plain reply simply has no key yet, which the
+  // send path holds and invites, and is never a plaintext downgrade.
+  const self = identity?.email ?? session?.email ?? '';
+  const replySource: ReplySource | null =
+    opened && !opened.error
+      ? {
+          from: summary.from,
+          to: summary.to,
+          date: summary.date,
+          subject: opened.subject,
+          body: opened.body,
+          messageId: summary.messageId,
+          references: summary.references,
+        }
+      : null;
+  // Reply-All only earns its own button when it would reach anyone Reply wouldn't.
+  const showReplyAll =
+    !!replySource && replyAllRecipients(replySource, self).length > replyRecipients(replySource, self).length;
+
+  const composeReply = (kind: ReplyKind) => {
+    if (!replySource) return;
+    const d = buildReplyDraft(kind, replySource, self);
+    navigation.navigate('Compose', {
+      to: d.to,
+      subject: d.subject,
+      quotedBody: d.quotedBody,
+      inReplyTo: d.inReplyTo,
+      references: d.references,
+    });
+  };
+
   return (
-    <ScrollView style={s.screen} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
-      {!opened && !failure ? (
-        <View>
-          <View style={s.decryptingRow}>
-            <ActivityIndicator color={color.brass} size="small" />
-            <Text style={s.decrypting}>Decrypting on this device…</Text>
-          </View>
-          <View style={{ gap: 10, marginTop: 22 }}>
-            <Skeleton width="72%" height={20} radius={radius.xs} />
-            <Skeleton width={190} height={38} radius={radius.sm} />
-            <View style={{ gap: 8, marginTop: 10 }}>
-              <Skeleton width="100%" height={12} />
-              <Skeleton width="94%" height={12} />
-              <Skeleton width="60%" height={12} />
+    <View style={s.screen}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }} style={s.scroll}>
+        {!opened && !failure ? (
+          <View>
+            <View style={s.decryptingRow}>
+              <ActivityIndicator color={color.brass} size="small" />
+              <Text style={s.decrypting}>Decrypting on this device…</Text>
             </View>
-          </View>
-        </View>
-      ) : null}
-
-      {failure ? <Banner tone="warn" icon="alert">{failure}</Banner> : null}
-
-      {opened ? (
-        <>
-          {/* The authored moment: the message resolves top-down, as if it is
-              decrypting on this device line by line. */}
-          <Reveal delay={0}>
-            <StatusBanner opened={opened} />
-          </Reveal>
-
-          <Reveal delay={80}>
-            <Text style={s.subject}>{opened.subject}</Text>
-            <Text style={s.timestamp}>{relativeTime(summary.date)}</Text>
-          </Reveal>
-
-          <Reveal delay={160}>
-            <View style={s.sender}>
-              <Avatar seed={summary.from.address} label={initials(senderName)} size={38} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text numberOfLines={1} style={s.senderName}>
-                  {senderName}
-                </Text>
-                <Text numberOfLines={1} style={s.senderAddress}>
-                  {summary.from.address}
-                </Text>
+            <View style={{ gap: 10, marginTop: 22 }}>
+              <Skeleton width="72%" height={20} radius={radius.xs} />
+              <Skeleton width={190} height={38} radius={radius.sm} />
+              <View style={{ gap: 8, marginTop: 10 }}>
+                <Skeleton width="100%" height={12} />
+                <Skeleton width="94%" height={12} />
+                <Skeleton width="60%" height={12} />
               </View>
             </View>
+          </View>
+        ) : null}
 
-            <View style={s.keyLine}>
-              <Icon
-                name={own || key ? 'key' : 'alert'}
-                size={13}
-                color={!own && key?.trust === 'changed' ? color.coral : !own && !key ? color.inkFaint : color.mint}
-              />
-              {own ? (
-                <Text style={s.senderKey}>you · key {shortFingerprint(identity?.fingerprint ?? '')}</Text>
-              ) : key ? (
-                <Text style={[s.senderKey, key.trust === 'changed' && { color: color.coral }]}>
-                  {key.trust} · key {shortFingerprint(key.fingerprint)}
-                </Text>
+        {failure ? <Banner tone="warn" icon="alert">{failure}</Banner> : null}
+
+        {opened ? (
+          <>
+            {/* The authored moment: the message resolves top-down, as if it is
+                decrypting on this device line by line. */}
+            <Reveal delay={0}>
+              <StatusBanner opened={opened} />
+            </Reveal>
+
+            <Reveal delay={80}>
+              <Text style={s.subject}>{opened.subject}</Text>
+              <Text style={s.timestamp}>{relativeTime(summary.date)}</Text>
+            </Reveal>
+
+            <Reveal delay={160}>
+              <View style={s.sender}>
+                <Avatar seed={summary.from.address} label={initials(senderName)} size={38} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text numberOfLines={1} style={s.senderName}>
+                    {senderName}
+                  </Text>
+                  <Text numberOfLines={1} style={s.senderAddress}>
+                    {summary.from.address}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={s.keyLine}>
+                <Icon
+                  name={own || key ? 'key' : 'alert'}
+                  size={13}
+                  color={!own && key?.trust === 'changed' ? color.coral : !own && !key ? color.inkFaint : color.mint}
+                />
+                {own ? (
+                  <Text style={s.senderKey}>you · key {shortFingerprint(identity?.fingerprint ?? '')}</Text>
+                ) : key ? (
+                  <Text style={[s.senderKey, key.trust === 'changed' && { color: color.coral }]}>
+                    {key.trust} · key {shortFingerprint(key.fingerprint)}
+                  </Text>
+                ) : (
+                  <Text style={[s.senderKey, { color: color.inkFaint }]}>no key on this device</Text>
+                )}
+              </View>
+            </Reveal>
+
+            <Reveal delay={250}>
+              {opened.error ? (
+                <View style={{ marginBottom: 14 }}>
+                  <Banner tone="warn" icon="alert">{opened.error}</Banner>
+                </View>
               ) : (
-                <Text style={[s.senderKey, { color: color.inkFaint }]}>no key on this device</Text>
+                <Body text={opened.body} onLinkPress={setTappedLink} />
               )}
-            </View>
-          </Reveal>
+            </Reveal>
 
-          <Reveal delay={250}>
-            {opened.error ? (
-              <View style={{ marginBottom: 14 }}>
-                <Banner tone="warn" icon="alert">{opened.error}</Banner>
+            <Reveal delay={340}>
+              <View style={s.actions}>
+                <SecondaryButton
+                  title={showRaw ? 'Hide provider view' : 'What Gmail sees'}
+                  icon="search"
+                  onPress={() => setShowRaw((v) => !v)}
+                />
               </View>
-            ) : (
-              <Body text={opened.body} onLinkPress={setTappedLink} />
-            )}
-          </Reveal>
-
-          <Reveal delay={340}>
-            <View style={s.actions}>
-              <SecondaryButton
-                title="Reply"
-                icon="mail"
-                onPress={() =>
-                  navigation.navigate('Compose', {
-                    to: summary.from.address,
-                    subject: opened.subject.startsWith('Re:') ? opened.subject : `Re: ${opened.subject}`,
-                  })
-                }
-              />
-              <SecondaryButton
-                title={showRaw ? 'Hide provider view' : 'What Gmail sees'}
-                icon="search"
-                onPress={() => setShowRaw((v) => !v)}
-              />
-            </View>
-            <View style={s.actions}>
-              <SecondaryButton
-                title={summary.starred ? 'Starred' : 'Star'}
-                icon="star"
-                onPress={() => void toggleStar(summary.id)}
-              />
-              <SecondaryButton
-                title="Archive"
-                icon="archive"
-                onPress={() => {
-                  void archiveMessage(summary.id);
-                  navigation.goBack();
-                }}
-              />
-              <SecondaryButton
-                title="Mark unread"
-                icon="mail"
-                onPress={() => {
-                  void setUnread(summary.id, true);
-                  navigation.goBack();
-                }}
-              />
-            </View>
-          </Reveal>
-
-          {showRaw ? (
-            <Glass contentStyle={s.rawBlock} style={s.rawBlockOuter}>
-              <View style={s.rawHead}>
-                <Icon name="mail" size={13} color={color.inkFaint} />
-                <Text style={s.rawHeadText}>What Gmail / Outlook shows</Text>
-                <Pressable
-                  accessibilityLabel="Copy ciphertext"
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={() => void copyCipher()}
-                  style={({ pressed }) => [s.copyBtn, pressed && { backgroundColor: color.line }]}
-                >
-                  <Icon name={copied ? 'check' : 'copy'} size={12} color={copied ? color.mint : color.inkDim} />
-                  <Text style={[s.copyText, copied && { color: color.mint }]}>{copied ? 'Copied' : 'Copy'}</Text>
-                </Pressable>
+              <View style={s.actions}>
+                <SecondaryButton
+                  title={summary.starred ? 'Starred' : 'Star'}
+                  icon="star"
+                  onPress={() => void toggleStar(summary.id)}
+                />
+                <SecondaryButton
+                  title="Archive"
+                  icon="archive"
+                  onPress={() => {
+                    void archiveMessage(summary.id);
+                    navigation.goBack();
+                  }}
+                />
+                <SecondaryButton
+                  title="Mark unread"
+                  icon="mail"
+                  onPress={() => {
+                    void setUnread(summary.id, true);
+                    navigation.goBack();
+                  }}
+                />
               </View>
-              <Text style={s.ghostSubject}>Subject: {summary.subject}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <Text style={s.cipher}>{truncate(opened.raw)}</Text>
-              </ScrollView>
-            </Glass>
-          ) : null}
-        </>
+            </Reveal>
+
+            {showRaw ? (
+              <Glass contentStyle={s.rawBlock} style={s.rawBlockOuter}>
+                <View style={s.rawHead}>
+                  <Icon name="mail" size={13} color={color.inkFaint} />
+                  <Text style={s.rawHeadText}>What Gmail / Outlook shows</Text>
+                  <Pressable
+                    accessibilityLabel="Copy ciphertext"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => void copyCipher()}
+                    style={({ pressed }) => [s.copyBtn, pressed && { backgroundColor: color.line }]}
+                  >
+                    <Icon name={copied ? 'check' : 'copy'} size={12} color={copied ? color.mint : color.inkDim} />
+                    <Text style={[s.copyText, copied && { color: color.mint }]}>{copied ? 'Copied' : 'Copy'}</Text>
+                  </Pressable>
+                </View>
+                <Text style={s.ghostSubject}>Subject: {summary.subject}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <Text style={s.cipher}>{truncate(opened.raw)}</Text>
+                </ScrollView>
+              </Glass>
+            ) : null}
+          </>
+        ) : null}
+      </ScrollView>
+
+      {/* Pinned quick actions, Gmail-style. Shown for any readable message —
+          encrypted or plain. Replying to someone with no key is held and invited
+          by the send path (rule 1), never quietly downgraded to plaintext here. */}
+      {replySource ? (
+        <Glass
+          radius={0}
+          border="transparent"
+          intensity={glass.blur.strong}
+          fill={glass.fillStrong}
+          style={s.replybar}
+          contentStyle={[s.replybarInner, { paddingBottom: insets.bottom + 14 }]}
+        >
+          <View style={s.replyActions}>
+            <View style={{ flex: 1 }}>
+              <PrimaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
+            </View>
+            {showReplyAll ? (
+              <View style={{ flex: 1 }}>
+                <SecondaryButton title="Reply all" icon="reply-all" onPress={() => composeReply('replyAll')} />
+              </View>
+            ) : null}
+            <View style={{ flex: 1 }}>
+              <SecondaryButton title="Forward" icon="forward" onPress={() => composeReply('forward')} />
+            </View>
+          </View>
+        </Glass>
       ) : null}
 
       <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -414,6 +469,7 @@ const truncate = (raw: string, lines = 26) => {
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
+  scroll: { flex: 1 },
   decryptingRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   decrypting: { ...type.meta, color: color.inkFaint, fontSize: 12 },
 
@@ -486,6 +542,14 @@ const s = StyleSheet.create({
   plainText: { color: color.inkDim, flex: 1, fontFamily: font.sans, fontSize: 12.5 },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 16 },
+
+  replybar: {
+    borderTopColor: glass.hairline,
+    borderTopWidth: 1,
+    ...shadow.sheet,
+  },
+  replybarInner: { paddingHorizontal: 16, paddingTop: 14 },
+  replyActions: { flexDirection: 'row', gap: 9 },
 
   rawBlockOuter: { marginTop: 16 },
   rawBlock: { padding: 14 },

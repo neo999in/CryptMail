@@ -168,6 +168,8 @@ export const demoCore: CryptCore = {
       to: request.to,
       armored: armor(payload),
       autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+      inReplyTo: request.inReplyTo,
+      references: request.references,
     });
   },
 
