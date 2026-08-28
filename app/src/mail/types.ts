@@ -1,7 +1,9 @@
 /**
- * Provider connector contract (architecture.md §2). The prototype ships one
- * real implementation (Gmail REST) and one demo implementation; everything
- * above this line is provider-agnostic.
+ * Provider connector contract (architecture.md §2). The app ships one real
+ * implementation, Gmail REST; everything above this line is provider-agnostic,
+ * which is what Outlook and IMAP will arrive through in Phase 1. The `'demo'`
+ * kind is retained for the fixture client under `mail/__tests__/`, which is a
+ * test double and no longer reachable from the app.
  */
 
 export type MailSummary = {

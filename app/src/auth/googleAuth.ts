@@ -16,11 +16,25 @@ import {
   isSuccessResponse,
 } from '@react-native-google-signin/google-signin';
 
-import { GMAIL_SCOPES, GOOGLE_WEB_CLIENT_ID, hasGoogleClient } from '../config';
+import { canUseGmail, GMAIL_SCOPES, GOOGLE_WEB_CLIENT_ID, mailUnavailableReason } from '../config';
 import { describeError, isPermanentAuthFailure } from './revocation';
 import { AuthError, AuthProvider, Session } from './types';
 
 let configured = false;
+
+/**
+ * Refuse early, with the reason, when Gmail cannot be reached on this build.
+ *
+ * Two causes — no client id, and no Play-services module (the web build) — and
+ * both used to be answered by handing back a fixture mailbox instead. That is
+ * the one thing this must not do: an unconfigured app that shows a working inbox
+ * has told the user something false. `mailUnavailableReason()` owns the wording
+ * so the Connect screen can state the same fix before the button is pressed.
+ */
+function requireConfigured() {
+  const reason = mailUnavailableReason();
+  if (reason) throw new AuthError(reason, 'not-configured');
+}
 
 function configure() {
   if (configured) return;
@@ -96,12 +110,7 @@ export const googleAuth: AuthProvider = {
   provider: 'gmail',
 
   async signIn(): Promise<Session> {
-    if (!hasGoogleClient) {
-      throw new AuthError(
-        'No Google client id is configured (EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).',
-        'not-configured',
-      );
-    }
+    requireConfigured();
     configure();
     await requirePlayServices();
 
@@ -113,7 +122,10 @@ export const googleAuth: AuthProvider = {
   },
 
   async restore(): Promise<Session | null> {
-    if (!hasGoogleClient) return null;
+    // Boot, not a user action: "not configured" is a normal state to launch in
+    // and must land on the Connect screen, not on an error the user cannot act
+    // on there. `signIn` is where it becomes a message.
+    if (!canUseGmail) return null;
     configure();
 
     const response = await signInSilentlyShared();
@@ -122,11 +134,15 @@ export const googleAuth: AuthProvider = {
   },
 
   async signOut(): Promise<void> {
+    // Nothing to sign out of if sign-in could never have run, and calling
+    // `configure()` without a client id throws inside the library.
+    if (!canUseGmail) return;
     configure();
     await GoogleSignin.signOut();
   },
 
   async freshAccessToken(): Promise<string> {
+    requireConfigured();
     configure();
     // `signInSilently` returns either a success or `noSavedCredentialFound`;
     // ruling the latter out is what narrows it, since `isSuccessResponse` is

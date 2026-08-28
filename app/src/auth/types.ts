@@ -1,4 +1,9 @@
-export type Provider = 'gmail' | 'outlook' | 'imap' | 'demo';
+/**
+ * `'demo'` is gone: there was a fixture auth provider handing out a fabricated
+ * identity, and it is what made an unconfigured build look signed-in. Outlook and
+ * IMAP stay because they are Phase 1 and the screens already name them.
+ */
+export type Provider = 'gmail' | 'outlook' | 'imap';
 
 export type Session = {
   provider: Provider;

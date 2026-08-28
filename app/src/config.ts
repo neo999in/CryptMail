@@ -1,25 +1,29 @@
 /**
  * Prototype configuration.
  *
- * Two capabilities, decided independently at startup:
+ * **Gmail is the only mailbox.** There is no fixture mail path in the app: the
+ * mail capability is not a mode any more, it is the product. What remains
+ * conditional is whether Gmail can be *reached* — a client id has to be
+ * configured and Play-services sign-in has to exist on this platform — and when
+ * it cannot, the app says so and sign-in fails. It does not substitute dummy
+ * mail, which was the previous behaviour and is exactly the silent downgrade
+ * this file exists to prevent: a user cannot tell a fixture inbox from a real
+ * one by looking at it.
  *
- *  · mail   — `gmail` when a Google client id is configured *and* Play-services
- *             sign-in is available, else `demo` fixtures.
+ * That leaves one capability decided at startup:
+ *
  *  · crypto — `real` when the native core is linked, else the non-cryptographic
  *             `demo` stand-in.
  *
- * These were once a single `appMode` requiring *both*, which meant a valid
- * OAuth client still yielded demo fixtures until the Rust core existed — so
- * M3/M4 (Gmail transport) could not be commissioned before M5/M6 (encryption),
- * the opposite of the ordering prototype-plan.md argues for. Splitting them
- * lets transport be proven on its own, so that when an encrypted send later
- * fails you already know the transport works.
- *
- * `appMode` is retained as the conjunction: 'live' means the product claim
- * holds end to end — real mail *and* real crypto.
+ * Mail and crypto were once a single `appMode` requiring *both*, which meant a
+ * valid OAuth client still yielded demo fixtures until the Rust core existed —
+ * so M3/M4 (Gmail transport) could not be commissioned before M5/M6
+ * (encryption), the opposite of the ordering prototype-plan.md argues for. With
+ * mail no longer switchable, `cryptoMode` alone carries the product claim:
+ * `real` means the encryption is real, and the mailbox already is.
  *
  * Set the client id in an `.env` file at the app root (Expo reads EXPO_PUBLIC_*
- * at build time):
+ * at build time, so Metro must be restarted after a change):
  *
  *   EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=xxxxx.apps.googleusercontent.com
  */
@@ -62,26 +66,48 @@ export const hasNativeCore = core.kind === 'native';
  */
 export const hasSignInModule = typeof GoogleSignin?.configure === 'function';
 
-export type MailMode = 'gmail' | 'demo';
 export type CryptoMode = 'real' | 'demo';
 export type AppMode = 'live' | 'demo';
 
-/** Real mailbox or fixtures. Independent of whether the crypto is real. */
-export const mailMode: MailMode = hasGoogleClient && hasSignInModule ? 'gmail' : 'demo';
+/**
+ * Whether a real Gmail sign-in can be attempted at all.
+ *
+ * Both halves are configuration, not product modes: a missing client id and a
+ * platform without Play services are the two reasons sign-in cannot run, and
+ * `mailUnavailableReason()` names whichever applies. Neither one produces
+ * fixture mail — the mailbox is always Gmail.
+ */
+export const canUseGmail = hasGoogleClient && hasSignInModule;
 
-/** Real encryption or the encoded stand-in. Independent of where mail comes from. */
+/** Real encryption or the encoded stand-in. Independent of the mailbox. */
 export const cryptoMode: CryptoMode = hasNativeCore ? 'real' : 'demo';
 
-/** Both halves real — the only configuration in which the product claim holds. */
-export const appMode: AppMode = mailMode === 'gmail' && cryptoMode === 'real' ? 'live' : 'demo';
+/**
+ * Whether the product claim holds end to end.
+ *
+ * Mail is real by construction now, so this tracks the crypto alone. Kept as its
+ * own name because it is what the UI asks — "is anything here still a stand-in?"
+ * — and because the answer will change again when the native core lands.
+ */
+export const appMode: AppMode = cryptoMode === 'real' ? 'live' : 'demo';
 
 /**
- * Why the app is not fully live — shown to the user rather than hidden.
+ * Why a Gmail sign-in cannot be attempted, or null when it can.
  *
- * Each half is reported separately, because "real Gmail, fake crypto" and
- * "fake mail, real crypto" are both useful configurations during the build and
- * mean very different things for the user's safety.
+ * Shown on the Connect screen *before* the button is pressed, because the
+ * alternative is a sign-in that fails with a library error the user cannot act
+ * on. This is a setup problem with a specific fix, and it is stated as one.
  */
+export function mailUnavailableReason(): string | null {
+  if (!hasGoogleClient) {
+    return 'No Google OAuth client is configured. Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in app/.env and restart Metro.';
+  }
+  if (!hasSignInModule) {
+    return 'Gmail sign-in needs Google Play services, which this platform does not have. Run the Android build rather than web.';
+  }
+  return null;
+}
+
 /**
  * Why local data is not fully protected at rest, or null when it is.
  *
@@ -101,16 +127,14 @@ export function storageReason(): string | null {
   }
 }
 
+/**
+ * Why the app is not fully live, or null when it is.
+ *
+ * Only the crypto can be a stand-in now, and this is the sentence that says so.
+ * The mailbox is real whenever there is one at all, so a *reachability* problem
+ * is a different sentence with a different fix — see `mailUnavailableReason()`.
+ */
 export function demoReason(): string | null {
   if (appMode === 'live') return null;
-  if (cryptoMode === 'demo' && mailMode === 'demo') {
-    return 'Demo mode: the Rust crypto core (M2) and Google OAuth client (M3) are not wired up yet.';
-  }
-  if (cryptoMode === 'demo') {
-    return 'Real Gmail, demo crypto: the native core is not linked, so nothing is really encrypted.';
-  }
-  if (hasGoogleClient && !hasSignInModule) {
-    return 'Demo mailbox: Google sign-in needs Play services, which this platform does not have, so mail is served from fixtures.';
-  }
-  return 'Real encryption, demo mailbox: no Google OAuth client is configured, so mail is served from fixtures.';
+  return 'Demo crypto: the native core is not linked, so nothing is really encrypted. Your mail is real.';
 }

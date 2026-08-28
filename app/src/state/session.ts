@@ -5,14 +5,13 @@ import { auth, Session } from '../auth';
 import { needsReauth } from '../auth/types';
 import { core, Identity } from '../core';
 import { Drafts } from '../drafts/drafts';
-import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
-import { Keyring, loadKeyring, saveKeyring, upsertKey } from '../store/keyring';
+import { Keyring, loadKeyring } from '../store/keyring';
 import { loadOutbox } from '../store/outboxStore';
 import { loadPublishState, PublishState } from '../store/publishStore';
 import { loadRecoveryState, RecoveryState } from '../store/recoveryStore';
@@ -41,6 +40,14 @@ export function createSession(ctx: Ctx): SessionService {
   /**
    * Connect the provider and load everything this account owns on this device.
    *
+   * The mailbox is Gmail, unconditionally. It used to branch on
+   * `session.provider === 'demo'` and build a fixture client, and it also seeded
+   * two fabricated contacts into an empty keyring so the inbox would show every
+   * trust state in the design. Both are gone: a keyring the user did not build is
+   * indistinguishable from one they did, which for a key-trust UI is the worst
+   * possible kind of fiction. A fresh account now starts with an empty keyring and
+   * fills it from Autocrypt headers and the directory, as it does in use.
+   *
    * It deliberately does **not** generate an identity. A fresh device that mints
    * a throwaway key before the user has been offered "restore from your recovery
    * code" leaves them restoring over a key their correspondents may already have
@@ -48,27 +55,10 @@ export function createSession(ctx: Ctx): SessionService {
    * Generation is a decision the user makes on the setup screen.
    */
   async function attach(session: Session): Promise<Attached> {
-    mail.current =
-      session.provider === 'demo'
-        ? await createDemoMailClient(session.email)
-        : createGmailClient(session.email, auth.freshAccessToken);
+    mail.current = createGmailClient(session.email, auth.freshAccessToken);
 
     const identity = await core.loadIdentity(session.email);
-
-    let keyring = await loadKeyring();
-    // Seeded only for the demo core. `demoContactKeys` are `fakePublicKey()`
-    // armor, which a real OpenPGP parser rejects — feeding them to a native
-    // core throws, leaving an error banner and an *empty* keyring, so
-    // encrypted send would be blocked for every recipient. Demo mail with a
-    // real core is handled in `demoMail.ts`; see the note there.
-    if (session.provider === 'demo' && core.kind === 'demo' && Object.keys(keyring).length === 0) {
-      // Seed the demo keyring so the inbox shows every trust state in the design:
-      // Anya verified, Jordan trusted-on-first-use, the newsletter sender unknown.
-      keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.anya), 'manual', demoContacts.anya.name);
-      keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.jordan), 'autocrypt', demoContacts.jordan.name);
-      keyring[demoContacts.anya.email] = { ...keyring[demoContacts.anya.email], trust: 'verified' };
-      await saveKeyring(keyring);
-    }
+    const keyring: Keyring = await loadKeyring();
 
     return {
       identity,

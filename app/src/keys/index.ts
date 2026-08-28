@@ -1,20 +1,18 @@
 /**
  * The key directory seam.
  *
- * One interface, two implementations — the same shape as the mail and crypto
- * seams, and for the same reason: a demo build must be able to walk the whole
- * discovery flow without a network, and must never hand a real keyserver the
- * addresses a user is typing into a fixture mailbox.
+ * One interface, one implementation: `keys.openpgp.org` first, WKD second. The
+ * interface stays because it is the seam WKD-only or enterprise directories would
+ * arrive through, and because `listedAt` is what the publish-consent copy names —
+ * a screen must never hard-code where a user's key is being uploaded.
  *
- * | | demo | live |
- * |---|---|---|
- * | Trigger | demo mailbox (`mailMode === 'demo'`) | real Gmail |
- * | Lookup | in-memory fixtures | `keys.openpgp.org`, then WKD |
+ * It used to select an in-memory fixture directory whenever the mailbox was a
+ * fixture one. With Gmail the only mailbox there is no such build, and the rule
+ * that gating protected — never hand a real keyserver the addresses typed into a
+ * demo — is satisfied by there being no demo to type into.
  *
  * Screens never touch this — `AppState` does (CLAUDE.md rule 5).
  */
-import { mailMode } from '../config';
-import { demoDirectory } from './demoDirectory';
 import { DiscoveryResult, PublishOutcome } from './discovery';
 import { vksDirectory } from './vksDirectory';
 
@@ -27,7 +25,7 @@ export interface KeyDirectory {
   publish(armored: string, email: string): Promise<{ status: PublishOutcome }>;
 }
 
-export const directory: KeyDirectory = mailMode === 'gmail' ? vksDirectory : demoDirectory;
+export const directory: KeyDirectory = vksDirectory;
 
 export { DiscoveryError } from './discovery';
 export type { DiscoveryResult, DiscoverySource, PublishOutcome } from './discovery';
