@@ -63,6 +63,9 @@ export type BuildRequest = {
   recipientKeys: string[];
   /** Sender's public key, emitted as an Autocrypt header. */
   autocryptKey?: string;
+  /** Threading headers, emitted in the clear on the outer envelope (message-format.md). */
+  inReplyTo?: string;
+  references?: string[];
 };
 
 /** The result of decrypting a PGP/MIME message: protected headers restored. */
