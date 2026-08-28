@@ -2,7 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,8 +18,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
 import { hostOf, linkify } from '../lib/links';
+import { verdictFor } from '../categorizer/categorizer';
 import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplySource } from '../mail/reply';
 import { RootStackParamList } from '../navigation';
+import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
 import { OpenedMessage, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon } from '../ui/Icon';
@@ -39,7 +41,21 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 
 /** Reading — restored subject, trust chip, and the provider's view on demand. */
 export function MessageScreen({ route, navigation }: Props) {
-  const { messages, openMessage, keyring, identity, session, toggleStar, archiveMessage, setUnread } = useApp();
+  const {
+    messages,
+    openMessage,
+    keyring,
+    identity,
+    session,
+    toggleStar,
+    archiveMessage,
+    setUnread,
+    searchIndex,
+    encryptionFor,
+    spam,
+    markSpam,
+    markNotSpam,
+  } = useApp();
   const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -49,6 +65,27 @@ export function MessageScreen({ route, navigation }: Props) {
   const [tappedLink, setTappedLink] = useState<string | null>(null);
 
   const summary = messages.find((m) => m.id === route.params.id);
+
+  /**
+   * The filter's verdict for this message.
+   *
+   * Recomputed through `verdictFor` — the same function the inbox and the drawer
+   * badges use — so the notice here cannot disagree with the category the row was
+   * filed under. The one difference is `links`: once the message is open its
+   * anchor `href`/label pairs exist, and a link whose text lies about its host is
+   * evidence the inbox row never had.
+   */
+  const verdict = useMemo(() => {
+    if (!summary) return null;
+    return verdictFor(summary, encryptionFor(summary).kind === 'encrypted', searchIndex, {
+      model: spam.model,
+      marks: spam.marks,
+      selfAddress: session?.email,
+      links: opened?.links,
+    });
+  }, [encryptionFor, opened?.links, searchIndex, session?.email, spam, summary]);
+
+  const mark = summary ? spam.marks[summary.id] : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -166,6 +203,7 @@ export function MessageScreen({ route, navigation }: Props) {
                 decrypting on this device line by line. */}
             <Reveal delay={0}>
               <StatusBanner opened={opened} />
+              <SpamNotice verdict={verdict} />
             </Reveal>
 
             <Reveal delay={80}>
@@ -250,6 +288,17 @@ export function MessageScreen({ route, navigation }: Props) {
                     void setUnread(summary.id, true);
                     navigation.goBack();
                   }}
+                />
+                {/* One button, because the useful action is always the opposite of
+                    what the filter currently believes. It files the message and
+                    trains the personal model; it deliberately does not archive or
+                    delete — removing mail from the mailbox is a different action
+                    with a different button. */}
+                <SecondaryButton
+                  title={mark === 'spam' ? 'Not spam' : 'Mark as spam'}
+                  icon={mark === 'spam' ? 'check' : 'alert'}
+                  tone={mark === 'spam' ? 'default' : 'danger'}
+                  onPress={() => void (mark === 'spam' ? markNotSpam(summary.id) : markSpam(summary.id))}
                 />
               </View>
             </Reveal>
@@ -469,6 +518,56 @@ function StatusBanner({ opened }: { opened: OpenedMessage }) {
   );
 }
 
+/**
+ * Why this message was flagged — or nothing at all.
+ *
+ * Silent for legitimate mail, which is the common case and must stay quiet. When
+ * it does speak it says *which rules fired*, because a warning a reader cannot
+ * check is a warning they learn to dismiss. Phishing and spam get different
+ * wording deliberately: one is a message trying to impersonate someone, the other
+ * is mail the reader did not ask for, and collapsing them into one scary banner
+ * would waste the distinction the engine works to draw.
+ *
+ * An explicit mark short-circuits the engine, so `overridden` is reported as the
+ * user's own decision rather than dressed up as a detection.
+ */
+function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
+  if (!verdict) return null;
+
+  if (verdict.overridden) {
+    if (verdict.classification !== 'spam') return null;
+    return (
+      <View style={{ marginBottom: 15 }}>
+        <Banner tone="warn" icon="alert">You marked this message as spam.</Banner>
+      </View>
+    );
+  }
+
+  if (!isUnwanted(verdict)) return null;
+
+  const phishing = verdict.classification === 'phishing-suspicious';
+  const why = reasons(verdict, 3);
+
+  return (
+    <View style={{ marginBottom: 15 }}>
+      <Banner tone="warn" icon="alert">
+        {phishing
+          ? 'This message may be impersonating someone. Do not enter passwords or payment details from it.'
+          : 'This looks like spam.'}
+      </Banner>
+      {why.length > 0 ? (
+        <View style={s.spamReasons}>
+          {why.map((reason) => (
+            <Text key={reason} style={s.spamReason}>
+              · {reason}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const truncate = (raw: string, lines = 26) => {
   const all = raw.split('\n');
   return all.length <= lines ? raw : [...all.slice(0, lines), `…  (${all.length - lines} more lines)`].join('\n');
@@ -551,6 +650,9 @@ const s = StyleSheet.create({
   plainText: { color: color.inkDim, flex: 1, fontFamily: font.sans, fontSize: 12.5 },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 16 },
+
+  spamReasons: { gap: 3, marginTop: 8, paddingHorizontal: 4 },
+  spamReason: { color: color.inkDim, fontFamily: font.sans, fontSize: 12 },
 
   replybar: {
     borderTopColor: glass.hairline,

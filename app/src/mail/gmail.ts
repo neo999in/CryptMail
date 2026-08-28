@@ -51,7 +51,13 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
             // `Autocrypt` rides along with the rest: it is cleartext, and asking
             // for it here is what lets the sync harvest senders' keys without
             // fetching a single message body.
-            `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Autocrypt&metadataHeaders=Message-ID&metadataHeaders=References`,
+            //
+            // The four envelope headers after it are for the spam engine, and they
+            // are cheap for the same reason: `format=metadata` returns headers
+            // only, so requesting more of them adds no body bytes and no extra
+            // round trip. Gmail simply omits any header a message did not carry,
+            // which is why every one is optional on `MailSummary`.
+            `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Autocrypt&metadataHeaders=Message-ID&metadataHeaders=References&metadataHeaders=Reply-To&metadataHeaders=Authentication-Results&metadataHeaders=List-Unsubscribe&metadataHeaders=Return-Path`,
           ),
         ),
       );
@@ -123,6 +129,10 @@ function toSummary(message: GmailMessage): MailSummary {
     messageId: header('Message-ID') || undefined,
     references: header('References') || undefined,
     autocrypt: header('Autocrypt') || undefined,
+    replyTo: header('Reply-To') || undefined,
+    authenticationResults: header('Authentication-Results') || undefined,
+    listUnsubscribe: header('List-Unsubscribe') || undefined,
+    returnPath: header('Return-Path') || undefined,
   };
 }
 

@@ -10,10 +10,12 @@ import { Draft, Drafts } from '../drafts/drafts';
 import { MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
+import type { LinkPair } from '../spam/spam';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState, PublishStatus } from '../store/publishStore';
 import { RecoveryState } from '../store/recoveryStore';
+import { SpamState } from '../store/spamModelStore';
 import { RecipientState } from './recipients';
 
 export type EncryptionState =
@@ -31,6 +33,17 @@ export type OpenedMessage = {
   decrypted: DecryptedMessage | null;
   /** Raw source — the ciphertext the provider stores. Shown in "what Gmail sees". */
   raw: string;
+  /**
+   * Anchor `href`/label pairs from the message's HTML part, when it had one.
+   *
+   * Only ever the *readable* HTML: the body of a plaintext message, never the
+   * ciphertext of an encrypted one. Extracted by a bounded scan that reads markup
+   * and never renders or executes it (`spam/urls.ts`), and passed to the spam
+   * engine so the message view can warn about a link whose visible text names one
+   * site and whose destination is another — which is invisible in the flattened
+   * text the reader sees.
+   */
+  links?: LinkPair[];
   error?: string;
 };
 
@@ -92,6 +105,15 @@ export type State = {
   drafts: Drafts;
   /** Messages queued to send at a future time. */
   scheduled: ScheduledOutbox;
+  /**
+   * The personal spam model and the user's own spam/not-spam marks.
+   *
+   * Part of state because the inbox categorises rows during render, and both
+   * halves change the answer: a mark decides one message outright, and training
+   * shifts every score. Screens never read the model itself — they pass it
+   * through `categorizeMessage`.
+   */
+  spam: SpamState;
   messages: MailSummary[];
   loadingInbox: boolean;
   error: string | null;
@@ -158,4 +180,18 @@ export type Actions = {
    * longer in the outbox — and throws when a recipient's key changed.
    */
   sendScheduledNow(id: string): Promise<SendOutcome | null>;
+  /**
+   * Move a message to spam, and teach the filter from it.
+   *
+   * Both marks do two things that must not come apart: they record the user's
+   * decision for *this* message, which overrides any score, and they train the
+   * personal model so similar mail is scored differently next time. Learning is
+   * persisted, so it survives a restart.
+   *
+   * Only content this device can actually read is learned from — the same
+   * boundary the categoriser enforces. Marking an unopened encrypted message
+   * records the mark and trains on its cleartext headers alone.
+   */
+  markSpam(id: string): Promise<void>;
+  markNotSpam(id: string): Promise<void>;
 };

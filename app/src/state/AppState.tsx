@@ -120,6 +120,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       scheduleSend: services.scheduler.scheduleSend,
       cancelScheduled: services.scheduler.cancelScheduled,
       sendScheduledNow: services.scheduler.sendScheduledNow,
+      markSpam: services.mailbox.markSpam,
+      markNotSpam: services.mailbox.markNotSpam,
     }),
     [state, services, encryptionFor, resolveRecipients, publishStatus],
   );

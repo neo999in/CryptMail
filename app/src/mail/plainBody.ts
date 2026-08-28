@@ -93,6 +93,24 @@ function boundaryOf(contentType: string): string | null {
 }
 
 /**
+ * The sub-parts of a multipart, split on its boundary.
+ *
+ * Empty when the `Content-Type` declares no boundary — a malformed multipart has
+ * no children to find, which is not an error worth raising to a reader.
+ */
+function childrenOf(part: Part): Part[] {
+  const boundary = boundaryOf(part.headers['content-type'] ?? '');
+  if (!boundary) return [];
+
+  return part.body
+    .replace(/\r\n/g, '\n')
+    .split(new RegExp(`^--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(--)?[ \t]*$`, 'm'))
+    .slice(1, -1)
+    .filter((section) => section != null && section.trim() !== '' && section !== '--')
+    .map((section) => split(section.replace(/^\n/, '')));
+}
+
+/**
  * The best readable text in a part, descending through nested multiparts.
  *
  * Returns null when a branch holds nothing renderable — an attachment-only
@@ -102,16 +120,9 @@ function readable(part: Part): string | null {
   const contentType = part.headers['content-type'] ?? 'text/plain';
 
   if (/^multipart\//i.test(contentType)) {
-    const boundary = boundaryOf(contentType);
-    if (!boundary) return null;
+    const parts = childrenOf(part);
+    if (parts.length === 0) return null;
 
-    const sections = part.body
-      .replace(/\r\n/g, '\n')
-      .split(new RegExp(`^--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(--)?[ \t]*$`, 'm'))
-      .slice(1, -1)
-      .filter((section) => section != null && section.trim() !== '' && section !== '--');
-
-    const parts = sections.map((section) => split(section.replace(/^\n/, '')));
     // text/plain wins over text/html wherever both exist, which is the whole
     // point of multipart/alternative.
     const plain = parts.find((p) => /^text\/plain/i.test(p.headers['content-type'] ?? 'text/plain'));
@@ -141,4 +152,36 @@ export function plainBodyOf(raw: string): string {
   const message = split(raw);
   const found = readable(message);
   return found ?? message.body.trim();
+}
+
+/**
+ * The decoded `text/html` part of a message, or `''` when it has none.
+ *
+ * `plainBodyOf` deliberately flattens HTML to text, which destroys the one thing
+ * an anchor is: a pairing of visible label and destination. That pairing is the
+ * evidence behind the strongest phishing signal the spam engine has, so it is
+ * exposed here as markup and read — never rendered, never executed — by
+ * `spam/urls.ts`'s bounded `extractLinks` scan.
+ *
+ * Decoding happens through the same `decodeBody` path as the text branch, which
+ * matters: quoted-printable soft breaks and `=3D` escapes would otherwise split
+ * `href` attributes in half and hide exactly the links worth reading.
+ */
+export function htmlOf(raw: string): string {
+  const found = firstHtml(split(raw));
+  return found ?? '';
+}
+
+/** The first `text/html` part in a tree, descending through multiparts. */
+function firstHtml(part: Part): string | null {
+  const contentType = part.headers['content-type'] ?? 'text/plain';
+
+  if (/^text\/html/i.test(contentType)) return decodeBody(part);
+  if (!/^multipart\//i.test(contentType)) return null;
+
+  for (const child of childrenOf(part)) {
+    const found = firstHtml(child);
+    if (found !== null && found !== '') return found;
+  }
+  return null;
 }
