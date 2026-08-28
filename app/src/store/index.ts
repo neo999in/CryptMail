@@ -18,6 +18,7 @@ import { OUTBOX_STORE_KEY } from './outboxStore';
 import { PUBLISH_STORE_KEY } from './publishStore';
 import { RECOVERY_STORE_KEY } from './recoveryStore';
 import { SEARCH_STORE_KEY } from './searchIndex';
+import { SPAM_STORE_KEY } from './spamModelStore';
 
 /** Every store whose contents are sealed. Order is irrelevant; completeness is not. */
 export const SEALED_STORE_KEYS = [
@@ -28,6 +29,7 @@ export const SEALED_STORE_KEYS = [
   RECOVERY_STORE_KEY,
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
+  SPAM_STORE_KEY,
 ];
 
 /**

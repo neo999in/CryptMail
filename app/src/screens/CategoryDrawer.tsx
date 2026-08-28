@@ -10,8 +10,9 @@
  *
  * Counts come from `unreadCountsByCategory`, which honours the encryption
  * boundary: unopened encrypted mail is never classified from its ciphertext, so
- * it counts under Primary until the user opens it. Spam stays at zero while
- * `checkIsSpam` is a stub.
+ * it counts under Primary until the user opens it. The Spam count is the spam
+ * engine's verdict plus any message the user marked themselves, which is why the
+ * personal model and the marks are passed through.
  */
 import { DrawerContentComponentProps, DrawerContentScrollView } from '@react-navigation/drawer';
 import React, { useMemo } from 'react';
@@ -33,7 +34,7 @@ const CATEGORY_ICON: Record<Category, IconName> = {
 };
 
 export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
-  const { messages, searchIndex, encryptionFor } = useApp();
+  const { messages, searchIndex, encryptionFor, spam, session } = useApp();
   const { category, setCategory } = useCategoryFilter();
 
   const counts = useMemo(() => {
@@ -41,8 +42,12 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
       summary,
       encrypted: encryptionFor(summary).kind === 'encrypted',
     }));
-    return unreadCountsByCategory(items, searchIndex);
-  }, [messages, searchIndex, encryptionFor]);
+    return unreadCountsByCategory(items, searchIndex, {
+      model: spam.model,
+      marks: spam.marks,
+      selfAddress: session?.email,
+    });
+  }, [messages, searchIndex, encryptionFor, spam, session?.email]);
 
   const total = messages.filter((m) => m.unread).length;
 

@@ -16,6 +16,7 @@
  * one read path.
  */
 import { directory } from '../keys';
+import { emptySpamState } from '../store/spamModelStore';
 import { State } from './types';
 
 export type Store = {
@@ -41,6 +42,7 @@ export function initialState(): State {
     searchIndex: {},
     drafts: {},
     scheduled: {},
+    spam: emptySpamState(),
     messages: [],
     loadingInbox: false,
     error: null,
