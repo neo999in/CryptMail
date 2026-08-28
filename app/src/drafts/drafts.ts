@@ -12,7 +12,14 @@
  */
 
 /** The editable content of a draft. */
-export type DraftFields = { to: string[]; subject: string; body: string };
+export type DraftFields = {
+  to: string[];
+  subject: string;
+  body: string;
+  /** Threading for a reply draft, so resuming it still lands in the conversation. */
+  inReplyTo?: string;
+  references?: string[];
+};
 
 /** A stored draft: content plus identity and last-edited time. */
 export type Draft = DraftFields & { id: string; updatedAt: string };

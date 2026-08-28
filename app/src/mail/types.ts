@@ -17,6 +17,14 @@ export type MailSummary = {
   unread: boolean;
   starred: boolean;
   /**
+   * The message's own `Message-ID`, and its `References` header verbatim.
+   *
+   * Cleartext threading metadata (message-format.md) — captured so a reply can
+   * emit `In-Reply-To`/`References` and land in the same conversation.
+   */
+  messageId?: string;
+  references?: string;
+  /**
    * Raw `Autocrypt` header value, when the message carried one.
    *
    * Cleartext, so it costs one extra metadata header per message and lets the
