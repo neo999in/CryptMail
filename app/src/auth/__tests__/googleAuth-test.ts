@@ -14,6 +14,8 @@ const mockSignInSilently = jest.fn();
 const mockGetTokens = jest.fn();
 const mockSignOut = jest.fn();
 const mockHasPlayServices = jest.fn(async (..._a: unknown[]) => true);
+/** Swapped per-test so the unconfigured build can be exercised too. */
+const mockUnavailableReason = jest.fn<string | null, []>(() => null);
 
 jest.mock('@react-native-google-signin/google-signin', () => ({
   GoogleSignin: {
@@ -31,7 +33,10 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
 jest.mock('../../config', () => ({
   GOOGLE_WEB_CLIENT_ID: 'web-client-id',
   GMAIL_SCOPES: ['openid', 'email', 'https://www.googleapis.com/auth/gmail.modify'],
-  hasGoogleClient: true,
+  get canUseGmail() {
+    return mockUnavailableReason() === null;
+  },
+  mailUnavailableReason: () => mockUnavailableReason(),
 }));
 
 import { googleAuth } from '../googleAuth';
@@ -40,6 +45,7 @@ const USER = { type: 'success', data: { user: { email: 'Alice@Example.com' }, id
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockUnavailableReason.mockReturnValue(null);
   mockGetTokens.mockResolvedValue({ accessToken: 'at-1', idToken: 'id' });
 });
 
@@ -60,6 +66,46 @@ describe('signIn', () => {
   it('names Play services when it is unavailable, rather than crashing', async () => {
     mockHasPlayServices.mockRejectedValueOnce(new Error('no play services'));
     await expect(googleAuth.signIn()).rejects.toThrow(/play services/i);
+  });
+});
+
+/**
+ * An unconfigured build has no mailbox, and must say so.
+ *
+ * This replaced a fixture auth provider that handed back a fabricated identity
+ * whenever no client id was set — so a missing `.env` produced a signed-in app
+ * full of invented mail, which a user cannot tell from the real thing. The
+ * asymmetry between the three methods is the design: `signIn` is a user action and
+ * owes them the reason, `restore` is boot and must land quietly on the Connect
+ * screen, and `signOut` must not reach into a library that was never configured.
+ */
+describe('when Gmail cannot be reached on this build', () => {
+  const unconfigured = 'No Google OAuth client is configured. Set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in app/.env.';
+
+  beforeEach(() => {
+    mockUnavailableReason.mockReturnValue(unconfigured);
+  });
+
+  it('refuses an interactive sign-in with the reason, and never prompts', async () => {
+    await expect(googleAuth.signIn()).rejects.toMatchObject({
+      code: 'not-configured',
+      message: unconfigured,
+    });
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it('restores to signed-out rather than erroring at boot', async () => {
+    await expect(googleAuth.restore()).resolves.toBeNull();
+    expect(mockSignInSilently).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mint a token, naming the same reason', async () => {
+    await expect(googleAuth.freshAccessToken()).rejects.toMatchObject({ code: 'not-configured' });
+  });
+
+  it('signs out without calling a library it never configured', async () => {
+    await expect(googleAuth.signOut()).resolves.toBeUndefined();
+    expect(mockSignOut).not.toHaveBeenCalled();
   });
 });
 

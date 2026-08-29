@@ -58,7 +58,7 @@ jest.mock('../../store/inviteStore', () => ({
 }));
 
 const SESSION: Session = {
-  provider: 'demo',
+  provider: 'gmail',
   email: 'me@example.com',
   accessToken: 'token',
   expiresAt: Date.now() + 3_600_000,

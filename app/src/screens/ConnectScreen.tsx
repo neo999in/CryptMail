@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthError } from '../auth';
-import { demoReason, mailMode } from '../config';
+import { demoReason, mailUnavailableReason } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
@@ -32,6 +32,10 @@ export function ConnectScreen() {
   };
 
   const reason = demoReason();
+  // Stated before the button is pressed, not after it fails: "no client id" and
+  // "no Play services" are setup problems with a named fix, and a sign-in that
+  // dies on a library error tells the user none of it.
+  const unavailable = mailUnavailableReason();
 
   return (
     <ScrollView
@@ -62,9 +66,10 @@ export function ConnectScreen() {
         <ProviderButton
           glyph="G"
           tint={color.coral}
-          label={mailMode === 'demo' ? 'Continue with demo mailbox' : 'Continue with Gmail'}
+          label="Continue with Gmail"
           onPress={connect}
           busy={busy}
+          disabled={unavailable !== null}
         />
         <ProviderButton glyph="⊞" tint="#6DB0FF" label="Continue with Outlook" disabled note="Phase 1" />
         <ProviderButton glyph="@" tint={color.inkDim} label="Other (IMAP / SMTP)" disabled note="Phase 1" />
@@ -75,6 +80,12 @@ export function ConnectScreen() {
             Sign-in uses OAuth — we never see your password, and your private key never leaves this device.
           </Text>
         </View>
+
+        {unavailable ? (
+          <View style={{ marginTop: 14 }}>
+            <Callout>{unavailable}</Callout>
+          </View>
+        ) : null}
 
         {reason ? (
           <View style={{ marginTop: 14 }}>

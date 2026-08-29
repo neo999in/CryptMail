@@ -84,7 +84,7 @@ function harness(over: Partial<State> = {}) {
     {
       ...initialState(),
       booting: false,
-      session: { provider: 'demo', email: 'me@example.com', accessToken: 't', expiresAt: Date.now() + 3_600_000 },
+      session: { provider: 'gmail', email: 'me@example.com', accessToken: 't', expiresAt: Date.now() + 3_600_000 },
       messages: [JUNK],
       ...over,
     },

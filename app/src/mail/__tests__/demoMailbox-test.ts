@@ -1,12 +1,20 @@
 /**
- * The demo mailbox has to stay honest about which core is loaded.
+ * The fixture mailbox, and the spam-filter regressions it exists for.
  *
- * Its encrypted fixtures are `demoCore` output encrypted to `fakePublicKey()`
- * armor. A real core rejects the keys as malformed and cannot decrypt the
- * ciphertext, so serving those rows against a native core produces an inbox
- * whose messages fail to open. See the note at the top of `demoMail.ts`.
+ * The mailbox itself is no longer a product code path — Gmail is the only
+ * mailbox — so `demoMailbox.ts` now lives beside this file as a test fixture.
+ * What is being protected here is the filter, in both directions, on the same
+ * `MailSummary` shape `mail/gmail.ts` produces: these rows carry `Reply-To`,
+ * `Authentication-Results`, `List-Unsubscribe` and `Return-Path` exactly as
+ * `toSummary` does, which is what makes a verdict reached here evidence about the
+ * live Gmail path rather than about a fixture.
+ *
+ * The first two suites keep the fixture set coherent: its encrypted messages are
+ * `demoCore` output encrypted to `fakePublicKey()` armor, which a real core
+ * rejects as malformed, so the builder must not offer them when a native core is
+ * loaded.
  */
-import { createDemoMailClient, DEMO_ADDRESS } from '../demoMail';
+import { createDemoMailClient, DEMO_ADDRESS } from './demoMailbox';
 import { demoCore } from '../../core/demoCore';
 import { categorizeMessage, verdictFor } from '../../categorizer/categorizer';
 import { PLACEHOLDER_SUBJECT } from '../../core';
@@ -39,7 +47,7 @@ describe('with a real core', () => {
 
   it('still round-trips a message the real core sends itself', async () => {
     // The Sent path is untouched by the gating: whatever the active core
-    // produces goes into the mailbox verbatim, which is the demo that matters.
+    // produces goes into the mailbox verbatim.
     const { client } = await inbox(false);
     const rfc822 = await demoCore.buildEncrypted({
       from: DEMO_ADDRESS,
@@ -56,13 +64,13 @@ describe('with a real core', () => {
 });
 
 /**
- * The three filter fixtures exist so a regression in either direction is visible
- * in the demo inbox itself. Nothing asserted them, which is how `demo-bulk` came
- * to sit in Primary: the row's `snippet` was the first non-blank body line —
- * "Dear valued customer," — so the prize and payment wording two lines below it
- * was never scored, and the fixture documented as bulk mail was classified on four
- * words of salutation. Gmail's own `snippet` is a flattened prefix of the body, so
- * the demo now builds the same shape.
+ * The three filter fixtures exist so a regression in either direction fails a
+ * test. Nothing asserted them once, which is how `demo-bulk` came to sit in
+ * Primary: the row's `snippet` was the first non-blank body line — "Dear valued
+ * customer," — so the prize and payment wording two lines below it was never
+ * scored, and the fixture documented as bulk mail was classified on four words of
+ * salutation. Gmail's own `snippet` is a flattened prefix of the body, so the
+ * fixture builds the same shape.
  *
  * These assert the *row*, exactly as `InboxScreen` and the drawer badges compute
  * it — not a hand-built input — because that is the path the mistake was on.

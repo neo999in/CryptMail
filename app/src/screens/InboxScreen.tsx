@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { appMode, cryptoMode, mailMode } from '../config';
+import { appMode } from '../config';
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
@@ -203,15 +203,12 @@ export function InboxScreen({ navigation }: Props) {
         {appMode === 'demo' ? (
           <View style={s.demoStrip}>
             <Icon name="alert" size={13} color={color.brass} />
-            {/* Name the half that is fake — "real Gmail, demo crypto" and its
-                inverse mean very different things for the user's safety. */}
-            <Text style={s.demoText}>
-              {cryptoMode === 'demo' && mailMode === 'demo'
-                ? 'DEMO MODE · fixtures, no real encryption'
-                : cryptoMode === 'demo'
-                  ? 'DEMO CRYPTO · real mailbox, nothing is really encrypted'
-                  : 'DEMO MAILBOX · real encryption, fixture mail'}
-            </Text>
+            {/* The mail is real, so only the crypto can be a stand-in — and
+                saying so is CLAUDE.md rule 2. Never present demo output as
+                secure, and never remove this strip while `cryptoMode` is
+                'demo': it is the only thing on the inbox that tells the user
+                their mail is not actually encrypted. */}
+            <Text style={s.demoText}>DEMO CRYPTO · real mailbox, nothing is really encrypted</Text>
           </View>
         ) : null}
 
