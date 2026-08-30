@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "app.cryptmail.prototype",
+      "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0C0F14",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -1,5 +1,6 @@
 package app.cryptmail.core
 
+import android.util.Log
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
@@ -42,12 +43,28 @@ class CryptMailCoreModule : Module() {
     val context = appContext.reactContext
       ?: throw CodedException("unavailable", "No Android context is available.", null)
 
+    val passphrase = KeystorePassphrase.get(context)
+
+    // App-private storage. Not `getExternalFilesDir`: the secret key is
+    // S2K-encrypted, but external storage is world-readable on older devices
+    // and included in some backup paths.
+    val storage = context.filesDir.resolve("cryptmail-core")
+
+    // The passphrase that locked whatever is in here is gone, so the secret key
+    // in it can never be opened again — see `KeystorePassphrase.get`. Leaving
+    // the files would be worse than deleting them: `load_identity` reads only
+    // the public half, so the app would show a healthy identity and then fail
+    // every send and every decryption with no explanation. Clearing them puts
+    // the user on the setup screen, where "restore from your recovery code" is
+    // the offer that actually helps.
+    if (passphrase.reset && storage.exists()) {
+      Log.w("CryptMailCore", "Discarding key material sealed with a passphrase this device can no longer read.")
+      storage.deleteRecursively()
+    }
+
     CryptMailCore(
-      // App-private storage. Not `getExternalFilesDir`: the secret key is
-      // S2K-encrypted, but external storage is world-readable on older devices
-      // and included in some backup paths.
-      storageDir = context.filesDir.resolve("cryptmail-core").apply { mkdirs() }.absolutePath,
-      passphrase = KeystorePassphrase.get(context),
+      storageDir = storage.apply { mkdirs() }.absolutePath,
+      passphrase = passphrase.value,
     )
   }
 
@@ -121,7 +138,31 @@ class CryptMailCoreModule : Module() {
     } catch (e: Throwable) {
       // A panic crossing the FFI, a missing .so, a Keystore failure. Reported
       // as `unavailable` rather than allowed to surface as an opaque crash.
-      throw CodedException("unavailable", e.message ?: "The crypto core failed unexpectedly.", e)
+      Log.e("CryptMailCore", "Native crypto call failed", e)
+      throw CodedException("unavailable", describe(e), e)
+    }
+  }
+
+  /**
+   * A human-readable one-liner for a throwable that may carry no message of its
+   * own.
+   *
+   * `e.message ?: "…failed unexpectedly"` was worse than useless: the two
+   * failures most likely to reach here — `ExceptionInInitializerError` from the
+   * UniFFI/JNA library load, and a Keystore `ProviderException` — both have a
+   * null message and carry everything you need in `cause`. Collapsing them to
+   * one generic sentence made a load failure, a checksum mismatch and a
+   * StrongBox fault indistinguishable on a release build, where `run-as` cannot
+   * reach the logs either.
+   *
+   * So: name the class, walk the cause chain, and keep it short enough for a
+   * toast.
+   */
+  private fun describe(e: Throwable): String {
+    val chain = generateSequence(e) { if (it.cause === it) null else it.cause }.take(4)
+    return chain.joinToString(" ← ") { link ->
+      val name = link.javaClass.simpleName.ifEmpty { link.javaClass.name }
+      link.message?.let { "$name: $it" } ?: name
     }
   }
 }

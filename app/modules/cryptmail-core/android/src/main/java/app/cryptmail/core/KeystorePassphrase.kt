@@ -8,7 +8,9 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.AEADBadTagException
 import android.util.Base64
+import android.util.Log
 
 /**
  * Supplies the passphrase that protects the OpenPGP secret key at rest.
@@ -43,16 +45,61 @@ internal object KeystorePassphrase {
   private const val GCM_TAG_BITS = 128
   private const val PASSPHRASE_BYTES = 32
 
+  /**
+   * The passphrase, and whether reading it cost us the one that came before.
+   *
+   * `reset` is true only when a wrapped passphrase was present and provably
+   * undecryptable. Anything protected by the old one is gone, so the caller has
+   * to clear it out rather than leave an identity behind that can never sign or
+   * decrypt again.
+   */
+  data class Passphrase(val value: String, val reset: Boolean)
+
   /** The stored passphrase, creating one on first run. */
-  fun get(context: Context): String {
+  fun get(context: Context): Passphrase {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val wrapped = prefs.getString(PREF_WRAPPED, null)
     val iv = prefs.getString(PREF_IV, null)
 
     if (wrapped != null && iv != null) {
-      return unwrap(decode(wrapped), decode(iv))
+      try {
+        return Passphrase(unwrap(decode(wrapped), decode(iv)), reset = false)
+      } catch (e: AEADBadTagException) {
+        // The ciphertext is intact but this Keystore key did not seal it.
+        //
+        // The prefs and the Keystore were assumed to live and die together.
+        // They do not: `sharedpref` is included in Android's auto-backup and
+        // device transfer, while a Keystore key is device-bound and is never
+        // backed up. Restore a backup onto a new phone and the wrapped blob
+        // arrives without its wrapping key — `wrappingKey()` then mints a fresh
+        // one, and GCM rejects the tag on every call for the life of the
+        // install. That is the `AEADBadTagException` users saw on first launch,
+        // with no way out but clearing app data.
+        //
+        // `allowBackup=false` in app.json stops new devices reaching this
+        // state; this branch is what frees the ones already in it.
+        //
+        // Deliberately narrow: only a tag failure means "wrong key". A locked
+        // device, a Keystore outage or any other `GeneralSecurityException` is
+        // transient, and treating one of those as unrecoverable would destroy a
+        // perfectly good identity. Those still propagate.
+        Log.w("CryptMailCore", "Wrapped passphrase does not match this device's Keystore; resetting.", e)
+        discard(prefs)
+        return Passphrase(create(prefs), reset = true)
+      }
     }
-    return create(prefs)
+    return Passphrase(create(prefs), reset = false)
+  }
+
+  /** Drop the unusable wrapping key and the blob it can no longer open. */
+  private fun discard(prefs: android.content.SharedPreferences) {
+    try {
+      KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }.deleteEntry(WRAPPING_KEY_ALIAS)
+    } catch (e: Exception) {
+      // Nothing to do about it: `create` overwrites the alias regardless.
+      Log.w("CryptMailCore", "Could not delete the stale wrapping key.", e)
+    }
+    prefs.edit().remove(PREF_WRAPPED).remove(PREF_IV).apply()
   }
 
   private fun create(prefs: android.content.SharedPreferences): String {
