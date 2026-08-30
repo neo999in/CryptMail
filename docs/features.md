@@ -363,7 +363,7 @@ recovery is reachable only after onboarding has already generated a key.
 **Done when.** Setup can't complete without a successful code entry, and the
 copy states plainly what is lost if it's lost.
 
-### 0.16 Accessibility, i18n & theming pass · Impact M · Effort M
+### 0.16 Accessibility, i18n & theming pass · Impact M · Effort M — ◐ partly built
 
 **What.** Screen-reader labels (trust badges must be conveyed non-visually),
 dynamic type, high contrast, RTL, localisation, formal design tokens.
@@ -371,8 +371,33 @@ dynamic type, high contrast, RTL, localisation, formal design tokens.
 **Why.** Security state communicated only by colour is security state that some
 users never receive. Also the hardest copy to translate well — start early.
 
+**Built.** Theming, as of the UI rework: a Settings screen and a Display &
+Appearance screen, with six accent colours and three densities persisted in
+`store/prefsStore.ts`. The accent deliberately does not reach trust colour —
+mint and coral are fixed at every accent — and every row's encryption state
+carries an `accessibilityLabel`, so it is never colour-only.
+
+**Not built.** A **light palette**: `theme` stores `light` and `system` as
+preferences, but both resolve to dark (`resolveTheme`, guarded by
+`LIGHT_THEME_AVAILABLE`) because every screen is drawn for a dark ground. The
+Light radio is shown disabled and says so rather than lying. Also outstanding:
+dynamic type, RTL and localisation.
+
 **Done when.** The inbox and message screens are fully navigable by screen
-reader, and every trust state has a text equivalent.
+reader, every trust state has a text equivalent, and a light palette exists.
+
+### 0.19 Archive, snooze and trash folders · Impact M · Effort M
+
+**What.** Real Archive, Snoozed and Deleted destinations, backed by Gmail label
+and thread operations, listed in the navigation drawer.
+
+**Why.** The drawer's shape is Outlook's, and those three are the entries a
+person reaches for out of habit. Today CryptMail has Inbox, Drafts, Scheduled
+and Junk and nothing behind the other three, so the drawer deliberately omits
+them — a row that does nothing costs more trust than a missing row.
+
+**Done when.** Archiving and deleting a thread reach the provider and survive a
+refresh, and the drawer lists them with the rest.
 
 ### 0.17 Client-side key sharing · Impact M · Effort M — ✎ designed
 

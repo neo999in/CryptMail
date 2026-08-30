@@ -34,7 +34,15 @@ export type IconName =
   | 'image'
   | 'file'
   | 'download'
-  | 'menu';
+  | 'menu'
+  | 'junk'
+  | 'trash'
+  | 'settings'
+  | 'bell'
+  | 'palette'
+  | 'signature'
+  | 'accessibility'
+  | 'globe';
 
 type Props = {
   name: IconName;
@@ -237,6 +245,72 @@ function glyph(name: IconName, p: object) {
       );
     case 'menu':
       return <Path d="M4 7h16M4 12h16M4 17h16" {...p} />;
+    case 'junk':
+      return (
+        <>
+          <Path d="M3 7V6a2 2 0 0 1 2-2h3.5l2 2H15" {...p} />
+          <Path d="M3 9h9" {...p} />
+          <Path d="M3 9v9a2 2 0 0 0 2 2h8" {...p} />
+          <Circle cx={17.5} cy={15.5} r={4.5} {...p} />
+          <Path d="m14.3 18.7 6.4-6.4" {...p} />
+        </>
+      );
+    case 'trash':
+      return (
+        <>
+          <Path d="M4 6h16" {...p} />
+          <Path d="M9 6V4h6v2" {...p} />
+          <Path d="M6 6v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6" {...p} />
+          <Path d="M10 11v6M14 11v6" {...p} />
+        </>
+      );
+    case 'settings':
+      return (
+        <>
+          <Circle cx={12} cy={12} r={3} {...p} />
+          <Path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3" {...p} />
+        </>
+      );
+    case 'bell':
+      return (
+        <>
+          <Path d="M18 16V11a6 6 0 1 0-12 0v5l-1.5 2.5h15L18 16z" {...p} />
+          <Path d="M10 21h4" {...p} />
+        </>
+      );
+    case 'palette':
+      return (
+        <>
+          <Path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-1.6-1.3-1.8-1.3-3 0-.9.8-1.7 1.8-1.7H16a5 5 0 0 0 5-5c0-3.6-4-6.5-9-6.5z" {...p} />
+          <Circle cx={8} cy={11} r={1.2} {...p} />
+          <Circle cx={12} cy={8} r={1.2} {...p} />
+          <Circle cx={16} cy={10.5} r={1.2} {...p} />
+        </>
+      );
+    case 'signature':
+      return (
+        <>
+          <Path d="M3 17c3 0 3.5-9 6-9s1.5 9 4 9c1.6 0 2.4-2.5 4-2.5" {...p} />
+          <Path d="M4 21h16" {...p} />
+        </>
+      );
+    case 'accessibility':
+      return (
+        <>
+          <Circle cx={12} cy={4.5} r={1.8} {...p} />
+          <Path d="M5 9h14" {...p} />
+          <Path d="M12 8.5V15" {...p} />
+          <Path d="m9 21 3-6 3 6" {...p} />
+        </>
+      );
+    case 'globe':
+      return (
+        <>
+          <Circle cx={12} cy={12} r={9} {...p} />
+          <Path d="M3 12h18" {...p} />
+          <Path d="M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z" {...p} />
+        </>
+      );
     default:
       return <Ellipse cx={12} cy={12} rx={8} ry={8} {...p} />;
   }

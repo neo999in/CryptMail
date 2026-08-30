@@ -189,15 +189,15 @@ const s = StyleSheet.create({
   top: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   title: { ...type.strong, color: color.ink, flex: 1 },
   when: {
-    backgroundColor: color.brassBg,
+    backgroundColor: color.surfaceRaised,
     borderColor: 'rgba(235,184,99,0.35)',
     borderRadius: radius.pill,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-  whenText: { color: color.brass, fontFamily: font.mono, fontSize: 10.5 },
-  whenHeld: { backgroundColor: color.chip, borderColor: color.lineSoft },
+  whenText: { color: color.inkDim, fontFamily: font.mono, fontSize: 10.5 },
+  whenHeld: { backgroundColor: color.surface, borderColor: color.lineSoft },
   whenTextHeld: { color: color.inkDim },
   holdNote: { ...type.small, color: color.inkDim, marginTop: 6 },
   outcome: {

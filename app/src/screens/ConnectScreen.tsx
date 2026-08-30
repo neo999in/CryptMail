@@ -8,11 +8,13 @@ import { canConnectMailbox, degradedReason } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
-import { Callout, Glass, Muted, Title } from '../ui/primitives';
+import { Callout, Muted, Title } from '../ui/primitives';
+import { useAccent } from '../ui/appearance';
 
 /** Onboarding: provider OAuth, least-privilege scopes. */
 export function ConnectScreen() {
   const { signIn } = useApp();
+  const accent = useAccent();
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +42,8 @@ export function ConnectScreen() {
     >
       <Reveal delay={0}>
         <View style={s.brand}>
-          <View style={s.brandMark}>
-            <Icon name="lock" size={18} color={color.brassInk} strokeWidth={2.1} />
+          <View style={[s.brandMark, { backgroundColor: accent }]}>
+            <Icon name="lock" size={18} color={color.ground} strokeWidth={2.1} />
           </View>
           <Text style={s.brandText}>
             Crypt<Text style={{ fontFamily: font.displayBold }}>Mail</Text>
@@ -49,12 +51,12 @@ export function ConnectScreen() {
         </View>
 
         <Text style={s.pitch}>
-          Your inbox, <Text style={s.pitchAccent}>unreadable</Text> to everyone but the person you sent it to.
+          Your inbox, <Text style={[s.pitchAccent, { color: accent }]}>unreadable</Text> to everyone but the person you sent it to.
         </Text>
       </Reveal>
 
       <Reveal delay={90}>
-      <Glass contentStyle={s.card}>
+      <View style={s.card}>
         <Title>Connect your inbox</Title>
         <Muted>Keep your address. We layer encryption on top.</Muted>
 
@@ -93,7 +95,7 @@ export function ConnectScreen() {
             <Callout>{error}</Callout>
           </View>
         ) : null}
-      </Glass>
+      </View>
       </Reveal>
 
       <Reveal delay={180}>
@@ -156,7 +158,7 @@ function ProviderButton({
       </View>
       <Text style={s.providerLabel}>{label}</Text>
       {busy ? (
-        <ActivityIndicator size="small" color={color.brass} />
+        <ActivityIndicator size="small" color={tint} />
       ) : note ? (
         <Text style={s.note}>{note}</Text>
       ) : (
@@ -184,7 +186,6 @@ const s = StyleSheet.create({
   brand: { alignItems: 'center', flexDirection: 'row', gap: 10, marginBottom: 22 },
   brandMark: {
     alignItems: 'center',
-    backgroundColor: color.brass,
     borderRadius: radius.sm,
     height: 34,
     justifyContent: 'center',
@@ -194,9 +195,15 @@ const s = StyleSheet.create({
   brandText: { color: color.ink, fontFamily: font.display, fontSize: 18, letterSpacing: -0.3 },
 
   pitch: { color: color.ink, fontFamily: font.displayBold, fontSize: 27, letterSpacing: -0.5, lineHeight: 34, marginBottom: 26 },
-  pitchAccent: { color: color.brass },
+  pitchAccent: {},
 
-  card: { padding: 18 },
+  card: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: 18,
+  },
 
   provider: {
     alignItems: 'center',

@@ -1,20 +1,9 @@
 import { DrawerScreenProps } from '@react-navigation/drawer';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { BlurView } from 'expo-blur';
 import { MotiView } from 'moti';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  SectionList,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
@@ -26,22 +15,22 @@ import { messageMatchesQuery } from '../search/search';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem } from '../state/types';
-import { color, font, glass, radius, shadow, space, type } from '../theme';
+import { color, font, radius, shadow, space, type } from '../theme';
 import { InboxDrawerParamList, RootStackParamList } from '../navigation';
-import { Icon, IconName } from '../ui/Icon';
+import { Icon } from '../ui/Icon';
+import { useAccent, useAppearance } from '../ui/appearance';
+import { INBOX_TABS, InboxTab, showsUnderTab } from '../ui/focusedSplit';
 import { useCategoryFilter } from '../ui/inboxFilter';
 import {
   Avatar,
-  Badge,
-  BadgeTone,
   EmptyState,
   Field,
-  Glass,
-  frost,
   IconButton,
   Input,
-  SectionLabel,
+  PressableRow,
   SecondaryButton,
+  Segmented,
+  Sheet,
   Skeleton,
   useFocus,
 } from '../ui/primitives';
@@ -51,13 +40,20 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-/** Filters that matter for this product: everything, protected, or needs a decision. */
+/**
+ * Filters that matter for this product: everything, protected, or needs a
+ * decision.
+ *
+ * These used to be pills across the top bar. They now live behind the Filter
+ * control, which is where the reference puts a filter and where they stop
+ * competing with the Focused/Other tabs for the same strip of screen.
+ */
 type Filter = 'all' | 'encrypted' | 'attention';
 
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'encrypted', label: 'Encrypted' },
-  { key: 'attention', label: 'Attention' },
+const FILTERS: { key: Filter; label: string; hint: string }[] = [
+  { key: 'all', label: 'All mail', hint: 'Everything in this mailbox' },
+  { key: 'encrypted', label: 'Encrypted', hint: 'Only mail that arrived protected' },
+  { key: 'attention', label: 'Needs attention', hint: 'A key changed, or a sender has no key on file' },
 ];
 
 /** Inbox — encryption state on every row, at a glance. */
@@ -65,29 +61,26 @@ export function InboxScreen({ navigation }: Props) {
   const {
     session,
     accounts,
-    activeAccount,
     unified,
     switchingAccount,
-    addAccount,
-    switchAccount,
-    removeAccount,
-    setUnified,
     messages,
     loadingInbox,
     error,
     refreshInbox,
     encryptionFor,
-    signOut,
     searchIndex,
     toggleStar,
     spam,
-  } =
-    useApp();
+  } = useApp();
   const { category, setCategory } = useCategoryFilter();
+  const { rowPadding } = useAppearance();
+  const accent = useAccent();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [tab, setTab] = useState<InboxTab>('focused');
   const [filter, setFilter] = useState<Filter>('all');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
   const search = useFocus();
 
@@ -113,10 +106,17 @@ export function InboxScreen({ navigation }: Props) {
         const encrypted = encryption.kind === 'encrypted';
         if (filter === 'encrypted' && !encrypted) return false;
         if (filter === 'attention' && !needsAttention(encryption)) return false;
-        // The drawer's category filter reads only on-device content, exactly like
-        // search: categorizeMessage classifies unopened encrypted mail as 'primary'
-        // rather than reading its ciphertext (categorizer/categorizer.ts).
-        if (category !== null && categorizeMessage(summary, encrypted, searchIndex, spamContext) !== category) {
+        // The drawer's category filter and the tabs both read only on-device
+        // content, exactly like search: categorizeMessage classifies unopened
+        // encrypted mail as 'primary' rather than reading its ciphertext
+        // (categorizer/categorizer.ts).
+        const messageCategory = categorizeMessage(summary, encrypted, searchIndex, spamContext);
+        // A chosen category is the more specific request, so it wins over the
+        // tab — otherwise picking Promotions from the drawer while Focused is
+        // selected would show an empty list and look broken.
+        if (category !== null) {
+          if (messageCategory !== category) return false;
+        } else if (!showsUnderTab(messageCategory, tab)) {
           return false;
         }
         // Encrypted mail is matched on its decrypted content once opened (search/search.ts).
@@ -138,9 +138,8 @@ export function InboxScreen({ navigation }: Props) {
       else buckets.set(bucket, [row]);
     }
     return [...buckets].map(([title, data]) => ({ title, data }));
-  }, [category, encryptionFor, filter, messages, query, searchIndex, spamContext]);
+  }, [category, encryptionFor, filter, messages, query, searchIndex, spamContext, tab]);
 
-  const unread = messages.filter((m) => m.unread).length;
   const attention = useMemo(
     () => messages.filter((m) => needsAttention(encryptionFor(m))).length,
     [encryptionFor, messages],
@@ -158,6 +157,7 @@ export function InboxScreen({ navigation }: Props) {
         mailbox={unified ? mailboxName(accounts, item.thread.latest.account) : undefined}
         count={item.thread.count}
         index={index}
+        padding={rowPadding}
         onToggleStar={() => void toggleStar(item.thread.latest.id)}
         onPress={() =>
           item.thread.count > 1
@@ -169,84 +169,75 @@ export function InboxScreen({ navigation }: Props) {
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, navigation, toggleStar, unified],
+    [accounts, navigation, rowPadding, toggleStar, unified],
   );
 
-  /**
-   * Removing an account erases its keyring, drafts and search index, so it asks
-   * — and says so. It is reached by a long press rather than a visible button
-   * because the tap on that row means "switch to this mailbox", which is the
-   * thing people do constantly and must never do this by accident.
-   */
-  const confirmRemove = (account: AccountRef) => {
-    setMenuOpen(false);
-    Alert.alert(
-      `Remove ${account.email}?`,
-      'This deletes its keyring, drafts and locally decrypted mail from this device. Nothing on the server is touched.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => void removeAccount(account.id) },
-      ],
-    );
-  };
-
-  const confirmSignOut = () => {
-    setMenuOpen(false);
-    Alert.alert('Sign out?', 'Your keys stay on this device. You can reconnect the same mailbox any time.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
-    ]);
+  const closeSearch = () => {
+    setSearching(false);
+    setQuery('');
   };
 
   return (
     <View style={s.screen}>
-      <Glass
-        radius={0}
-        border="transparent"
-        fill={glass.fillStrong}
-        intensity={glass.blur.strong}
-        contentStyle={{ paddingTop: insets.top + 6 }}
-        style={s.topbar}
-      >
-        <View style={s.header}>
-          <IconButton icon="menu" label="Categories" onPress={() => navigation.openDrawer()} />
-          <Pressable
-            accessibilityLabel="Account"
-            accessibilityRole="button"
-            onPress={() => setMenuOpen(true)}
-            style={({ pressed }) => [s.identity, pressed && { opacity: 0.7 }]}
-          >
-            <View style={s.titleRow}>
+      <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
+        {searching ? (
+          <View style={s.header}>
+            <IconButton icon="back" label="Close search" onPress={closeSearch} />
+            <Field focused={search.focused} style={s.searchField}>
+              <View style={s.searchRow}>
+                <Icon name="search" size={16} color={search.focused ? accent : color.inkFaint} />
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoFocus
+                  onChangeText={setQuery}
+                  placeholder="Search sender or subject"
+                  returnKeyType="search"
+                  style={s.searchInput}
+                  value={query}
+                  {...search.bind}
+                />
+                {query.length > 0 ? (
+                  <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setQuery('')}>
+                    <Icon name="close" size={16} color={color.inkDim} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </Field>
+          </View>
+        ) : (
+          <View style={s.header}>
+            {/* The account avatar is the drawer handle, as in the reference —
+                the rail behind it is where mailboxes are switched. */}
+            <Pressable
+              accessibilityLabel="Accounts and folders"
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => navigation.openDrawer()}
+              style={({ pressed }) => [pressed && { opacity: 0.7 }]}
+            >
+              <Avatar seed={session?.email ?? ''} label={initials(session?.email ?? '')} size={36} />
+            </Pressable>
+            <View style={s.titleWrap}>
               <Text numberOfLines={1} style={s.headerTitle}>
                 {category ? CATEGORY_LABELS[category] : 'Inbox'}
               </Text>
-              {/* The count is the mailbox's total unread; beside a category label it
-                  would read as that category's count, so it only shows unfiltered. */}
-              {category === null && unread > 0 ? (
-                <View style={s.count}>
-                  <Text style={s.countText}>{unread}</Text>
-                </View>
+              {/* Which mailbox is in front, and only when that is ambiguous — a
+                  merged inbox still composes, sends and decrypts as exactly one
+                  account, so the reader must be able to see which. */}
+              {switchingAccount || unified ? (
+                <Text numberOfLines={1} style={s.headerSub}>
+                  {switchingAccount ? 'Switching…' : `${session?.email ?? ''} · all accounts`}
+                </Text>
               ) : null}
             </View>
-            <View style={s.subRow}>
-              <Text numberOfLines={1} style={s.headerSub}>
-                {/* Which mailbox is in front, always — a merged inbox still
-                    composes, sends and decrypts as exactly one account. */}
-                {switchingAccount ? 'Switching…' : (session?.email ?? '')}
-                {unified ? ' · all accounts' : ''}
-              </Text>
-              <Icon name="chevron" size={11} color={color.inkFaint} />
-            </View>
-          </Pressable>
-          {/* A sibling of the identity button, never nested — clears the drawer's
-              category filter back to All mail. */}
-          {category !== null ? (
-            <IconButton icon="close" label="Show all mail" onPress={() => setCategory(null)} />
-          ) : null}
-          <IconButton icon="edit" label="Drafts" onPress={() => navigation.navigate('Drafts')} />
-          <IconButton icon="key" label="Keys" onPress={() => navigation.navigate('Keys')} />
-          <IconButton icon="refresh" label="Refresh" onPress={() => void refreshInbox()} />
-        </View>
+            {category !== null ? (
+              <IconButton icon="close" label="Show all mail" onPress={() => setCategory(null)} />
+            ) : null}
+            <IconButton icon="refresh" label="Refresh" onPress={() => void refreshInbox()} size={40} />
+            <IconButton icon="search" label="Search" onPress={() => setSearching(true)} size={40} />
+          </View>
+        )}
 
         {/* Rule 2: the demo core must never be presented as secure. The mail
             half can no longer be fake, so this strip is now only ever about
@@ -254,46 +245,24 @@ export function InboxScreen({ navigation }: Props) {
             mailbox makes everything on screen look like the product. */}
         {cryptoMode === 'demo' ? (
           <View style={s.demoStrip}>
-            <Icon name="alert" size={13} color={color.brass} />
+            <Icon name="alert" size={13} color={color.coral} />
             <Text style={s.demoText}>DEMO CRYPTO · nothing here is really encrypted</Text>
           </View>
         ) : null}
 
         <View style={s.controls}>
-          <Field focused={search.focused} style={s.searchField}>
-            <View style={s.searchRow}>
-              <Icon name="search" size={15} color={search.focused ? color.brass : color.inkFaint} />
-              <Input
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setQuery}
-                placeholder="Search sender or subject"
-                returnKeyType="search"
-                style={s.searchInput}
-                value={query}
-                {...search.bind}
-              />
-              {query.length > 0 ? (
-                <Pressable accessibilityLabel="Clear search" hitSlop={10} onPress={() => setQuery('')}>
-                  <Icon name="close" size={15} color={color.inkDim} />
-                </Pressable>
-              ) : null}
-            </View>
-          </Field>
-
-          <View style={s.filters}>
-            {FILTERS.map((f) => (
-              <FilterPill
-                key={f.key}
-                active={filter === f.key}
-                label={f.label}
-                count={f.key === 'attention' ? attention : undefined}
-                onPress={() => setFilter(f.key)}
-              />
-            ))}
-          </View>
+          <Segmented options={INBOX_TABS} value={tab} onChange={setTab} />
+          <Pressable
+            accessibilityLabel="Filter"
+            accessibilityRole="button"
+            onPress={() => setFilterOpen(true)}
+            style={({ pressed }) => [s.filterPill, pressed && { backgroundColor: color.segmentActive }]}
+          >
+            <Text style={s.filterText}>Filter</Text>
+            {filter !== 'all' ? <View style={[s.filterDot, { backgroundColor: accent }]} /> : null}
+          </Pressable>
         </View>
-      </Glass>
+      </View>
 
       {error ? (
         <View style={s.errorRow}>
@@ -303,7 +272,7 @@ export function InboxScreen({ navigation }: Props) {
       ) : null}
 
       {firstLoad ? (
-        <View style={{ paddingHorizontal: 16 }}>
+        <View>
           {[0, 1, 2, 3, 4].map((i) => (
             <SkeletonRow key={i} />
           ))}
@@ -313,12 +282,12 @@ export function InboxScreen({ navigation }: Props) {
           sections={sections}
           keyExtractor={(item) => item.thread.id}
           renderItem={renderItem}
-          renderSectionHeader={({ section }) => <SectionLabel style={s.sectionHead}>{section.title}</SectionLabel>}
+          renderSectionHeader={({ section }) => <Text style={s.sectionHead}>{section.title}</Text>}
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 96, paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
           keyboardShouldPersistTaps="handled"
           refreshControl={
-            <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={color.brass} />
+            <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={accent} />
           }
           ListEmptyComponent={
             loadingInbox ? null : filtering ? (
@@ -339,7 +308,11 @@ export function InboxScreen({ navigation }: Props) {
                 }
               />
             ) : (
-              <EmptyState icon="inbox" title="Inbox is empty" hint="Pull down to check for new mail." />
+              <EmptyState
+                icon="inbox"
+                title={tab === 'focused' ? 'Nothing in Focused' : 'Nothing in Other'}
+                hint="Pull down to check for new mail."
+              />
             )
           }
         />
@@ -349,7 +322,7 @@ export function InboxScreen({ navigation }: Props) {
         from={{ opacity: 0, scale: 0.6 }}
         animate={{ opacity: 1, scale: fabPressed ? 0.92 : 1 }}
         transition={{ type: 'spring', damping: 15, stiffness: 220, mass: 0.7 }}
-        style={[s.fab, { bottom: insets.bottom + 22 }]}
+        style={[s.fab, shadow.floating, { backgroundColor: accent, bottom: insets.bottom + 22 }]}
       >
         <Pressable
           accessibilityLabel="Compose"
@@ -359,41 +332,40 @@ export function InboxScreen({ navigation }: Props) {
           onPressOut={() => setFabPressed(false)}
           style={s.fabPress}
         >
-          <Icon name="plus" size={24} color={color.brassInk} strokeWidth={2.6} />
+          <Icon name="edit" size={23} color={color.ground} strokeWidth={2} />
         </Pressable>
       </MotiView>
 
-      <AccountSheet
-        accounts={accounts}
-        activeAccount={activeAccount}
-        email={session?.email ?? ''}
-        onAdd={() => {
-          setMenuOpen(false);
-          void addAccount();
-        }}
-        onRemove={confirmRemove}
-        onSwitch={(id) => {
-          setMenuOpen(false);
-          void switchAccount(id);
-        }}
-        onToggleUnified={() => void setUnified(!unified)}
-        unified={unified}
-        onClose={() => setMenuOpen(false)}
-        onDrafts={() => {
-          setMenuOpen(false);
-          navigation.navigate('Drafts');
-        }}
-        onScheduled={() => {
-          setMenuOpen(false);
-          navigation.navigate('Scheduled');
-        }}
-        onKeys={() => {
-          setMenuOpen(false);
-          navigation.navigate('Keys');
-        }}
-        onSignOut={confirmSignOut}
-        visible={menuOpen}
-      />
+      <Sheet
+        bottomInset={insets.bottom}
+        onClose={() => setFilterOpen(false)}
+        title="Filter"
+        visible={filterOpen}
+      >
+        {FILTERS.map((f) => (
+          <PressableRow
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === f.key }}
+            key={f.key}
+            onPress={() => {
+              setFilter(f.key);
+              setFilterOpen(false);
+            }}
+            style={s.filterRow}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={s.filterRowLabel}>{f.label}</Text>
+              <Text style={s.filterRowHint}>{f.hint}</Text>
+            </View>
+            {f.key === 'attention' && attention > 0 ? (
+              <View style={s.attentionCount}>
+                <Text style={s.attentionCountText}>{attention}</Text>
+              </View>
+            ) : null}
+            {filter === f.key ? <Icon name="check" size={19} color={accent} strokeWidth={2.4} /> : null}
+          </PressableRow>
+        ))}
+      </Sheet>
     </View>
   );
 }
@@ -406,6 +378,7 @@ function MailRow({
   mailbox,
   count = 1,
   index,
+  padding,
   onPress,
   onToggleStar,
 }: {
@@ -422,11 +395,14 @@ function MailRow({
   /** Number of messages in this conversation; > 1 shows a thread-count chip. */
   count?: number;
   index: number;
+  /** Vertical padding for the current density. */
+  padding: number;
   onPress: () => void;
   onToggleStar: () => void;
 }) {
+  const accent = useAccent();
   const name = displayName(summary.from.address, summary.from.name);
-  const badge = badgeFor(encryption);
+  const lock = lockFor(encryption);
   const encrypted = encryption.kind === 'encrypted';
 
   return (
@@ -436,68 +412,71 @@ function MailRow({
       // Capped so a long inbox settles quickly instead of dribbling in.
       transition={{ type: 'timing', duration: 300, delay: Math.min(index, 8) * 45 }}
     >
-    <View style={s.row}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        style={({ pressed }) => [s.rowTap, pressed && s.rowPressed]}
-      >
-        <View style={s.rail}>
-          <Avatar seed={summary.from.address} label={initials(name)} />
-          {summary.unread ? <View style={s.unreadDot} /> : null}
-        </View>
-        <View style={s.rowMain}>
-          <View style={s.rowTop}>
-            <Text numberOfLines={1} style={[s.from, summary.unread && s.unread]}>
-              {name}
+      <View style={s.row}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onPress}
+          style={({ pressed }) => [s.rowTap, { paddingVertical: padding }, pressed && s.rowPressed]}
+        >
+          <Avatar seed={summary.from.address} label={initials(name)} size={44} />
+          <View style={s.rowMain}>
+            <View style={s.rowTop}>
+              <Text numberOfLines={1} style={[s.from, summary.unread && s.fromUnread]}>
+                {name}
+              </Text>
+              {/* The lock is furniture: it must be findable on every row without
+                  out-shouting the subject, so it sits beside the date at the
+                  size of the date, not as a captioned badge. */}
+              <Icon
+                name={lock.icon}
+                size={13}
+                color={lock.tint}
+                {...(lock.icon === 'lock' ? { fill: lock.tint } : {})}
+              />
+              <Text style={[s.time, { color: accent }]} accessibilityLabel={lock.label}>
+                {relativeTime(summary.date)}
+              </Text>
+            </View>
+            <View style={s.rowTop}>
+              <Text numberOfLines={1} style={[s.subject, summary.unread && s.subjectUnread]}>
+                {encrypted ? 'Encrypted message' : summary.subject}
+              </Text>
+              {count > 1 ? (
+                <View style={s.threadChip} accessibilityLabel={`${count} messages in this conversation`}>
+                  <Text style={s.threadChipText}>{count}</Text>
+                </View>
+              ) : null}
+            </View>
+            {/* The stored snippet of an encrypted mail is ciphertext — showing it
+                would be noise. Say what the row actually means instead. */}
+            <Text numberOfLines={1} style={[s.snippet, encrypted && s.snippetLocked]}>
+              {encrypted ? 'Contents decrypt on this device when you open it.' : summary.snippet}
             </Text>
-            {count > 1 ? (
-              <View style={s.threadChip} accessibilityLabel={`${count} messages in this conversation`}>
-                <Icon name="mail" size={9} color={color.inkDim} />
-                <Text style={s.threadChipText}>{count}</Text>
-              </View>
-            ) : null}
-            <Text style={s.time}>{relativeTime(summary.date)}</Text>
-          </View>
-          <View style={s.rowTop}>
             {mailbox ? (
               <Text numberOfLines={1} style={s.mailbox} accessibilityLabel={`In ${mailbox}`}>
                 {mailbox}
               </Text>
             ) : null}
           </View>
-          <Text numberOfLines={1} style={[s.subject, summary.unread && s.subjectUnread]}>
-            {encrypted ? 'Encrypted message' : summary.subject}
-          </Text>
-          {/* The stored snippet of an encrypted mail is ciphertext — showing it
-              would be noise. Say what the row actually means instead. */}
-          <Text numberOfLines={encrypted ? 1 : 2} style={[s.snippet, encrypted && s.snippetLocked]}>
-            {encrypted ? 'Contents decrypt on this device when you open it.' : summary.snippet}
-          </Text>
-          <View style={s.badgeRow}>
-            <Badge tone={badge.tone} icon={badge.icon}>
-              {badge.label}
-            </Badge>
-          </View>
-        </View>
-      </Pressable>
-      {/* Sibling of the row's Pressable, not nested — nested <button>s are
-          invalid on web and would let a star tap bubble into opening the row. */}
-      <Pressable
-        accessibilityLabel={summary.starred ? 'Unstar' : 'Star'}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={onToggleStar}
-        style={({ pressed }) => [s.star, pressed && s.starPressed]}
-      >
-        <Icon
-          name="star"
-          size={17}
-          color={summary.starred ? color.brass : color.inkFaint}
-          fill={summary.starred ? color.brass : 'none'}
-        />
-      </Pressable>
-    </View>
+        </Pressable>
+        {/* Sibling of the row's Pressable, not nested — nested <button>s are
+            invalid on web and would let a star tap bubble into opening the row. */}
+        <Pressable
+          accessibilityLabel={summary.starred ? 'Unstar' : 'Star'}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onToggleStar}
+          style={({ pressed }) => [s.star, pressed && { opacity: 0.6 }]}
+        >
+          <Icon
+            name="star"
+            size={18}
+            color={summary.starred ? accent : color.inkFaint}
+            fill={summary.starred ? accent : 'none'}
+          />
+        </Pressable>
+        {summary.unread ? <View style={[s.unreadDot, { backgroundColor: accent }]} /> : null}
+      </View>
     </MotiView>
   );
 }
@@ -505,170 +484,13 @@ function MailRow({
 function SkeletonRow() {
   return (
     <View style={s.skelRow}>
-      <Skeleton width={34} height={34} radius={9} />
-      <View style={{ flex: 1, gap: 7 }}>
-        <Skeleton width="55%" height={11} />
-        <Skeleton width="80%" height={10} />
-        <Skeleton width="40%" height={10} />
-        <Skeleton width={104} height={16} radius={radius.pill} />
+      <Skeleton width={44} height={44} radius={22} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <Skeleton width="55%" height={12} />
+        <Skeleton width="80%" height={12} />
+        <Skeleton width="40%" height={11} />
       </View>
     </View>
-  );
-}
-
-/* ------------------------------------------------------------- controls ---- */
-
-function FilterPill({
-  active,
-  label,
-  count,
-  onPress,
-}: {
-  active: boolean;
-  label: string;
-  count?: number;
-  onPress: () => void;
-}) {
-  const warn = !!count && count > 0;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-      onPress={onPress}
-      style={({ pressed }) => [s.pill, active && s.pillActive, pressed && !active && { borderColor: color.inkFaint }]}
-    >
-      <Text style={[s.pillText, active && s.pillTextActive]}>{label}</Text>
-      {warn ? (
-        <View style={[s.pillCount, active && { backgroundColor: color.brassInk }]}>
-          <Text style={[s.pillCountText, active && { color: color.brass }]}>{count}</Text>
-        </View>
-      ) : null}
-    </Pressable>
-  );
-}
-
-/**
- * Bottom sheet for the account — the switcher, and the only place sign-out lives.
- *
- * Switching is one tap and shows which mailbox is in front, because the whole
- * risk of two accounts is acting in the wrong one: the compose button, the
- * keyring and the send path all follow whatever this sheet last selected.
- */
-function AccountSheet({
-  visible,
-  email,
-  accounts,
-  activeAccount,
-  unified,
-  onSwitch,
-  onAdd,
-  onRemove,
-  onToggleUnified,
-  onDrafts,
-  onScheduled,
-  onKeys,
-  onSignOut,
-  onClose,
-}: {
-  visible: boolean;
-  email: string;
-  accounts: AccountRef[];
-  activeAccount: AccountId | null;
-  unified: boolean;
-  onSwitch: (id: AccountId) => void;
-  onAdd: () => void;
-  onRemove: (account: AccountRef) => void;
-  onToggleUnified: () => void;
-  onDrafts: () => void;
-  onScheduled: () => void;
-  onKeys: () => void;
-  onSignOut: () => void;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={[s.scrim, frost(glass.blur.medium)]}>
-        {Platform.OS !== 'web' ? <BlurView intensity={glass.blur.medium} tint="dark" style={StyleSheet.absoluteFill} /> : null}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }]} />
-      </Pressable>
-      <Glass
-        border="transparent"
-        fill={glass.fillStrong}
-        intensity={glass.blur.strong}
-        radius={0}
-        style={s.sheet}
-        contentStyle={[s.sheetInner, { paddingBottom: insets.bottom + space.lg }]}
-      >
-        <View style={s.grabber} />
-        <View style={s.sheetHead}>
-          <Avatar seed={email} label={initials(email)} size={38} />
-          <View style={{ flex: 1 }}>
-            <Text style={s.sheetName}>{displayName(email)}</Text>
-            <Text style={s.sheetEmail}>{email}</Text>
-          </View>
-        </View>
-        {accounts.length > 1 ? (
-          <>
-            <SectionLabel>Accounts</SectionLabel>
-            {accounts.map((account) => (
-              <Pressable
-                accessibilityLabel={`Switch to ${account.email}`}
-                accessibilityRole="button"
-                key={account.id}
-                onLongPress={() => onRemove(account)}
-                onPress={() => onSwitch(account.id)}
-                style={({ pressed }) => [s.sheetItem, pressed && { backgroundColor: color.press }]}
-              >
-                <Avatar seed={account.email} label={initials(account.email)} size={26} />
-                <Text numberOfLines={1} style={[s.sheetItemText, { color: color.ink }]}>
-                  {account.email}
-                </Text>
-                {account.id === activeAccount ? (
-                  <Badge icon="check" tone="enc">
-                    In front
-                  </Badge>
-                ) : null}
-              </Pressable>
-            ))}
-            <SheetItem
-              icon={unified ? 'check' : 'inbox'}
-              label={unified ? 'Showing all accounts' : 'Show all accounts in one inbox'}
-              onPress={onToggleUnified}
-            />
-          </>
-        ) : null}
-        <SheetItem icon="plus" label="Add another account" onPress={onAdd} />
-        <SheetItem icon="edit" label="Drafts" onPress={onDrafts} />
-        <SheetItem icon="clock" label="Scheduled" onPress={onScheduled} />
-        <SheetItem icon="key" label="Keys and fingerprints" onPress={onKeys} />
-        <SheetItem icon="signout" label="Sign out" onPress={onSignOut} tint={color.coral} />
-      </Glass>
-    </Modal>
-  );
-}
-
-function SheetItem({
-  icon,
-  label,
-  onPress,
-  tint = color.ink,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  tint?: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [s.sheetItem, pressed && { backgroundColor: color.press }]}
-    >
-      <Icon name={icon} size={17} color={tint} />
-      <Text style={[s.sheetItemText, { color: tint }]}>{label}</Text>
-      <Icon name="chevron" size={14} color={color.inkFaint} />
-    </Pressable>
   );
 }
 
@@ -683,6 +505,13 @@ function needsAttention(encryption: EncryptionState): boolean {
   return encryption.kind === 'encrypted' && (encryption.trust === 'changed' || encryption.trust === 'unknown');
 }
 
+/**
+ * Date buckets, matching the reference's headings.
+ *
+ * "This month" and "Last week" only ever appear below Today/Yesterday, so the
+ * list reads as a single descending timeline rather than a set of overlapping
+ * ranges.
+ */
 function dayBucket(iso: string, now = new Date()): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 'Earlier';
@@ -690,214 +519,150 @@ function dayBucket(iso: string, now = new Date()): string {
   if (days <= 0) return 'Today';
   if (days === 1) return 'Yesterday';
   if (days < 7) return 'This week';
+  if (days < 14) return 'Last week';
+  if (days < 31) return 'This month';
   return 'Earlier';
 }
 
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
-function badgeFor(encryption: EncryptionState): { tone: BadgeTone; icon?: 'lock' | 'alert'; label: string } {
-  if (encryption.kind === 'plain') return { tone: 'plain', label: 'Not encrypted' };
-  if (encryption.own) return { tone: 'enc', icon: 'lock', label: 'Encrypted · from you' };
+/**
+ * The row's encryption glyph.
+ *
+ * Trust colour is fixed at every accent — mint for protected, coral for a
+ * decision the user has to make. `label` is what a screen reader announces on
+ * the row, so the state is never colour-only.
+ */
+function lockFor(encryption: EncryptionState): { icon: 'lock' | 'alert' | 'mail'; tint: string; label: string } {
+  if (encryption.kind === 'plain') return { icon: 'mail', tint: color.inkFaint, label: 'Not encrypted' };
+  if (encryption.own) return { icon: 'lock', tint: color.mint, label: 'Encrypted, from you' };
   switch (encryption.trust) {
     case 'verified':
-      return { tone: 'enc', icon: 'lock', label: 'Encrypted · verified' };
+      return { icon: 'lock', tint: color.mint, label: 'Encrypted, verified key' };
     case 'seen':
-      return { tone: 'enc', icon: 'lock', label: 'Encrypted · key unverified' };
+      return { icon: 'lock', tint: color.mint, label: 'Encrypted, key not verified' };
     case 'changed':
-      return { tone: 'warn', icon: 'alert', label: 'Encrypted · key changed' };
+      return { icon: 'alert', tint: color.coral, label: 'Encrypted, key changed' };
     default:
-      return { tone: 'warn', icon: 'alert', label: 'Encrypted · no key' };
+      return { icon: 'alert', tint: color.coral, label: 'Encrypted, no key on file' };
   }
 }
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  topbar: {
-    borderBottomColor: glass.hairline,
-    borderBottomWidth: 1,
-    ...shadow.raised,
-  },
-
+  topbar: { backgroundColor: color.surface },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    gap: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
   },
-  identity: { flex: 1, minWidth: 0 },
-  titleRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  titleWrap: { flex: 1 },
   headerTitle: { ...type.display, color: color.ink },
-  count: {
-    backgroundColor: color.brassBg,
-    borderColor: 'rgba(235,184,99,0.35)',
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minWidth: 22,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  countText: { color: color.brass, fontFamily: font.mono, fontSize: 11, textAlign: 'center' },
-  subRow: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 2 },
-  headerSub: { ...type.meta, color: color.inkFaint, flexShrink: 1 },
-  mailbox: { ...type.meta, color: color.inkFaint },
+  headerSub: { ...type.small, color: color.inkDim, marginTop: 1 },
+
+  searchField: { flex: 1, marginBottom: 0, paddingVertical: 9 },
+  searchRow: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
+  searchInput: { flex: 1, fontSize: 15 },
 
   demoStrip: {
     alignItems: 'center',
-    backgroundColor: color.brassBg,
+    backgroundColor: color.coralBg,
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    paddingVertical: 7,
-  },
-  demoText: { color: color.brass, fontFamily: font.mono, fontSize: 10.5, letterSpacing: 0.6 },
-
-  // Symmetrical: without the bottom padding the filter pills sat flush against
-  // the frosted bar's own edge, so the glass read as clipping them.
-  controls: { paddingBottom: 12, paddingHorizontal: 16, paddingTop: 12 },
-  searchField: { marginBottom: 10, paddingVertical: 9 },
-  searchRow: { alignItems: 'center', flexDirection: 'row', gap: 9 },
-  searchInput: { flex: 1, fontSize: 14 },
-
-  filters: { flexDirection: 'row', gap: 7 },
-  pill: {
-    alignItems: 'center',
-    backgroundColor: color.panel,
-    borderColor: color.line,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 13,
+    gap: 7,
+    paddingHorizontal: space.lg,
     paddingVertical: 6,
   },
-  pillActive: { backgroundColor: color.brass, borderColor: color.brass },
-  pillText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 12.5 },
-  pillTextActive: { color: color.brassInk, fontFamily: font.sansBold },
-  pillCount: {
+  demoText: { color: color.coralInk, fontFamily: font.mono, fontSize: 10.5, letterSpacing: 0.6 },
+
+  controls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: space.md,
+    paddingHorizontal: space.lg,
+    paddingTop: space.sm,
+  },
+  filterPill: {
+    alignItems: 'center',
+    backgroundColor: color.segment,
+    borderRadius: radius.pill,
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 22,
+    paddingVertical: 11,
+  },
+  filterText: { color: color.ink, fontFamily: font.sansMedium, fontSize: 15 },
+  filterDot: { borderRadius: 3, height: 6, width: 6 },
+
+  filterRow: { alignItems: 'center', flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg, paddingVertical: 13 },
+  filterRowLabel: { ...type.settingsRow, color: color.ink },
+  filterRowHint: { ...type.settingsValue, color: color.inkFaint, marginTop: 1 },
+  attentionCount: {
     backgroundColor: color.coralBg,
     borderRadius: radius.pill,
-    minWidth: 17,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 2,
   },
-  pillCountText: { color: color.coral, fontFamily: font.mono, fontSize: 10, textAlign: 'center' },
+  attentionCountText: { color: color.coralInk, fontFamily: font.sansSemibold, fontSize: 12 },
 
-  errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  error: { color: color.coral, flex: 1, fontFamily: font.sans, fontSize: 13 },
-
-  sectionHead: { marginBottom: 4, marginTop: 18 },
-
-  row: {
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    borderColor: glass.hairline,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    flexDirection: 'row',
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  rowTap: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 13,
-  },
-  rowPressed: { backgroundColor: color.press },
-  rail: { width: 34 },
-  unreadDot: {
-    backgroundColor: color.brass,
-    borderColor: color.ground,
-    borderRadius: 5,
-    borderWidth: 2,
-    height: 10,
-    position: 'absolute',
-    right: -3,
-    top: -3,
-    width: 10,
-  },
-  rowMain: { flex: 1, minWidth: 0 },
-  rowTop: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  from: { ...type.strong, color: color.ink, flex: 1 },
-  unread: { fontFamily: font.sansExtrabold },
-  time: { ...type.meta, color: color.inkFaint, fontSize: 11 },
-  threadChip: {
+  errorRow: {
     alignItems: 'center',
-    backgroundColor: color.panel,
-    borderColor: color.line,
-    borderRadius: radius.pill,
-    borderWidth: 1,
+    backgroundColor: color.coralBg,
     flexDirection: 'row',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
   },
-  threadChipText: { color: color.inkDim, fontFamily: font.mono, fontSize: 10.5 },
-  star: {
+  error: { ...type.small, color: color.coralInk, flex: 1 },
+
+  sectionHead: {
+    ...type.settingsValue,
+    color: color.inkDim,
+    paddingBottom: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+  },
+
+  row: { borderBottomColor: color.line, borderBottomWidth: 1 },
+  rowTap: { alignItems: 'flex-start', flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg },
+  rowPressed: { backgroundColor: color.rowPress },
+  rowMain: { flex: 1, gap: 2, paddingRight: 22 },
+  rowTop: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
+
+  from: { ...type.row, color: color.inkDim, flex: 1 },
+  fromUnread: { color: color.ink, fontFamily: font.sansBold },
+  time: { ...type.date },
+  subject: { ...type.rowSubject, color: color.inkDim, flex: 1 },
+  subjectUnread: { color: color.ink, fontFamily: font.sansBold },
+  snippet: { ...type.rowSub, color: color.inkFaint },
+  snippetLocked: { fontFamily: font.sans, fontStyle: 'italic' },
+  mailbox: { ...type.meta, color: color.inkFaint, marginTop: 3 },
+
+  threadChip: { backgroundColor: color.surfaceRaised, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 1 },
+  threadChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },
+
+  star: { padding: 6, position: 'absolute', right: space.sm, top: 10 },
+  unreadDot: { borderRadius: 4, height: 8, left: 5, position: 'absolute', top: 26, width: 8 },
+
+  skelRow: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    gap: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: 14,
   },
-  starPressed: { backgroundColor: color.press },
-  subject: { color: color.inkDim, fontFamily: font.sans, fontSize: 13.5, marginTop: 2 },
-  subjectUnread: { color: color.ink, fontFamily: font.sansSemibold },
-  snippet: { ...type.small, color: color.inkFaint, marginTop: 2 },
-  snippetLocked: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
-  badgeRow: { alignSelf: 'flex-start', flexDirection: 'row', marginTop: 8 },
 
-  skelRow: { flexDirection: 'row', gap: 12, paddingVertical: 15 },
-
-  // The one solid-brass control: the primary action, and the only saturated
-  // fill in the composition. Everything else is glass; this is the focal point.
   fab: {
-    backgroundColor: color.brass,
+    alignItems: 'center',
     borderRadius: 28,
     height: 56,
+    justifyContent: 'center',
     position: 'absolute',
     right: 20,
     width: 56,
-    ...shadow.floating,
   },
   fabPress: { alignItems: 'center', height: '100%', justifyContent: 'center', width: '100%' },
-
-  scrim: { flex: 1 },
-  sheet: {
-    borderTopColor: glass.hairline,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    ...shadow.sheet,
-  },
-  sheetInner: { paddingHorizontal: 16, paddingTop: 10 },
-  grabber: {
-    alignSelf: 'center',
-    backgroundColor: color.line,
-    borderRadius: radius.pill,
-    height: 4,
-    marginBottom: 16,
-    width: 38,
-  },
-  sheetHead: {
-    alignItems: 'center',
-    borderBottomColor: color.lineSoft,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    paddingBottom: 14,
-  },
-  sheetName: { ...type.strong, color: color.ink },
-  sheetEmail: { ...type.meta, color: color.inkFaint, marginTop: 2 },
-  sheetItem: {
-    alignItems: 'center',
-    borderRadius: radius.sm,
-    flexDirection: 'row',
-    gap: 12,
-    marginHorizontal: -8,
-    paddingHorizontal: 8,
-    paddingVertical: 15,
-  },
-  sheetItemText: { ...type.strong, flex: 1 },
 });

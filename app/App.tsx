@@ -27,11 +27,14 @@ import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
+import { AppearanceScreen } from './src/screens/AppearanceScreen';
 import { ScheduledScreen } from './src/screens/ScheduledScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
-import { color, font } from './src/theme';
+import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
+import { AppearanceProvider } from './src/ui/appearance';
 import { CategoryFilterProvider } from './src/ui/inboxFilter';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -47,7 +50,7 @@ const navTheme = {
     card: 'transparent',
     border: color.lineSoft,
     text: color.ink,
-    primary: color.brass,
+    primary: defaultAccent,
     notification: color.coral,
   },
 };
@@ -58,7 +61,7 @@ const screenOptions = {
   // separator to lose: `headerShadowVisible` is already off.
   headerStyle: { backgroundColor: 'transparent' },
   headerTintColor: color.ink,
-  headerTitleStyle: { fontFamily: font.display, fontSize: 16 },
+  headerTitleStyle: { fontFamily: font.sansSemibold, fontSize: 17 },
   headerShadowVisible: false,
   contentStyle: { backgroundColor: 'transparent' },
 } as const;
@@ -73,10 +76,12 @@ function InboxDrawer() {
         headerShown: false,
         drawerType: 'front',
         drawerStyle: {
-          backgroundColor: color.ground,
+          // The drawer is a bar-coloured surface, not the ground: it holds the
+          // account rail and the folder list, both of which lift off black.
+          backgroundColor: color.surface,
           borderRightColor: color.line,
           borderRightWidth: 1,
-          width: 300,
+          width: 330,
         },
       }}
     >
@@ -102,6 +107,8 @@ function FullStack() {
       <Stack.Screen name="Scheduled" component={ScheduledScreen} options={{ title: 'Scheduled' }} />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
@@ -164,17 +171,19 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style="light" />
-        <AppProvider>
-          <AppBackground>
-            {fontsLoaded ? (
-              <Root />
-            ) : (
-              <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-                <ActivityIndicator color={color.brass} />
-              </View>
-            )}
-          </AppBackground>
-        </AppProvider>
+        <AppearanceProvider>
+          <AppProvider>
+            <AppBackground>
+              {fontsLoaded ? (
+                <Root />
+              ) : (
+                <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                  <ActivityIndicator color={defaultAccent} />
+                </View>
+              )}
+            </AppBackground>
+          </AppProvider>
+        </AppearanceProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

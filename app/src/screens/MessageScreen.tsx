@@ -25,7 +25,7 @@ import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplyS
 import { RootStackParamList } from '../navigation';
 import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
 import { OpenedMessage, useApp } from '../state/AppState';
-import { color, font, glass, radius, shadow, space, type } from '../theme';
+import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
 import {
@@ -207,7 +207,7 @@ export function MessageScreen({ route, navigation }: Props) {
         {!opened && !failure ? (
           <View>
             <View style={s.decryptingRow}>
-              <ActivityIndicator color={color.brass} size="small" />
+              <ActivityIndicator color={color.mint} size="small" />
               <Text style={s.decrypting}>Decrypting on this device…</Text>
             </View>
             <View style={{ gap: 10, marginTop: 22 }}>
@@ -344,7 +344,7 @@ export function MessageScreen({ route, navigation }: Props) {
             </Reveal>
 
             {showRaw ? (
-              <Glass contentStyle={s.rawBlock} style={s.rawBlockOuter}>
+              <View style={[s.rawBlockOuter, s.rawBlock]}>
                 <View style={s.rawHead}>
                   <Icon name="mail" size={13} color={color.inkFaint} />
                   <Text style={s.rawHeadText}>What Gmail / Outlook shows</Text>
@@ -363,7 +363,7 @@ export function MessageScreen({ route, navigation }: Props) {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <Text style={s.cipher}>{truncate(opened.raw)}</Text>
                 </ScrollView>
-              </Glass>
+              </View>
             ) : null}
           </>
         ) : null}
@@ -373,14 +373,7 @@ export function MessageScreen({ route, navigation }: Props) {
           encrypted or plain. Replying to someone with no key is held and invited
           by the send path (rule 1), never quietly downgraded to plaintext here. */}
       {replySource ? (
-        <Glass
-          radius={0}
-          border="transparent"
-          intensity={glass.blur.strong}
-          fill={glass.fillStrong}
-          style={s.replybar}
-          contentStyle={[s.replybarInner, { paddingBottom: insets.bottom + 14 }]}
-        >
+        <View style={[s.replybar, s.replybarInner, { paddingBottom: insets.bottom + 14 }]}>
           <View style={s.replyActions}>
             <View style={{ flex: 1 }}>
               <PrimaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
@@ -394,7 +387,7 @@ export function MessageScreen({ route, navigation }: Props) {
               <SecondaryButton title="Forward" icon="forward" onPress={() => composeReply('forward')} />
             </View>
           </View>
-        </Glass>
+        </View>
       ) : null}
 
       <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
@@ -476,14 +469,7 @@ function LinkSheet({ url, onClose }: { url: string | null; onClose: () => void }
         ) : null}
         <View style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }]} />
       </Pressable>
-      <Glass
-        border="transparent"
-        fill={glass.fillStrong}
-        intensity={glass.blur.strong}
-        radius={0}
-        style={s.sheet}
-        contentStyle={[s.sheetInner, { paddingBottom: insets.bottom + space.lg }]}
-      >
+      <View style={[s.sheet, s.sheetInner, { paddingBottom: insets.bottom + space.lg }]}>
         <View style={s.grabber} />
         <Text style={s.linkEyebrow}>This link goes to</Text>
         <Text style={s.linkHost}>{hostOf(url) ?? 'an address CryptMail could not read'}</Text>
@@ -506,7 +492,7 @@ function LinkSheet({ url, onClose }: { url: string | null; onClose: () => void }
           />
           <SecondaryButton title="Cancel" icon="close" onPress={onClose} />
         </View>
-      </Glass>
+      </View>
     </Modal>
   );
 }
@@ -619,7 +605,7 @@ const s = StyleSheet.create({
   decryptingRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   decrypting: { ...type.meta, color: color.inkFaint, fontSize: 12 },
 
-  subject: { ...type.display, color: color.ink, fontSize: 21, lineHeight: 28 },
+  subject: { ...type.display, color: color.ink, lineHeight: 28 },
   timestamp: { ...type.meta, color: color.inkFaint, marginTop: 6 },
   sender: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 16 },
   senderName: { ...type.strong, color: color.ink },
@@ -644,11 +630,12 @@ const s = StyleSheet.create({
 
   body: { color: color.body, fontFamily: font.sans, fontSize: 15.5, lineHeight: 25 },
   // Underlined as well as tinted: colour alone is not a signal everyone can see.
-  link: { color: color.brass, textDecorationLine: 'underline' },
+  link: { color: defaultAccent, textDecorationLine: 'underline' },
 
   scrim: { flex: 1 },
   sheet: {
-    borderTopColor: glass.hairline,
+    backgroundColor: color.surface,
+    borderTopColor: color.line,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderTopWidth: 1,
@@ -695,14 +682,21 @@ const s = StyleSheet.create({
   spamReason: { color: color.inkDim, fontFamily: font.sans, fontSize: 12 },
 
   replybar: {
-    borderTopColor: glass.hairline,
+    backgroundColor: color.surface,
+    borderTopColor: color.line,
     borderTopWidth: 1,
     ...shadow.sheet,
   },
   replybarInner: { paddingHorizontal: 16, paddingTop: 14 },
   replyActions: { flexDirection: 'row', gap: 9 },
 
-  rawBlockOuter: { marginTop: 16 },
+  rawBlockOuter: {
+    backgroundColor: color.ground2,
+    borderColor: color.line,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: 16,
+  },
   rawBlock: { padding: 14 },
   rawHead: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 10 },
   rawHeadText: { ...type.eyebrow, color: color.inkFaint, flex: 1 },

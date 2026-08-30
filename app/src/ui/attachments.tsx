@@ -112,7 +112,7 @@ export function AttachmentList({
             <Icon
               name={busyId === a.id ? 'clock' : 'download'}
               size={16}
-              color={busyId === a.id ? color.brass : color.inkDim}
+              color={busyId === a.id ? color.ink : color.inkDim}
             />
           </View>
         </Pressable>
@@ -153,16 +153,16 @@ const s = StyleSheet.create({
   },
   rowImage: { flexDirection: 'column', alignItems: 'stretch', gap: space.sm },
   rowBody: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-  rowPressed: { backgroundColor: color.press },
+  rowPressed: { backgroundColor: color.rowPress },
   rowIcon: {
     width: 44,
     height: 44,
     borderRadius: radius.xs,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: color.chip,
+    backgroundColor: color.surfaceRaised,
   },
-  preview: { width: '100%', height: 180, borderRadius: radius.xs, backgroundColor: color.chip },
+  preview: { width: '100%', height: 180, borderRadius: radius.xs, backgroundColor: color.surfaceRaised },
   rowText: { flex: 1, gap: 2 },
   rowName: { ...type.strong, color: color.ink },
   rowMeta: { ...type.meta, color: color.inkFaint },

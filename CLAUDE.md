@@ -206,22 +206,37 @@ on the Rust core.
 
 ## UI conventions
 
-[app/src/theme.ts](app/src/theme.ts) holds design tokens ported 1:1 from
-[docs/design/system-design.html](docs/design/system-design.html); keep the names
-aligned with that file's CSS custom properties. Build screens out of
-[app/src/ui/primitives.tsx](app/src/ui/primitives.tsx) (`Glass`, `Badge`,
-`PrimaryButton`, `Field`, …) rather than raw styled `View`s.
+[app/src/theme.ts](app/src/theme.ts) holds the design tokens.
+[docs/design/ui-rework.md](docs/design/ui-rework.md) is the reference for the
+current look; `docs/design/system-design.html` is the **previous** one and is
+kept only as history — don't port from it. Build screens out of
+[app/src/ui/primitives.tsx](app/src/ui/primitives.tsx) (`Segmented`, `Sheet`,
+`SettingsRow`, `Badge`, `PrimaryButton`, `Field`, …) rather than raw styled
+`View`s.
 
+- The accent is **runtime state**, not a constant: read it from `useAccent()`
+  and apply it inline. A `StyleSheet.create` at module scope can't call a hook,
+  so a baked-in accent silently stops following the user's choice.
+  `defaultAccent` exists for genuinely fixed cases (a default argument), not as
+  a shortcut past the hook.
+- **Trust colour is not themeable.** `color.mint` (verified/protected) and
+  `color.coral` (blocked, key changed) are fixed at every accent, and every
+  trust state carries a text or `accessibilityLabel` equivalent — never colour
+  alone. See `lockFor` in the inbox.
 - Address a weight by its **font family** (`font.sansSemibold`), never
-  `fontWeight` — custom faces don't synthesize weights reliably.
+  `fontWeight` — custom faces don't synthesize weights reliably. Manrope is the
+  UI voice; JetBrains Mono is reserved for fingerprints, safety numbers and raw
+  addresses; Space Grotesk survives only on the connect/setup brand screens.
 - Use `shadow.*` (`boxShadow`) — the RN `shadow*` props are deprecated in 0.81+
   and warn on every render.
-- Every surface is transparent so `AppBackground` shows through; `frost()` in
-  primitives is the web fallback for `expo-blur`, which does not blur on web.
 - The ground is **true black** and carries no ambient light — the aurora glows
   and film grain were removed for AMOLED, where `#000000` means the pixel is
-  off. Don't reintroduce a background wash to make glass "read as glass": the
-  `glass.*` fills are opaque enough to stand alone, which is why they exist.
+  off. Bars and the drawer lift off it with a flat `color.surface` fill, not a
+  glow and not a photo: don't reintroduce a background wash or a header image.
+- Blur is now for the modal `Sheet` alone. `frost()` in primitives stays as its
+  web fallback, since `expo-blur` does not blur on web.
+- Density (`compact | cosy | roomy`) scales padding and row height **only**.
+  Never scale font size to fit more mail on screen.
 
 ## Git — never run write commands, run only if permission is granted no Claude trailers on commits
 

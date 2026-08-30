@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Modal,
   Platform,
   Pressable,
   PressableProps,
@@ -18,7 +19,8 @@ import {
 } from 'react-native';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
-import { avatarTints, color, font, glass, motion, radius, shadow, space, type } from '../theme';
+import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, type } from '../theme';
+import { useAccent } from './appearance';
 import { Icon, IconName } from './Icon';
 
 /* --------------------------------------------------------------- motion ---- */
@@ -235,8 +237,8 @@ export function Avatar({ seed, label, size = 34 }: { seed: string; label: string
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   const bg = avatarTints[h % avatarTints.length];
   return (
-    <View style={[s.avatar, { width: size, height: size, borderRadius: size * 0.26, backgroundColor: bg }]}>
-      <Text style={[s.avatarText, { fontSize: size * 0.36 }]}>{label}</Text>
+    <View style={[s.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
+      <Text style={[s.avatarText, { fontSize: size * 0.4 }]}>{label}</Text>
     </View>
   );
 }
@@ -257,6 +259,7 @@ export function PrimaryButton({
   busy?: boolean;
 }) {
   const press = usePressScale();
+  const accent = useAccent();
   const off = disabled || busy;
   return (
     <Animated.View style={press.style}>
@@ -267,13 +270,13 @@ export function PrimaryButton({
         onPress={onPress}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
-        style={[s.primaryBtn, disabled && s.primaryBtnOff, !off && shadow.raised]}
+        style={[s.primaryBtn, { backgroundColor: accent }, disabled && s.primaryBtnOff, !off && shadow.raised]}
       >
         {busy ? (
-          <ActivityIndicator size="small" color={color.brassInk} />
+          <ActivityIndicator size="small" color={ON_ACCENT} />
         ) : (
           <>
-            {icon ? <Icon name={icon} size={16} color={disabled ? color.inkFaint : color.brassInk} /> : null}
+            {icon ? <Icon name={icon} size={16} color={disabled ? color.inkFaint : ON_ACCENT} /> : null}
             <Text style={[s.primaryBtnText, disabled && { color: color.inkFaint }]}>{title}</Text>
           </>
         )}
@@ -343,7 +346,7 @@ export function IconButton({
         style={({ pressed }) => [
           s.iconBtn,
           { width: size, height: size },
-          pressed && { backgroundColor: color.panel2, borderColor: color.brass },
+          pressed && { backgroundColor: color.surfaceRaised },
         ]}
       >
         <Icon name={icon} size={Math.round(size * 0.47)} color={tint} />
@@ -355,7 +358,7 @@ export function IconButton({
 /** Row that behaves like a list item: whole-surface press wash, no scale. */
 export function PressableRow({ style, children, ...rest }: PressableProps & { style?: ViewStyle }) {
   return (
-    <Pressable {...rest} style={({ pressed }) => [style, pressed && { backgroundColor: color.press }]}>
+    <Pressable {...rest} style={({ pressed }) => [style, pressed && { backgroundColor: color.rowPress }]}>
       {children as React.ReactNode}
     </Pressable>
   );
@@ -389,11 +392,12 @@ export const Input = React.forwardRef<TextInput, TextInputProps & { big?: boolea
   { big, style, ...rest },
   ref,
 ) {
+  const accent = useAccent();
   return (
     <TextInput
       ref={ref}
       placeholderTextColor={color.inkFaint}
-      selectionColor={color.brass}
+      selectionColor={accent}
       {...rest}
       style={[s.input, big && s.inputBig, style]}
     />
@@ -460,6 +464,191 @@ export function EmptyState({
   );
 }
 
+/* ------------------------------------------------------------ segmented ---- */
+
+/**
+ * A pill segmented control - the `Focused | Other` tabs, and `Theme | Density`.
+ *
+ * The selected thumb is a neutral grey, not the accent: in the reference these
+ * tabs sit next to accented unread counts and date stamps, and an accented
+ * thumb makes the bar compete with the mail underneath it.
+ */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  style,
+}: {
+  options: { key: T; label: string }[];
+  value: T;
+  onChange: (key: T) => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View accessibilityRole="tablist" style={[s.segment, style]}>
+      {options.map((option) => {
+        const active = option.key === value;
+        return (
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            key={option.key}
+            onPress={() => onChange(option.key)}
+            style={[s.segmentItem, active && s.segmentItemActive]}
+          >
+            <Text style={[s.segmentText, active && s.segmentTextActive]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/* ---------------------------------------------------------------- sheet ---- */
+
+/**
+ * A bottom sheet: scrim, blur, rounded top, safe-area padding.
+ *
+ * This is the one surface that still uses blur - a sheet is the only place
+ * where the thing behind it should stay legible. Everything else is now a flat
+ * fill on the ground.
+ */
+export function Sheet({
+  visible,
+  onClose,
+  title,
+  children,
+  bottomInset = 0,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title?: string;
+  children: React.ReactNode;
+  bottomInset?: number;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
+      <Pressable accessibilityLabel="Close" onPress={onClose} style={StyleSheet.absoluteFill}>
+        {Platform.OS !== 'web' ? (
+          <BlurView intensity={glass.blur.medium} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }, frost(glass.blur.medium)]} />
+      </Pressable>
+
+      <View style={[s.sheet, shadow.sheet, { paddingBottom: bottomInset + space.lg }]}>
+        <View style={s.sheetGrip} />
+        {title ? <Text style={s.sheetTitle}>{title}</Text> : null}
+        {children}
+      </View>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------- settings ---- */
+
+/**
+ * A settings destination: icon, label, an optional value line under it, and an
+ * optional trailing control.
+ *
+ * The value line is the reference's own idea and a good one - "Dark / Blue /
+ * Roomy" under Display & Appearance means the user reads the current state
+ * without opening the screen.
+ */
+export function SettingsRow({
+  icon,
+  label,
+  value,
+  onPress,
+  tint,
+  trailing,
+}: {
+  icon: IconName;
+  label: string;
+  value?: string;
+  onPress: () => void;
+  /** Overrides the label colour - used for the one destructive row. */
+  tint?: string;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <PressableRow accessibilityRole="button" onPress={onPress} style={s.settingsRow}>
+      <Icon name={icon} size={21} color={tint ?? color.inkDim} />
+      <View style={{ flex: 1 }}>
+        <Text style={[s.settingsLabel, tint ? { color: tint } : null]}>{label}</Text>
+        {value ? <Text style={s.settingsValue}>{value}</Text> : null}
+      </View>
+      {trailing}
+    </PressableRow>
+  );
+}
+
+/** The accented heading above a settings group - "Quick Settings", "General". */
+export function GroupHeading({ children }: { children: React.ReactNode }) {
+  const accent = useAccent();
+  return <Text style={[s.groupHeading, { color: accent }]}>{children}</Text>;
+}
+
+/* --------------------------------------------------------------- choice ---- */
+
+/** A labelled radio, drawn in the accent when selected. */
+export function Radio({
+  label,
+  selected,
+  onPress,
+  disabled,
+  hint,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+  /** Why the option is unavailable. Read out, and shown by the caller. */
+  hint?: string;
+}) {
+  const accent = useAccent();
+  const ring = disabled ? color.inkFaint : selected ? accent : color.inkDim;
+  return (
+    <Pressable
+      accessibilityHint={hint}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected, disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[s.radio, disabled && { opacity: 0.45 }]}
+    >
+      <Text style={s.radioLabel}>{label}</Text>
+      <View style={[s.radioRing, { borderColor: ring }]}>
+        {selected ? <View style={[s.radioDot, { backgroundColor: ring }]} /> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+/** A colour swatch in the accent picker. Checked when it is the current accent. */
+export function Swatch({
+  tint,
+  label,
+  selected,
+  onPress,
+}: {
+  tint: string;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      style={[s.swatch, { backgroundColor: tint }]}
+    >
+      {selected ? <Icon name="check" size={20} color={ON_ACCENT} strokeWidth={2.6} /> : null}
+    </Pressable>
+  );
+}
+
 const s = StyleSheet.create({
   title: { ...type.heading, color: color.ink },
   muted: { ...type.body, color: color.inkDim },
@@ -517,25 +706,22 @@ const s = StyleSheet.create({
   rim: { backgroundColor: 'rgba(255,255,255,0.16)', height: 1, left: 0, position: 'absolute', right: 0, top: 0 },
 
   avatar: { alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: color.ground, fontFamily: font.displayBold },
+  avatarText: { color: ON_ACCENT, fontFamily: font.sansBold },
 
   primaryBtn: {
     alignItems: 'center',
-    backgroundColor: color.brass,
     borderRadius: radius.sm,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     paddingVertical: 13,
   },
-  primaryBtnOff: { backgroundColor: color.chip, borderColor: color.line, borderWidth: 1 },
-  primaryBtnText: { color: color.brassInk, fontFamily: font.sansBold, fontSize: 14.5 },
+  primaryBtnOff: { backgroundColor: color.surfaceRaised },
+  primaryBtnText: { color: ON_ACCENT, fontFamily: font.sansBold, fontSize: 14.5 },
   secondaryBtn: {
     alignItems: 'center',
-    backgroundColor: color.chip,
-    borderColor: color.line,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.pill,
     flexDirection: 'row',
     gap: 7,
     justifyContent: 'center',
@@ -547,23 +733,20 @@ const s = StyleSheet.create({
 
   iconBtn: {
     alignItems: 'center',
-    backgroundColor: color.panel,
-    borderColor: color.line,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    borderRadius: radius.pill,
     justifyContent: 'center',
   },
 
   field: {
-    backgroundColor: color.chip,
-    borderColor: color.line,
+    backgroundColor: color.surfaceRaised,
+    borderColor: 'transparent',
     borderRadius: radius.sm,
     borderWidth: 1,
     marginBottom: 11,
     paddingHorizontal: 13,
     paddingVertical: 11,
   },
-  fieldFocused: { backgroundColor: color.panel2, borderColor: color.focus },
+  fieldFocused: { borderColor: color.line },
   fieldWarn: { borderColor: color.coralLine },
   input: { color: color.ink, fontFamily: font.sans, fontSize: 15, padding: 0 },
   inputBig: { minHeight: 120, lineHeight: 22, textAlignVertical: 'top' },
@@ -571,7 +754,57 @@ const s = StyleSheet.create({
   card: { padding: 16 },
   divider: { backgroundColor: color.lineSoft, height: 1 },
 
-  skeleton: { backgroundColor: color.panel2 },
+  skeleton: { backgroundColor: color.surfaceRaised },
+
+  segment: { backgroundColor: color.segment, borderRadius: radius.pill, flexDirection: 'row', padding: 3 },
+  segmentItem: {
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
+  segmentItemActive: { backgroundColor: color.segmentActive },
+  segmentText: { color: color.inkDim, fontFamily: font.sansMedium, fontSize: 15 },
+  segmentTextActive: { color: color.ink, fontFamily: font.sansSemibold },
+
+  sheet: {
+    backgroundColor: color.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    bottom: 0,
+    left: 0,
+    paddingTop: space.sm,
+    position: 'absolute',
+    right: 0,
+  },
+  sheetGrip: {
+    alignSelf: 'center',
+    backgroundColor: color.line,
+    borderRadius: radius.pill,
+    height: 4,
+    marginBottom: space.md,
+    width: 36,
+  },
+  sheetTitle: { ...type.heading, color: color.ink, paddingBottom: space.sm, paddingHorizontal: space.lg },
+
+  settingsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: space.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: 14,
+  },
+  settingsLabel: { ...type.settingsRow, color: color.ink },
+  settingsValue: { ...type.settingsValue, color: color.inkDim, marginTop: 2 },
+  groupHeading: { ...type.section, paddingBottom: space.sm, paddingHorizontal: space.lg, paddingTop: space.lg },
+
+  radio: { alignItems: 'center', gap: space.sm },
+  radioLabel: { ...type.settingsRow, color: color.ink },
+  radioRing: { alignItems: 'center', borderRadius: 12, borderWidth: 2, height: 24, justifyContent: 'center', width: 24 },
+  radioDot: { borderRadius: 6, height: 12, width: 12 },
+
+  swatch: { alignItems: 'center', borderRadius: 26, height: 52, justifyContent: 'center', width: 52 },
 
   empty: { alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: 56 },
   emptyGlyph: {

@@ -119,7 +119,7 @@ function trustBits(encryption: EncryptionState): { icon: IconName; color: string
     case 'changed':
       return { icon: 'alert', color: color.coral, label: 'Key changed' };
     default:
-      return { icon: 'alert', color: color.brass, label: 'No key' };
+      return { icon: 'alert', color: color.coral, label: 'No key' };
   }
 }
 
@@ -130,7 +130,7 @@ function firstLine(text: string): string {
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  subject: { ...type.display, color: color.ink, fontSize: 21, lineHeight: 28 },
+  subject: { ...type.display, color: color.ink, lineHeight: 28 },
   meta: { ...type.meta, color: color.inkFaint, marginTop: 6, marginBottom: 18 },
 
   list: { gap: 10 },
@@ -144,7 +144,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 13,
   },
-  cardPressed: { backgroundColor: color.press, borderColor: 'rgba(235,184,99,0.25)' },
+  cardPressed: { backgroundColor: color.rowPress },
   cardMain: { flex: 1, minWidth: 0 },
   cardTop: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   name: { ...type.strong, color: color.ink, flex: 1 },

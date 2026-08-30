@@ -32,7 +32,7 @@ import { RecipientState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, type } from '../theme';
 import { AttachmentChip } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
-import { Badge, Field, Glass, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
+import { Badge, Field, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
 
@@ -523,13 +523,13 @@ export function ComposeScreen({ route, navigation }: Props) {
         ) : null}
       </ScrollView>
 
-      <Glass
-        radius={0}
-        border="transparent"
-        intensity={glass.blur.strong}
-        fill={alarming ? glass.fillWarn : glass.fillStrong}
-        style={[s.sendbar, alarming && s.sendbarWarn]}
-        contentStyle={[s.sendbarInner, { paddingBottom: insets.bottom + 14 }]}
+      <View
+        style={[
+          s.sendbar,
+          alarming && s.sendbarWarn,
+          s.sendbarInner,
+          { paddingBottom: insets.bottom + 14 },
+        ]}
       >
         <View style={s.status}>
           <Icon
@@ -603,7 +603,7 @@ export function ComposeScreen({ route, navigation }: Props) {
             A plaintext one is not encoded-instead-of-encrypted; it is exactly
             what it says, in demo mode and live alike. */}
         {gate.reason && gate.allowed && !plain ? <Text style={s.gateNote}>{gate.reason}</Text> : null}
-      </Glass>
+      </View>
     </KeyboardAvoidingView>
   );
 
@@ -679,7 +679,7 @@ function ModeTab({
   onPress: () => void;
   tone?: 'warn';
 }) {
-  const tint = active ? (tone === 'warn' ? color.coral : color.brassInk) : color.inkDim;
+  const tint = active ? (tone === 'warn' ? color.coral : color.ground) : color.inkDim;
   return (
     <Pressable
       accessibilityRole="button"
@@ -688,7 +688,7 @@ function ModeTab({
       style={({ pressed }) => [
         s.mode,
         active && (tone === 'warn' ? s.modeActiveWarn : s.modeActive),
-        pressed && !active && { backgroundColor: color.press },
+        pressed && !active && { backgroundColor: color.rowPress },
       ]}
     >
       <Icon name={icon} size={14} color={tint} />
@@ -754,7 +754,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 7,
   },
-  modeActive: { backgroundColor: color.brass, borderColor: color.brass },
+  modeActive: { backgroundColor: color.ink, borderColor: color.ink },
   // Not the brass fill: the unencrypted mode is the one state on this screen
   // that should never look like the app's primary, endorsed action.
   modeActiveWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine },
@@ -801,13 +801,14 @@ const s = StyleSheet.create({
   attachTotal: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11.5 },
   attachChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   attachNote: { color: color.inkFaint, fontFamily: font.sans, fontSize: 12, lineHeight: 17 },
-  attachWarn: { color: color.brass },
+  attachWarn: { color: color.coral },
 
   errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 4 },
   error: { color: color.coral, flex: 1, fontFamily: font.sans, fontSize: 13 },
 
   sendbar: {
-    borderTopColor: glass.hairline,
+    backgroundColor: color.surface,
+    borderTopColor: color.line,
     borderTopWidth: 1,
     ...shadow.sheet,
   },

@@ -100,7 +100,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
   },
   main: { flex: 1, gap: 3, minWidth: 0, paddingHorizontal: 13, paddingVertical: 13 },
-  mainPressed: { backgroundColor: color.press },
+  mainPressed: { backgroundColor: color.rowPress },
   top: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   title: { ...type.strong, color: color.ink, flex: 1 },
   time: { ...type.meta, color: color.inkFaint, fontSize: 11 },

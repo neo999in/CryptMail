@@ -94,3 +94,6 @@ $RECYCLE.BIN/
 
 # Rust build output
 target/
+
+# UI reference screenshots — local-only, see docs/design/ui-rework.md
+Ui rework/

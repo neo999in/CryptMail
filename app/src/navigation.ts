@@ -29,4 +29,6 @@ export type RootStackParamList = {
   Scheduled: undefined;
   Keys: undefined;
   Recovery: undefined;
+  Settings: undefined;
+  Appearance: undefined;
 };
