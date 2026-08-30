@@ -4,8 +4,10 @@ The React Native (Expo, TypeScript) client for the Phase 0 prototype described
 in [../docs/prototype-plan.md](../docs/prototype-plan.md). Visual language is
 ported from [../docs/design/system-design.html](../docs/design/system-design.html).
 
-This is the **frontend only**. The Rust crypto core (M1/M2) does not exist yet,
-so the app boots in **demo mode** — see below.
+This is the **frontend only**. The mailbox is **real Gmail** — there is no fixture
+mail path. The Rust crypto core (M1/M2) does not exist yet, so the app runs with
+**demo crypto**: real mail, encoded-not-encrypted payloads, and a banner saying so.
+See [Modes](#modes).
 
 ## Run it
 
@@ -13,14 +15,14 @@ so the app boots in **demo mode** — see below.
 npm install
 npm run web        # fastest way to look at the UI
 npm run android    # needs a dev build; Expo Go will not load the native core
-npm test           # 52 unit tests (jest-expo)
+npm test           # jest-expo
 ```
 
 ## What is implemented
 
 | Screen | File | Notes |
 |---|---|---|
-| Connect | [src/screens/ConnectScreen.tsx](src/screens/ConnectScreen.tsx) | Provider OAuth entry, least-privilege scopes, demo-mode disclosure |
+| Connect | [src/screens/ConnectScreen.tsx](src/screens/ConnectScreen.tsx) | Gmail OAuth entry, least-privilege scopes, demo-crypto disclosure, and the reason when sign-in cannot run |
 | Inbox | [src/screens/InboxScreen.tsx](src/screens/InboxScreen.tsx) | Encryption + trust badge on every row, derived from headers only |
 | Message | [src/screens/MessageScreen.tsx](src/screens/MessageScreen.tsx) | Decrypt, restore the protected subject, "What Gmail sees" raw view |
 | Compose | [src/screens/ComposeScreen.tsx](src/screens/ComposeScreen.tsx) | Per-recipient key resolution and the fail-safe send gate |
@@ -44,8 +46,8 @@ absent or marked `PHASE 1`.
 
 ```
 screens/  ──▶  state/AppState.tsx  ──▶  core/    (crypto + PGP/MIME)
-                                    ──▶  mail/    (Gmail REST | demo fixtures)
-                                    ──▶  auth/    (Google OAuth PKCE | demo)
+                                    ──▶  mail/    (Gmail REST)
+                                    ──▶  auth/    (Google sign-in via Play services)
                                     ──▶  store/   (keyring)
 ```
 
@@ -74,23 +76,28 @@ send bar.
 
 ## Modes
 
-| | demo | live |
+Mail is not a mode — Gmail is the only mailbox, and a build that cannot reach it
+says so on the Connect screen instead of serving invented mail. One thing is still
+switchable:
+
+| | demo crypto (today) | live |
 |---|---|---|
-| Trigger | no OAuth client **or** no native core | both present |
-| Mail | fixtures in [src/mail/demoMail.ts](src/mail/demoMail.ts) | Gmail REST |
+| Trigger | no native core | native core linked |
+| Mail | real Gmail REST | real Gmail REST |
 | Crypto | `demoCore` (encoded, not encrypted) | Rust core |
 
-To move to live mode: build the native core (M2), then add a Google **Web**
-client id:
+To reach live: build the native core (M2). For mail, add a Google **Web** client
+id:
 
 ```bash
 cp .env.example .env     # then fill in EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 ```
 
+Expo inlines `EXPO_PUBLIC_*` at bundle time, so restart Metro after editing it.
 Sign-in runs through Google Play services, not a browser redirect — there is no
-redirect scheme. A separate Android OAuth client (package + signing SHA-1) must
-exist in the console but is never named in code. Full setup:
-[docs/running-it.md](../docs/running-it.md).
+redirect scheme, and the web build cannot sign in at all. A separate Android OAuth
+client (package + signing SHA-1) must exist in the console but is never named in
+code. Full setup: [docs/running-it.md](../docs/running-it.md).
 
 ## The fail-safe
 
@@ -98,8 +105,8 @@ exist in the console but is never named in code. Full setup:
 build a message when any recipient has no key, and Compose blocks the send with
 an explanation rather than offering a plaintext downgrade. A key that changes
 fingerprint is marked `changed` in the keyring and also blocks sending. This is
-the rule from [../docs/encryption.md](../docs/encryption.md) and it holds in
-demo mode too.
+the rule from [../docs/encryption.md](../docs/encryption.md) and it holds with the
+demo core too.
 
 ## Known gaps (frontend)
 

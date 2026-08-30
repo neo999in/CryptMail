@@ -23,7 +23,7 @@ a human, a real device or a real Gmail account to confirm.
 - **Tests** — `app/src/spam/__tests__/` (7 suites),
   `app/src/store/__tests__/spamModelStore-test.ts`,
   `app/src/categorizer/__tests__/categorizer-test.ts`,
-  `app/src/mail/__tests__/demoMail-test.ts`
+  `app/src/mail/__tests__/demoMailbox-test.ts`
 
 ## 1. What this document covers
 
@@ -31,7 +31,7 @@ It is written for two readers at once.
 
 A **user or reviewer** who never opens a source file can read §2, §11, §12, §13
 and §15 and come away knowing what the feature does, what it stores, what it
-refuses to do, and what the demo mailbox will show.
+refuses to do, and what the fixture mailbox will show.
 
 A **developer maintaining it later** can read §3 through §10 and know where every
 decision lives, then §16 through §22 for what was verified, what was fixed, and
@@ -207,7 +207,7 @@ screens/
 | [`store/index.ts`](../app/src/store/index.ts) | `SPAM_STORE_KEY` added to `SEALED_STORE_KEYS`; `initStorage()` sweeps it through `resealPlaintext`. | The model and marks are user data and must sit inside the seal, including on an install that predates the feature. |
 | [`mail/gmail.ts`](../app/src/mail/gmail.ts) | Four header names added to the `metadata` request; `toSummary` maps them with `\|\| undefined`. | Live mode cannot analyse authentication it never asked Gmail for. |
 | [`mail/types.ts`](../app/src/mail/types.ts) | `MailSummary` gains `replyTo`, `authenticationResults`, `listUnsubscribe`, `returnPath` — all optional. | The provider-agnostic contract had to carry the four fields, while a connector supplying none of them keeps its previous behaviour exactly. |
-| [`mail/demoMail.ts`](../app/src/mail/demoMail.ts) | Three filter fixtures (`demo-phish`, `demo-bulk`, `demo-legit-security`), `withHeaders` to splice receiver-written headers in, `snippetOf` for provider-shaped previews, and the four new header fields on every row. | The feature is unreachable in demo mode without mail to filter, and the row shape had to match Gmail's or the demo would score less text than production. |
+| [`mail/__tests__/demoMailbox.ts`](../app/src/mail/__tests__/demoMailbox.ts) | Three filter fixtures (`demo-phish`, `demo-bulk`, `demo-legit-security`), `withHeaders` to splice receiver-written headers in, `snippetOf` for provider-shaped previews, and the four new header fields on every row. | Regression coverage for both directions of the filter, on the row shape `gmail.ts` produces — the fixture had to match Gmail's or it would score less text than production. Was `mail/demoMail.ts` and a live code path; now a test double only. |
 | [`screens/MessageScreen.tsx`](../app/src/screens/MessageScreen.tsx) | The `verdict` memo, `SpamNotice`, and the Mark as spam / Not spam toggle. | The verdict has to be visible and correctable. |
 | [`screens/InboxScreen.tsx`](../app/src/screens/InboxScreen.tsx) | `spamContext` memo; the row filter calls `categorizeMessage` with it. | Rows must be filed using the same model and marks the message view uses. |
 | [`screens/CategoryDrawer.tsx`](../app/src/screens/CategoryDrawer.tsx) | Reads `unreadCountsByCategory` for the Spam badge. | Badge counts must agree with the filed rows. |
@@ -590,7 +590,7 @@ scores.
 `null` means **"the header did not say"**, which is not `'none'` (the header said a
 policy was checked and not found), and neither of them is `'fail'`.
 
-Every message in CryptMail's demo mode has no `Authentication-Results`. So does
+Every message in CryptMail's fixture mailbox has no `Authentication-Results`. So does
 mail that arrived by a path that does not stamp one, and mail from providers that
 do not. Treating absence as failure would classify a large fraction of ordinary
 mail as suspicious. Absence therefore contributes **exactly nothing**: no symbol,
@@ -754,7 +754,7 @@ Five things, together:
    necessity, in the language of the attack it warns about — passes DMARC, and
    `AUTH_DMARC_PASS` −1.2 plus `AUTH_SPF_DKIM_PASS` −0.8 comes off both scores.
 
-`demo-legit-security` in the demo mailbox is the standing regression test for this:
+`demo-legit-security` in the fixture mailbox is the standing regression test for this:
 it says *password*, *verify*, *sign in* and *account*, and it measures
 **`legitimate`, score −2** (§15).
 
@@ -1652,7 +1652,7 @@ const readable = encrypted
 | Encrypted, never opened | **nothing** — `undefined` for both |
 
 An unopened encrypted message therefore scores on **cleartext headers alone**. In
-the demo mailbox that is a single `MESSAGE_ID_MISMATCH` at 0.4, far below both
+the fixture mailbox that is a single `MESSAGE_ID_MISMATCH` at 0.4, far below both
 thresholds, so it stays in Primary (§15).
 
 Two things follow, and both are deliberate:
@@ -1739,23 +1739,31 @@ failure — a message with no `Authentication-Results` is the ordinary case, not
 suspicious one. A connector that supplies none of them yields exactly the behaviour
 that existed before these fields did."*
 
-`demoMail.ts`'s `toStored` carries the same four the same way, from
-`parseRfc822` headers, so the demo and live paths present identical shapes.
+`demoMailbox.ts`'s `toStored` carries the same four the same way, from
+`parseRfc822` headers, so the fixture rows and the live Gmail rows present
+identical shapes — which is what makes a verdict reached on a fixture evidence
+about the live path.
 
 ### 14.3 Verification limitation
 
 > **Live Gmail was not exercised.** The automated environment has no `app/.env`, no
-> OAuth Web client id and no native crypto core, so the app runs in demo mode and
-> **no real `Authentication-Results` header from Google has ever been passed through
-> this code.** The header parser is tested against 63 cases in `headers-test.ts`,
+> OAuth Web client id and no native crypto core, so **no real
+> `Authentication-Results` header from Google has ever been passed through this
+> code.** The header parser is tested against 63 cases in `headers-test.ts`,
 > including real-world header shapes with comments, multiple `authserv-id`
 > sections and property parameters — but that is a test corpus, not a live mailbox.
 >
 > This is a verification limitation, not a known defect. See §21 and §22.
 
-## 15. Demo mode fixtures
+## 15. The fixture mailbox
 
-[`app/src/mail/demoMail.ts`](../app/src/mail/demoMail.ts). Every URL in the
+[`app/src/mail/__tests__/demoMailbox.ts`](../app/src/mail/__tests__/demoMailbox.ts).
+This was `app/src/mail/demoMail.ts` and a live mail path until the fixture mailbox
+was removed from the product; it is now a test double, imported only by
+`demoMailbox-test.ts`. The fixtures themselves are unchanged, and they are the
+filter's standing regression coverage.
+
+Every URL in the
 fixtures is on a `.example` or `.invalid` domain — RFC 2606 / RFC 6761 reserved and
 permanently unresolvable — so even a mistaken fetch could reach nothing. Nothing is
 ever fetched in any case.
@@ -1763,7 +1771,7 @@ ever fetched in any case.
 ### 15.1 The three filter fixtures
 
 These exist for the spam engine rather than for the crypto, and they are served in
-**both** demo shapes (with and without demo ciphertext).
+**both** fixture shapes (with and without demo ciphertext).
 
 **`demo-phish` — a phishing attempt.**
 
@@ -1863,7 +1871,7 @@ to read demo-core ciphertext.
 > These verdicts were measured against the current implementation by running the
 > real `categorizeMessage` / `verdictFor` path over the fixtures. The three filter
 > fixtures' categories and classifications are additionally **pinned by assertions**
-> in [`app/src/mail/__tests__/demoMail-test.ts`](../app/src/mail/__tests__/demoMail-test.ts),
+> in [`app/src/mail/__tests__/demoMailbox-test.ts`](../app/src/mail/__tests__/demoMailbox-test.ts),
 > which computes the row exactly as `InboxScreen` and the drawer badges do. The UI
 > behaviour in §15.3 follows from those verdicts but has **not** been verified by
 > hand on a device — see §22.
@@ -1907,7 +1915,7 @@ changed.
 | Scope | Command | Result |
 |---|---|---|
 | Engine + integration seam | `npx jest src/spam src/categorizer` | **8 suites · 344 passed** |
-| …plus persistence + demo fixtures | `npx jest src/spam src/categorizer src/store/__tests__/spamModelStore-test.ts src/mail/__tests__/demoMail-test.ts` | **10 suites · 369 passed** |
+| …plus persistence + demo fixtures | `npx jest src/spam src/categorizer src/store/__tests__/spamModelStore-test.ts src/mail/__tests__/demoMailbox-test.ts` | **10 suites · 369 passed** |
 | Mail layer | `npx jest src/mail` | **4 suites · 67 passed** |
 
 ### 16.3 Per-suite counts
@@ -1925,7 +1933,7 @@ changed.
 | [`src/store/__tests__/spamModelStore-test.ts`](../app/src/store/__tests__/spamModelStore-test.ts) | 17 |
 | **Feature-owned total** | **330** |
 | [`src/categorizer/__tests__/categorizer-test.ts`](../app/src/categorizer/__tests__/categorizer-test.ts) | 31 |
-| [`src/mail/__tests__/demoMail-test.ts`](../app/src/mail/__tests__/demoMail-test.ts) | 8 |
+| [`src/mail/__tests__/demoMailbox-test.ts`](../app/src/mail/__tests__/demoMailbox-test.ts) | 8 |
 
 330 is the figure quoted in [`docs/features.md`](features.md) line 51; the
 `categorizer` and `demoMail` suites pre-date the feature and were extended by it
@@ -2010,7 +2018,7 @@ re-marked id moves to the end of the trim order.
 `unreadCountsByCategory`. The `spamInputFor` block is the encryption-boundary test:
 an encrypted message not in the index yields `subject: undefined, body: undefined`.
 
-**[`demoMail-test.ts`](../app/src/mail/__tests__/demoMail-test.ts) — 8 tests.**
+**[`demoMailbox-test.ts`](../app/src/mail/__tests__/demoMailbox-test.ts) — 8 tests.**
 Core-gating for the encrypted fixtures, plus four assertions added by this feature
 that pin `demo-phish` → `phishing-suspicious`, `demo-bulk` → `spam` (and *not*
 phishing), `demo-legit-security` → `primary`/`legitimate`, and `demo-3` →
@@ -2038,7 +2046,7 @@ as `InboxScreen` and the drawer badges compute it.
 | **Wrong model version** | `spamModelStore-test.ts` (via `isSpamModel`) and `bayes-test.ts` `isSpamModel` |
 | Duplicate training / double-tap | `spam-test.ts` "learning from corrections"; the `previous === mark` guard in `applyMark` |
 | User corrections outranking the engine | `spam-test.ts` "the user's decision outranks the engine" |
-| Encrypted messages | `categorizer-test.ts` `spamInputFor`; `demoMail-test.ts` |
+| Encrypted messages | `categorizer-test.ts` `spamInputFor`; `demoMailbox-test.ts` |
 | **No network, ever** | `urls-test.ts` `describe('no network access, ever')` |
 
 ## 18. Bugs found and fixed during final verification
@@ -2210,7 +2218,7 @@ mail"*.
 | `Groups Digest` | `ups` | gro-**ups** |
 | `Otherwise Studio` | `wise` | other-**wise** |
 
-`Rewards Team` is `demo-bulk`'s own sender, so the demo mailbox was charging its
+`Rewards Team` is `demo-bulk`'s own sender, so the engine was charging its
 bulk-mail fixture 2.8 phishing points for a brand that is not mentioned anywhere in
 it.
 
@@ -2244,16 +2252,17 @@ read a brand out of the inside of a longer word"* (ten phrases), *"still finds a
 brand run together with a role word or a number"*, and *"still finds a short brand
 written as its own word"*.
 
-### 18.7 The demo bulk fixture was classified on four words
+### 18.7 The bulk fixture was classified on four words
 
-**What was wrong.** `demoMail.ts`'s `toStored` set `snippet` to the first non-blank
-line of the body. For `demo-bulk`, that line is `Dear valued customer,`.
+**What was wrong.** `toStored` in the fixture mailbox (then `demoMail.ts`) set
+`snippet` to the first non-blank line of the body. For `demo-bulk`, that line is
+`Dear valued customer,`.
 
 **Why it was wrong.** Gmail's own `snippet` is a **flattened ~200-character prefix**
 of the message, and everything above `MailClient` treats `summary.snippet` as the
 readable preview a plaintext row is displayed from, searched by, **and categorised
-on**. The demo was therefore scoring plaintext mail on materially less text than the
-live mailbox would.
+on**. The fixture was therefore scoring plaintext mail on materially less text than
+the live mailbox would.
 
 **Incorrect behaviour observed.** `demo-bulk` — the fixture that exists to prove the
 engine catches bulk mail — sat in **Primary**, scored `legitimate` **2 / −0.8** as a
@@ -2262,13 +2271,13 @@ lines two and four, so the row was categorised as though the message said nothin
 all. Nothing asserted the fixture's placement, which is how it went unnoticed.
 
 **Fix.** `snippetOf` in
-[`demoMail.ts:340`](../app/src/mail/demoMail.ts#L340) — `body.replace(/\s+/g, ' ').trim().slice(0, 200)`,
-the same shape Gmail returns.
+[`demoMailbox.ts`](../app/src/mail/__tests__/demoMailbox.ts) —
+`body.replace(/\s+/g, ' ').trim().slice(0, 200)`, the same shape Gmail returns.
 
 **Result.** `demo-bulk` is `spam` **6.6 / −0.8** as a row, matching its full-body
 score.
 
-**Regression tests.** Four tests added to `demoMail-test.ts`, asserting the **row**
+**Regression tests.** Four tests added to `demoMailbox-test.ts`, asserting the **row**
 exactly as `InboxScreen` and the drawer badges compute it — through
 `categorizeMessage` and `verdictFor`, not a hand-built input, because that is the
 path the mistake was on: `demo-phish` → spam/phishing-suspicious, `demo-bulk` →
@@ -2349,12 +2358,12 @@ the reasoning in a comment. The file went from **30 to 31 tests**.
 | `app/src/store/index.ts` | `SPAM_STORE_KEY` added to `SEALED_STORE_KEYS` | The model and marks are user data and must sit inside the seal, including on an install predating the feature |
 | `app/src/mail/gmail.ts` | Four header names on the `format=metadata` request; four fields in `toSummary` | Live mode cannot analyse authentication it never asked for |
 | `app/src/mail/types.ts` | Four optional `MailSummary` fields | The provider-agnostic contract had to carry them, optionally |
-| `app/src/mail/demoMail.ts` | Three filter fixtures, `withHeaders`, `snippetOf`, the four header fields in `toStored` | The feature is unreachable in demo mode without mail to filter, and the row shape had to match Gmail's |
+| `app/src/mail/__tests__/demoMailbox.ts` | Three filter fixtures, `withHeaders`, `snippetOf`, the four header fields in `toStored` | Regression coverage in both directions; the row shape had to match Gmail's. Was `mail/demoMail.ts` and a live path; now a test double |
 | `app/src/screens/MessageScreen.tsx` | `verdict` memo, `SpamNotice`, the Mark as spam / Not spam toggle | The verdict has to be visible and correctable |
 | `app/src/screens/InboxScreen.tsx` | `spamContext` memo, passed to `categorizeMessage` | Rows must be filed using the same model and marks the message view uses |
 | `app/src/screens/CategoryDrawer.tsx` | `unreadCountsByCategory` with the context | Badge counts must agree with the filed rows |
 | `app/src/categorizer/__tests__/categorizer-test.ts` | `spamInputFor` block; the bug-18.3 test corrected and a sibling added (30 → 31) | See §19.2 |
-| `app/src/mail/__tests__/demoMail-test.ts` | Four fixture-placement assertions (4 → 8) | Bug 18.7 went unnoticed because nothing asserted the rows |
+| `app/src/mail/__tests__/demoMailbox-test.ts` | Four fixture-placement assertions (4 → 8) | Bug 18.7 went unnoticed because nothing asserted the rows |
 | `docs/features.md` | Feature row; test count `322` → `330` at line 51 | `docs/` is the source of truth |
 | `app/src/categorizer/CATEGORIZER.md` | Documents the delegation to the spam engine | Same reason |
 
@@ -2373,7 +2382,7 @@ defect; each is a gap in the evidence.
 | # | Limitation | Why |
 |---|---|---|
 | 1 | **No real Gmail OAuth** | no `app/.env`, no `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` |
-| 2 | **No live mailbox** | follows from 1 — the app runs in demo mode |
+| 2 | **No live mailbox** | follows from 1 — sign-in refuses without a client id, and there is no fixture mail path to fall back to |
 | 3 | **No real `Authentication-Results` from Google** | follows from 1. The parser is tested against 63 cases including real-world header shapes, but never against Google's own output |
 | 4 | **No native Rust crypto core** | M1/M2 do not exist yet, so `getNativeCore()` returns null and `demoCore` is loaded |
 | 5 | **No physical Android device** | none attached |
@@ -2401,7 +2410,7 @@ Two further honest notes:
 
 | Scenario | Status | Note |
 |---|---|---|
-| Demo phishing message shows a phishing warning | ⬜ **Not manually tested** | verdict `phishing-suspicious` is asserted by `demoMail-test.ts`; the banner rendering is not |
+| Demo phishing message shows a phishing warning | ⬜ **Not manually tested** | verdict `phishing-suspicious` is asserted by `demoMailbox-test.ts`; the banner rendering is not |
 | Demo spam message shows a spam (not phishing) presentation | ⬜ **Not manually tested** | verdict `spam` asserted; presentation not |
 | Legitimate security email stays in Primary with no warning | ⬜ **Not manually tested** | verdict `legitimate`/`primary` asserted; absence of UI not |
 | **Mark spam** files the message and trains | ⬜ **Not manually tested** | `applyMark` covered by `spam-test.ts`; the tap is not |
@@ -2438,7 +2447,7 @@ npm test -- --ci                                  # 41 suites, 751 tests
 they are the only end-to-end verdicts that exist:
 
 ```bash
-npx jest src/mail/__tests__/demoMail-test.ts
+npx jest src/mail/__tests__/demoMailbox-test.ts
 ```
 
 Ask specifically: **did anything move `demo-legit-security` out of Primary?** That

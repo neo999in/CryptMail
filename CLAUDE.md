@@ -9,9 +9,10 @@ account and end-to-end encrypts outgoing mail (PGP/MIME), so the provider's own
 apps show ciphertext while CryptMail shows the message. It is a client, never a
 mail provider.
 
-The repo currently holds **design docs + a Phase 0 prototype frontend**. The Rust
-crypto core (M1/M2) and the Google OAuth client (M3) do not exist yet, so the app
-boots in **demo mode**.
+The repo currently holds **design docs + a Phase 0 prototype frontend**. The
+mailbox is **real Gmail** — there is no fixture mail path any more. The Rust
+crypto core (M1/M2) does not exist yet, so the app boots with **demo crypto**:
+real mail, encoded-not-encrypted payloads, and a banner saying so.
 
 ## Layout and commands
 
@@ -61,16 +62,16 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 
 ```
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
-                                ──▶  mail/    (Gmail REST | demo fixtures)
-                                ──▶  auth/    (Google OAuth PKCE | demo)
-                                ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
+                                ──▶  mail/    (Gmail REST)
+                                ──▶  auth/    (Google sign-in via Play services)
+                                ──▶  keys/    (Autocrypt harvest, keys.openpgp.org, then WKD)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
 [app/src/state/](app/src/state/) is the **only** layer aware of all five
 subsystems. Screens never call a provider, the core, or a store directly — they
-call actions on `useApp()`. Keep that seam; it is what makes the demo/live swap
-and the future Rust core a drop-in.
+call actions on `useApp()`. Keep that seam; it is what makes the future Rust core
+a drop-in, and what Outlook/IMAP will arrive through.
 
 Inside it, React and the work are kept apart:
 
@@ -102,23 +103,35 @@ Two interfaces define the swappable edges:
 
 [app/src/core/index.ts](app/src/core/index.ts) picks the implementation once:
 `getNativeCore() ?? demoCore`. [app/src/config.ts](app/src/config.ts) derives
-`appMode` from whether an OAuth client id **and** a native core are both present,
-and `demoReason()` explains a downgrade to the user rather than hiding it.
+`appMode` from whether the native core is present, and `demoReason()` explains
+that downgrade to the user rather than hiding it.
 
-| | demo | live |
+Mail is **not** one of these modes. Gmail is the only mailbox; when it cannot be
+reached — no client id, or no Play services (the web build) — `canUseGmail` is
+false, `mailUnavailableReason()` names which and how to fix it, and sign-in
+refuses. It never substitutes fixture mail: an unconfigured build that shows a
+working inbox has lied to the user.
+
+| | demo crypto (today) | live |
 |---|---|---|
-| Trigger | no OAuth client **or** no native core | both present |
-| Mail | fixtures in `src/mail/demoMail.ts` | Gmail REST |
+| Trigger | no native core | native core linked |
+| Mail | real Gmail REST, either way | real Gmail REST |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
-| Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
+| Key directory | `keys.openpgp.org`, then WKD, either way | same |
 
-To reach live mode: build the native core (M2), register the Kotlin module as
+To reach live mode: build the native core (M2) and register the Kotlin module as
 `CryptMailCore` with the five methods in
-[app/src/core/nativeCore.ts](app/src/core/nativeCore.ts) — nothing else changes —
-then `cp app/.env.example app/.env` and fill in the **Web** client id as
-`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`. Sign-in goes through Google Play services
+[app/src/core/nativeCore.ts](app/src/core/nativeCore.ts) — nothing else changes.
+For mail, `cp app/.env.example app/.env` and fill in the **Web** client id as
+`EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (Metro must be restarted; Expo inlines
+`EXPO_PUBLIC_*` at bundle time). Sign-in goes through Google Play services
 (`@react-native-google-signin/google-signin`), so there is no redirect scheme —
 Google refuses custom URI schemes from an Android OAuth client.
+
+The fixture mailbox still exists as a **test double** at
+[app/src/mail/__tests__/demoMailbox.ts](app/src/mail/__tests__/demoMailbox.ts).
+Nothing in the app imports it. It is kept for the three spam-filter regression
+fixtures it carries — see rule 7 below.
 
 [app/src/core/mime.ts](app/src/core/mime.ts) implements
 [docs/message-format.md](docs/message-format.md) exactly — `multipart/encrypted`,
@@ -162,11 +175,26 @@ These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)
    base64-encodes the inner MIME tree into a correctly-shaped armor block. Never
    remove the `kind: 'demo'` reporting or the UI banners that surface it, and
-   never present demo output as secure.
+   never present demo output as secure. With mail now real and crypto not, that
+   banner is the *only* thing telling a user their real mail is not encrypted.
 3. **Nothing crosses the core boundary but strings**, and a private key is never
    returned from it.
 4. **No secrets in the repo.** OAuth client ids go in `app/.env` (gitignored).
 5. **Screens don't call providers or the core directly** — they go through `AppState`.
+6. **No fake mail, ever.** A build that cannot reach Gmail says so and refuses to
+   sign in. Never reintroduce a fixture mailbox, a fixture auth provider, or a
+   fixture key directory into a code path the app can enter: a user cannot tell
+   invented mail from real mail by looking at it, which makes it a worse lie than
+   an error message. The fixture mailbox lives under `mail/__tests__/` and stays
+   there.
+7. **The spam fixtures are regression coverage, not decoration.**
+   `demo-phish`, `demo-bulk` and `demo-legit-security` in
+   [app/src/mail/__tests__/demoMailbox.ts](app/src/mail/__tests__/demoMailbox.ts)
+   are asserted by
+   [demoMailbox-test.ts](app/src/mail/__tests__/demoMailbox-test.ts) on the same
+   `MailSummary` shape `mail/gmail.ts` produces. `demo-legit-security` is the
+   false-positive guard — it says *password*, *verify*, *account* and must stay in
+   Primary. Don't delete them for looking like demo data.
 
 Docs in [docs/](docs/) are the source of truth for behaviour: if a change
 contradicts a doc, update the doc in the same PR or don't make the change.

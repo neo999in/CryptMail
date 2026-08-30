@@ -2,15 +2,21 @@
 
 What works today, and exactly what you must do to turn each half on.
 
-The app has **two independent capabilities** ([app/src/config.ts](../app/src/config.ts)):
+**Gmail is the only mailbox.** There is no fixture mail path any more: the app
+either signs into a real Gmail account or it tells you why it cannot and stays on
+the Connect screen. It never substitutes invented mail, because a user cannot tell
+a fixture inbox from a real one by looking at it.
+
+That leaves one switchable capability ([app/src/config.ts](../app/src/config.ts)):
 
 | | Off (default) | On |
 |---|---|---|
-| `mailMode` | demo fixtures | real Gmail — needs an OAuth client id |
 | `cryptoMode` | `demoCore`, base64, **not encryption** | real post-quantum crypto — needs the native core |
 
-They are deliberately independent, so you can commission one without the other.
-`appMode === 'live'` only when both are on.
+`appMode === 'live'` when that is on. Mail is real either way — what mail needs is
+*reachability*, not a mode: a Web client id in `app/.env` and Play services on the
+platform. Missing either, `mailUnavailableReason()` names which and how to fix it,
+and sign-in refuses.
 
 ---
 
@@ -20,8 +26,12 @@ They are deliberately independent, so you can commission one without the other.
 cd app && npm install && npm run web
 ```
 
-Full UI, demo fixtures, and a banner saying nothing is really encrypted. Useful
-for reviewing the UI; not useful for anything else.
+Full UI, and a Connect screen that states plainly that Gmail sign-in needs Play
+services this platform does not have. There is no inbox to look at without a
+client id and an Android build — the fixture mailbox that used to fill that gap is
+now a test double under
+[`app/src/mail/__tests__/demoMailbox.ts`](../app/src/mail/__tests__/demoMailbox.ts),
+reachable only from jest.
 
 ---
 
@@ -57,8 +67,9 @@ The OAuth and Gmail code is already written ([auth/googleAuth.ts](../app/src/aut
 
 Sign-in goes through **Google Play services**, not a browser redirect, because
 Google refuses custom URI schemes from an Android client. A device without Play
-services (a de-Googled ROM, the web build) cannot sign in at all — the app
-detects this and stays on demo fixtures rather than pretending otherwise.
+services (a de-Googled ROM, the web build) cannot sign in at all — the app detects
+this, says so on the Connect screen, and disables the button rather than failing
+inside the library or inventing a mailbox.
 
 Scopes are `openid`, `email` and `gmail.modify`
 ([config.ts](../app/src/config.ts)). `gmail.modify` is a **restricted** scope:
@@ -119,29 +130,23 @@ changes: `cryptoMode` flips to `real` on its own.
 
 ## 3. Testing encryption without Google
 
-You do not need OAuth to exercise the crypto. Because the core is selected
-independently of the mail provider, linking the native core with **no** `.env`
-gives you real encryption over the demo mailbox — and `demoMail.send()` puts a
-sent message straight into the inbox store, so a full loop works on one device:
+This used to be possible in the app: linking the native core with no `.env` gave
+you real encryption over the fixture mailbox, and `demoMail.send()` put a sent
+message straight back into the inbox store, so a compose → encrypt → open →
+decrypt loop ran on one device with no Google account.
 
-> compose → real ML-KEM encrypt → appears in the inbox as ciphertext → open →
-> real decrypt → subject restored
+**That is gone.** The fixture mailbox is no longer a code path the app can enter —
+it is a test double under
+[`app/src/mail/__tests__/demoMailbox.ts`](../app/src/mail/__tests__/demoMailbox.ts).
+Exercising the crypto now means either `cd core && cargo test` (27 tests, no
+Android, no Google) or a real Gmail account with the native core linked, sending
+to yourself.
 
-### What changes when the real core loads
-
-The demo fixtures used to break here; that is handled now. With
-`core.kind === 'native'`:
-
-- The demo keyring is **not** seeded. `demoContactKeys` are `fakePublicKey()`
-  armor a real OpenPGP parser rejects, and importing them threw — leaving an
-  error banner and an empty keyring, with encrypted send blocked for everyone.
-- The demo mailbox serves **no** `demoCore` ciphertext, and says so in a
-  plaintext message rather than showing rows that fail to open.
-
-They cannot simply be regenerated with the real core: encrypting *from* Anya
-needs Anya's private key, which the demo does not have and should not ship. So
-encrypted demo mail now comes from sending one to yourself, which round-trips
-through the real core and demonstrates more.
+This is a deliberate trade. The offline loop was genuinely useful during the
+build, and it cost a mail path that showed invented messages whenever the app was
+unconfigured — which a user cannot distinguish from a real inbox. If that loop is
+wanted back, it belongs behind an explicit developer switch that is off in any
+build a user can install, not behind "no client id was set".
 
 ---
 
