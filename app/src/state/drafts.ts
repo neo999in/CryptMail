@@ -11,13 +11,13 @@ export function createDrafts(ctx: Ctx): DraftsService {
   return {
     async saveDraft(draft: Draft) {
       const drafts = upsertDraft(store.get().drafts, draft);
-      await saveDrafts(drafts);
+      await saveDrafts(ctx.services.accounts.requireActive(), drafts);
       store.patch({ drafts });
     },
 
     async deleteDraft(id: string) {
       const drafts = removeDraft(store.get().drafts, id);
-      await saveDrafts(drafts);
+      await saveDrafts(ctx.services.accounts.requireActive(), drafts);
       store.patch({ drafts });
     },
   };

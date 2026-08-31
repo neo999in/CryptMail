@@ -5,14 +5,15 @@
  * encrypted at rest under the device key — see `localCrypto.ts`.
  */
 import { Drafts } from '../drafts/drafts';
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export const DRAFTS_STORE_KEY = 'cryptmail.drafts.v1';
 
-export async function loadDrafts(): Promise<Drafts> {
-  return loadJson<Drafts>(DRAFTS_STORE_KEY, {});
+export async function loadDrafts(account: AccountId): Promise<Drafts> {
+  return loadScopedJson<Drafts>(DRAFTS_STORE_KEY, account, {});
 }
 
-export async function saveDrafts(drafts: Drafts): Promise<void> {
-  await saveJson(DRAFTS_STORE_KEY, drafts);
+export async function saveDrafts(account: AccountId, drafts: Drafts): Promise<void> {
+  await saveScopedJson(DRAFTS_STORE_KEY, account, drafts);
 }

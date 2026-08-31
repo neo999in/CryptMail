@@ -4,9 +4,17 @@
  * Two capabilities, decided independently at startup:
  *
  *  · mail   — `gmail` when a Google client id is configured *and* Play-services
- *             sign-in is available, else `demo` fixtures.
+ *             sign-in is available, else `unconfigured`: there is no mailbox at
+ *             all, and the app says so rather than inventing one.
  *  · crypto — `real` when the native core is linked, else the non-cryptographic
  *             `demo` stand-in.
+ *
+ * There used to be a third state here — demo *mail*, served from fixtures in
+ * `mail/demoMail.ts`. It is gone. Fake mail and fake crypto are not the same
+ * kind of stand-in: fake crypto is loudly reported as insecure and still
+ * exercises the real send path, whereas a fake mailbox quietly replaced the
+ * thing the product is, and every screen had to be read twice to know which one
+ * it was describing. The crypto stand-in stays and is still reported.
  *
  * These were once a single `appMode` requiring *both*, which meant a valid
  * OAuth client still yielded demo fixtures until the Rust core existed — so
@@ -62,33 +70,29 @@ export const hasNativeCore = core.kind === 'native';
  */
 export const hasSignInModule = typeof GoogleSignin?.configure === 'function';
 
-export type MailMode = 'gmail' | 'demo';
+export type MailMode = 'gmail' | 'unconfigured';
 export type CryptoMode = 'real' | 'demo';
-export type AppMode = 'live' | 'demo';
+export type AppMode = 'live' | 'degraded';
 
-/** Real mailbox or fixtures. Independent of whether the crypto is real. */
-export const mailMode: MailMode = hasGoogleClient && hasSignInModule ? 'gmail' : 'demo';
+/** A reachable mailbox, or none. There is no fixture mailbox any more. */
+export const mailMode: MailMode = hasGoogleClient && hasSignInModule ? 'gmail' : 'unconfigured';
 
 /** Real encryption or the encoded stand-in. Independent of where mail comes from. */
 export const cryptoMode: CryptoMode = hasNativeCore ? 'real' : 'demo';
 
 /** Both halves real — the only configuration in which the product claim holds. */
-export const appMode: AppMode = mailMode === 'gmail' && cryptoMode === 'real' ? 'live' : 'demo';
+export const appMode: AppMode = mailMode === 'gmail' && cryptoMode === 'real' ? 'live' : 'degraded';
 
-/**
- * Why the app is not fully live — shown to the user rather than hidden.
- *
- * Each half is reported separately, because "real Gmail, fake crypto" and
- * "fake mail, real crypto" are both useful configurations during the build and
- * mean very different things for the user's safety.
- */
+/** Whether signing in can do anything at all. False leaves the connect screen inert. */
+export const canConnectMailbox = mailMode === 'gmail';
+
 /**
  * Why local data is not fully protected at rest, or null when it is.
  *
- * Separate from `demoReason()` because the two are independent: real crypto on
- * a platform with no keystore still leaves the device key beside the data it
- * protects. Reported for the same reason — a weakened guarantee the user cannot
- * see is worse than one they can.
+ * Separate from `degradedReason()` because the two are independent: real
+ * crypto on a platform with no keystore still leaves the device key beside the
+ * data it protects. Reported for the same reason — a weakened guarantee the
+ * user cannot see is worse than one they can.
  */
 export function storageReason(): string | null {
   switch (protectionLevel()) {
@@ -101,16 +105,27 @@ export function storageReason(): string | null {
   }
 }
 
-export function demoReason(): string | null {
+/**
+ * Why the app is not fully live — shown to the user rather than hidden.
+ *
+ * Each half is reported separately: "real Gmail, fake crypto" and "no mailbox
+ * at all" mean very different things for the user's safety, and the first is
+ * the one that must never be allowed to look normal.
+ */
+export function degradedReason(): string | null {
   if (appMode === 'live') return null;
-  if (cryptoMode === 'demo' && mailMode === 'demo') {
-    return 'Demo mode: the Rust crypto core (M2) and Google OAuth client (M3) are not wired up yet.';
+
+  if (mailMode === 'unconfigured' && cryptoMode === 'demo') {
+    return 'No mailbox and no real encryption: this build has neither a Google OAuth client (M3) nor the Rust crypto core (M2).';
   }
+  // The dangerous one, and the reason this function exists: mail is real, so
+  // everything on screen looks like the product, and the user has to be told
+  // plainly that none of it is actually encrypted.
   if (cryptoMode === 'demo') {
     return 'Real Gmail, demo crypto: the native core is not linked, so nothing is really encrypted.';
   }
   if (hasGoogleClient && !hasSignInModule) {
-    return 'Demo mailbox: Google sign-in needs Play services, which this platform does not have, so mail is served from fixtures.';
+    return 'No mailbox: Google sign-in needs Play services, which this platform does not have.';
   }
-  return 'Real encryption, demo mailbox: no Google OAuth client is configured, so mail is served from fixtures.';
+  return 'No mailbox: set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in app/.env to connect one.';
 }

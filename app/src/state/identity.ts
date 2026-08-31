@@ -40,7 +40,7 @@ export function createIdentityService(ctx: Ctx): IdentityService {
       if (!identity) throw new CoreError('This device has no identity key yet.', 'no-key');
 
       const backup = await core.exportRecoveryBackup(identity.email);
-      store.patch({ recovery: await recordBackup(identity.fingerprint) });
+      store.patch({ recovery: await recordBackup(ctx.services.accounts.requireActive(), identity.fingerprint) });
       return backup;
     },
 
@@ -58,7 +58,11 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      */
     async restoreFromRecovery(blob: string, code: string): Promise<Identity> {
       const identity = await core.importRecoveryBackup(blob, code);
-      store.patch({ identity, recovery: await clearBackupRecord(), verifyLink: null });
+      store.patch({
+        identity,
+        recovery: await clearBackupRecord(ctx.services.accounts.requireActive()),
+        verifyLink: null,
+      });
       return identity;
     },
   };

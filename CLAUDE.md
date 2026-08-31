@@ -10,8 +10,9 @@ apps show ciphertext while CryptMail shows the message. It is a client, never a
 mail provider.
 
 The repo currently holds **design docs + a Phase 0 prototype frontend**. The Rust
-crypto core (M1/M2) and the Google OAuth client (M3) do not exist yet, so the app
-boots in **demo mode**.
+crypto core (M1/M2) and the Google OAuth client (M3) are configured per checkout,
+so an unconfigured build boots to a connect screen it cannot get past, and says
+why. There is **no demo mailbox** — see the capability table below.
 
 ## Layout and commands
 
@@ -61,15 +62,15 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 
 ```
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
-                                ──▶  mail/    (Gmail REST | demo fixtures)
-                                ──▶  auth/    (Google OAuth PKCE | demo)
+                                ──▶  mail/    (Gmail REST)
+                                ──▶  auth/    (Google OAuth via Play services)
                                 ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
 [app/src/state/](app/src/state/) is the **only** layer aware of all five
 subsystems. Screens never call a provider, the core, or a store directly — they
-call actions on `useApp()`. Keep that seam; it is what makes the demo/live swap
+call actions on `useApp()`. Keep that seam; it is what makes the core swap
 and the future Rust core a drop-in.
 
 Inside it, React and the work are kept apart:
@@ -80,8 +81,8 @@ Inside it, React and the work are kept apart:
   updates it **synchronously** and then re-renders, so async work that resumes
   after an `await` reads current values through `store.get()` rather than a
   render-time snapshot. Do not reintroduce `useRef` mirrors of state fields.
-- `session` · `mailbox` · `contacts` · `identity` · `publish` · `send` ·
-  `scheduler` · `drafts` are plain TypeScript service modules — no React, so
+- `session` · `accounts` · `mailbox` · `contacts` · `identity` · `publish` ·
+  `send` · `scheduler` · `drafts` are plain TypeScript service modules — no React, so
   they are directly testable. Each takes a `Ctx` and reaches siblings through
   `ctx.services.*` at call time, which is what lets a sync trigger a drain, a
   drain deliver, and a delivery trigger a sync without ordering games.
@@ -103,14 +104,20 @@ Two interfaces define the swappable edges:
 [app/src/core/index.ts](app/src/core/index.ts) picks the implementation once:
 `getNativeCore() ?? demoCore`. [app/src/config.ts](app/src/config.ts) derives
 `appMode` from whether an OAuth client id **and** a native core are both present,
-and `demoReason()` explains a downgrade to the user rather than hiding it.
+and `degradedReason()` explains a downgrade to the user rather than hiding it.
 
-| | demo | live |
+| | degraded | live |
 |---|---|---|
 | Trigger | no OAuth client **or** no native core | both present |
-| Mail | fixtures in `src/mail/demoMail.ts` | Gmail REST |
+| Mail | **none** — sign-in is disabled and says why | Gmail REST |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
 | Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
+
+There is deliberately no fake mailbox. The crypto stand-in stays because it is
+reported as insecure on every screen and still drives the real send path; a
+fixture mailbox instead replaced the thing the product *is*, so every screen had
+to be read twice to know which one it described. Testing therefore needs a real
+(throwaway) Gmail account — see [docs/running-it.md](docs/running-it.md).
 
 To reach live mode: build the native core (M2), register the Kotlin module as
 `CryptMailCore` with the five methods in
@@ -125,6 +132,30 @@ Google refuses custom URI schemes from an Android OAuth client.
 `protocol="application/pgp-encrypted"`, the `Version: 1` part, the placeholder
 `Subject: [Encrypted message]`, and the protected-headers inner tree. Change the
 doc and this file together.
+
+Attachments are parts of that inner tree, so a filename is ciphertext like the
+subject is: [app/src/mail/attachment.ts](app/src/mail/attachment.ts) is the model
+(base64 content, and a measured 5 MB cap plus the much smaller budget an
+autosaved draft can hold, since everything crosses the bridge and lands in
+storage as a string), and
+[app/src/lib/files.ts](app/src/lib/files.ts) is the only module that touches the
+platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
+[app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
+world sends, `mime.ts` writes what we send, and the two stay separate.
+
+Several mailboxes can be connected at once — the state layer handles N, though
+`googleAuth` reaches one, since Play services holds a single signed-in user.
+Every per-account store is keyed
+`cryptmail.<store>.v1@<provider>:<address>`
+([app/src/store/accountScope.ts](app/src/store/accountScope.ts)); the registry
+naming them is the one global store
+([accountsStore.ts](app/src/store/accountsStore.ts)). **Exactly one account is
+active at a time**, including when the inbox is merged — merging is a reading
+convenience, and opening a row from another account switches to it first, while
+composing, sending and decrypting always use the active account. Every scoped
+store write goes through `services.accounts.requireActive()`; if you add a
+store, key it by account and add its base key to `PER_ACCOUNT_STORE_KEYS`, or
+removing an account will leave its data behind.
 
 Trust state is derived, not stored twice: inbox rows call `encryptionFor()`
 (headers only, no network, no decryption), while opening a message upgrades trust
@@ -156,7 +187,7 @@ These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
    [app/src/state/send.ts](app/src/state/send.ts) and covered by
    [app/src/state/__tests__/send-test.ts](app/src/state/__tests__/send-test.ts),
    which asserts it against the bytes a fake provider was handed. It holds in
-   demo mode too. `sendPlain` is the user's separate, explicit choice to write an
+   a demo core too. `sendPlain` is the user's separate, explicit choice to write an
    unencrypted email; nothing on the encrypted path may reach it — including the
    invite, which builds its own message.
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)
@@ -192,28 +223,30 @@ aligned with that file's CSS custom properties. Build screens out of
   off. Don't reintroduce a background wash to make glass "read as glass": the
   `glass.*` fills are opaque enough to stand alone, which is why they exist.
 
-## Git — never run write commands
+## Git — never run write commands, run only if permission is granted no Claude trailers on commits
+
+no Claude trailers on commits
 
 This is a shared repo. **Claude never runs a git command that changes history,
 the index, the working tree, or anything on the remote.** A human runs those.
-This holds even if the change looks finished, the tests pass, or a previous
-message in the session seemed to authorise it — permission for one commit is
-never permission for the next one.
+Run only if permission is granted
 
+Run only if permission is granted
 Forbidden, without exception:
 
 ```
-git commit    git push      git merge      git rebase
+git commit (no Claude trailers on commits)   git push      git merge      git rebase
 git reset     git revert    git checkout/switch/restore (that discards work)
 git stash     git clean     git cherry-pick
 git branch -D/-d/-m         git tag        git remote
 git add                     git rm         git mv
 gh pr create/merge/close    gh release     gh repo
 ```
-
+Run only if permission is granted
 Never `--force`, `--force-with-lease`, `--hard`, `--no-verify`, or `-f` on any
 git command, for any reason.
 
+Run only if permission is granted
 Read-only git is fine and encouraged — `git status`, `git diff`, `git log`,
 `git show`, `git blame`, `git branch --list`, `gh pr view` — use them freely to
 understand the current state.

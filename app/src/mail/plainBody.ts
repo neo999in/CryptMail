@@ -6,9 +6,9 @@
  * stay a 1:1 mirror of it. This one reads whatever the rest of the world sends,
  * which is a different and much messier problem.
  *
- * It only needs to be good enough to render a body a human can read. It is not
- * a general MIME parser: no charset conversion beyond UTF-8, no RFC 2047
- * word decoding, no attachment extraction.
+ * It only needs to be good enough to render a body a human can read, and to
+ * find the files hanging off it. It is not a general MIME parser: no charset
+ * conversion beyond UTF-8 and no RFC 2047 word decoding.
  *
  * Written after the first real Gmail message opened in the app showed the
  * multipart boundary, the part headers and raw `=E2=80=87` escapes to the user
@@ -16,6 +16,7 @@
  * reachable until real mail arrived.
  */
 import { base64ToBytes, bytesToUtf8 } from '../lib/base64';
+import { Attachment, decodedSize, newAttachmentId } from './attachment';
 
 type Part = { headers: Record<string, string>; body: string };
 
@@ -141,4 +142,66 @@ export function plainBodyOf(raw: string): string {
   const message = split(raw);
   const found = readable(message);
   return found ?? message.body.trim();
+}
+
+/**
+ * Every attached file in a raw, *unencrypted* message.
+ *
+ * Encrypted mail does not come through here — its files are inside the
+ * ciphertext and `parseProtectedInner` reads them. This exists so an ordinary
+ * email with a PDF on it looks the same in the reader as an encrypted one,
+ * minus the lock.
+ *
+ * Only base64 parts are returned. A part in some other transfer encoding is
+ * skipped rather than handed over half-decoded: the reader would then offer to
+ * open bytes that are not the file.
+ */
+export function attachmentsOf(raw: string): Attachment[] {
+  const out: Attachment[] = [];
+
+  const walk = (part: Part) => {
+    const contentType = part.headers['content-type'] ?? 'text/plain';
+    if (/^multipart\//i.test(contentType)) {
+      const boundary = boundaryOf(contentType);
+      if (!boundary) return;
+      for (const child of sectionsOf(part.body, boundary)) walk(child);
+      return;
+    }
+
+    const disposition = part.headers['content-disposition'] ?? '';
+    const filename = parameterOf(disposition, 'filename') ?? parameterOf(contentType, 'name');
+    if (!filename) return;
+    if ((part.headers['content-transfer-encoding'] ?? '').toLowerCase().trim() !== 'base64') return;
+
+    const data = part.body.replace(/\s+/g, '');
+    const contentId = part.headers['content-id']?.replace(/^</, '').replace(/>$/, '');
+    out.push({
+      id: contentId ?? newAttachmentId(),
+      name: filename,
+      mimeType: contentType.split(';')[0].trim() || 'application/octet-stream',
+      size: decodedSize(data),
+      data,
+      inline: /inline/i.test(disposition) || undefined,
+      contentId,
+    });
+  };
+
+  walk(split(raw));
+  return out;
+}
+
+/** The parts of a multipart body, split the way `readable` splits them. */
+function sectionsOf(body: string, boundary: string): Part[] {
+  return body
+    .replace(/\r\n/g, '\n')
+    .split(new RegExp(`^--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(--)?[ \t]*$`, 'm'))
+    .slice(1, -1)
+    .filter((section) => section != null && section.trim() !== '' && section !== '--')
+    .map((section) => split(section.replace(/^\n/, '')));
+}
+
+/** A quoted or bare parameter off a header value. */
+function parameterOf(header: string, name: string): string | undefined {
+  const match = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, 'i').exec(header);
+  return match ? (match[1] ?? match[2]) : undefined;
 }

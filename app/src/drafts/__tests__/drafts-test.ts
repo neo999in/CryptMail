@@ -65,3 +65,20 @@ describe('listDrafts', () => {
     expect(listDrafts({})).toEqual([]);
   });
 });
+
+describe('isDraftEmpty with attachments', () => {
+  it('keeps a draft whose only content is a file', () => {
+    expect(
+      isDraftEmpty({
+        to: [],
+        subject: '',
+        body: '',
+        attachments: [{ id: 'a1', name: 'menu.pdf', mimeType: 'application/pdf', size: 3, data: 'AQID' }],
+      }),
+    ).toBe(false);
+  });
+
+  it('still discards one with nothing at all', () => {
+    expect(isDraftEmpty({ to: [], subject: '', body: '', attachments: [] })).toBe(true);
+  });
+});

@@ -174,6 +174,7 @@ export function getNativeCore(
         to: request.to,
         subject: request.subject,
         body: request.body,
+        attachments: request.attachments,
       });
       const armored = await bridge.encryptSign(
         request.from,
@@ -205,10 +206,11 @@ export function getNativeCore(
         await bridge.decryptVerify(block, JSON.stringify(autocryptKey ? [autocryptKey] : [])),
       ) as NativeDecrypted;
 
-      const { subject, body } = parseProtectedInner(decrypted.plaintext);
+      const { subject, body, attachments } = parseProtectedInner(decrypted.plaintext);
       return {
         subject,
         body,
+        attachments,
         signature: decrypted.signature,
         signerFingerprint: decrypted.signerFingerprint,
         autocryptKey,

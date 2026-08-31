@@ -1,5 +1,7 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
+import { Attachment } from './mail/attachment';
+
 /**
  * `Home` is a drawer that holds only the inbox; every detail screen stays on the
  * parent stack, so nothing but the inbox lives behind the drawer gesture. The
@@ -20,6 +22,8 @@ export type RootStackParamList = {
     quotedBody?: string;
     inReplyTo?: string;
     references?: string[];
+    /** Files carried in from a forward. Base64 already in memory, never re-read. */
+    attachments?: Attachment[];
   };
   Drafts: undefined;
   Scheduled: undefined;

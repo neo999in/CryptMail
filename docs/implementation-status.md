@@ -7,7 +7,15 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-08-06.
+Last updated: 2026-08-31.
+
+> **The demo mailbox was removed on 2026-08-31.** `mail/demoMail.ts`,
+> `auth/demoAuth.ts` and `mail/__tests__/demoMail-test.ts` are gone, and
+> `mailMode` is now `gmail | unconfigured` rather than `gmail | demo`. Entries
+> below that describe fixture mail, the seeded demo keyring, or
+> `demoMail.send()` are kept as the record of what was observed at the time,
+> **not** as claims about the current build. The demo *core* is unaffected and
+> still reports itself as insecure.
 
 ---
 
@@ -365,7 +373,7 @@ See [running-it.md](running-it.md).
 |---|---|
 | 2.4 KB is Autocrypt-viable | 🟨 Judgement, not measurement. PQ.4 exists to test it through real providers. |
 | RFC 9980 permits ML-KEM-768+X25519 on v4 subkeys | ❓ From a web search. The core uses V6 regardless, since that is what rPGP exposes. |
-| `demoMail.send()` completes a local send→inbox loop | 🟨 Read, never executed. |
+| ~~`demoMail.send()` completes a local send→inbox loop~~ | ⛔ Removed 2026-08-31 with the demo mailbox; never executed. |
 | Certificate sizes generalise | 🟨 Measured for these parameters and this library. Treat as "roughly", not constant. |
 
 ---

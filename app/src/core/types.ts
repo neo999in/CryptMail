@@ -13,6 +13,8 @@
  *                    real sends; see `CoreKind`.
  */
 
+import { Attachment } from '../mail/attachment';
+
 export type CoreKind = 'native' | 'demo';
 
 export type Trust = 'seen' | 'verified' | 'changed';
@@ -66,6 +68,13 @@ export type BuildRequest = {
   /** Threading headers, emitted in the clear on the outer envelope (message-format.md). */
   inReplyTo?: string;
   references?: string[];
+  /**
+   * Files to seal into the inner tree alongside the body.
+   *
+   * Base64 strings, so nothing but strings crosses the core boundary (rule 3);
+   * `mail/attachment.ts` caps their size for the same reason.
+   */
+  attachments?: Attachment[];
 };
 
 /** The result of decrypting a PGP/MIME message: protected headers restored. */
@@ -77,6 +86,8 @@ export type DecryptedMessage = {
   signerFingerprint?: string;
   /** Public key harvested from the Autocrypt header, if the message carried one. */
   autocryptKey?: string;
+  /** Files found in the decrypted tree. Empty for a message that carried none. */
+  attachments: Attachment[];
 };
 
 export interface CryptCore {

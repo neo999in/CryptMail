@@ -57,8 +57,11 @@ jest.mock('../../store/inviteStore', () => ({
   loadInvites: jest.fn(async () => ({})),
 }));
 
+/** Every scoped store write is keyed on this; the send path never leaves it. */
+const ACCOUNT = 'gmail:me@example.com';
+
 const SESSION: Session = {
-  provider: 'demo',
+  provider: 'gmail',
   email: 'me@example.com',
   accessToken: 'token',
   expiresAt: Date.now() + 3_600_000,
@@ -87,13 +90,21 @@ const MESSAGE = { to: ['ada@example.com'], subject: 'Quarterly numbers', body: '
 function harness(over: Partial<State> = {}) {
   const wire: string[] = [];
   const store = createStore(
-    { ...initialState(), booting: false, session: SESSION, identity: IDENTITY, ...over },
+    {
+      ...initialState(),
+      booting: false,
+      session: SESSION,
+      accounts: [{ id: ACCOUNT, provider: 'gmail', email: SESSION.email }],
+      activeAccount: ACCOUNT,
+      identity: IDENTITY,
+      ...over,
+    },
     () => {},
   );
   const { services, mail } = createServices(store);
 
   const client: MailClient = {
-    kind: 'demo',
+    kind: 'gmail',
     address: SESSION.email,
     listInbox: async () => [],
     getRaw: async () => '',
@@ -335,5 +346,61 @@ describe('deliver — Reply-All to a mix of keyed and keyless recipients (rule 1
 
     expect(wire).toEqual([]);
     expect(store.get().scheduled).toEqual({});
+  });
+});
+
+describe('attachments', () => {
+  const FILE = {
+    id: 'att-1',
+    name: 'quarterly.pdf',
+    mimeType: 'application/pdf',
+    size: 3,
+    data: 'AQID',
+  };
+
+  it('seals the filename inside the ciphertext, never on the envelope', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendEncrypted({ ...MESSAGE, attachments: [FILE] });
+
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).toContain('multipart/encrypted');
+    expect(wire[0]).not.toContain('quarterly.pdf');
+    expect(wire[0]).not.toContain(FILE.data);
+  });
+
+  it('holds the file with the message when a recipient has no key', async () => {
+    const { services, store, wire } = harness();
+
+    const outcome = await services.send.sendEncrypted({ ...MESSAGE, attachments: [FILE] });
+
+    expect(outcome.status).toBe('queued');
+    const [held] = Object.values(store.get().scheduled);
+    expect(held.attachments).toEqual([FILE]);
+    // The invite is the only thing on the wire, and it carries no file.
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).not.toContain('quarterly.pdf');
+    expect(wire[0]).not.toContain(FILE.data);
+  });
+
+  it('delivers the held file once the key arrives', async () => {
+    const { services, store, wire } = harness();
+    await services.send.sendEncrypted({ ...MESSAGE, attachments: [FILE] });
+
+    store.patch({ keyring: { 'ada@example.com': contact() } });
+    await services.scheduler.drainHeld();
+
+    const sent = wire[wire.length - 1];
+    expect(sent).toContain('multipart/encrypted');
+    expect(store.get().scheduled).toEqual({});
+  });
+
+  it('puts the file in the clear only on a send the user chose to be plaintext', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendPlain({ ...MESSAGE, attachments: [FILE] });
+
+    expect(wire[0]).toContain('filename="quarterly.pdf"');
+    expect(wire[0]).toContain(FILE.data);
   });
 });

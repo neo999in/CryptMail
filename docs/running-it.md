@@ -6,11 +6,18 @@ The app has **two independent capabilities** ([app/src/config.ts](../app/src/con
 
 | | Off (default) | On |
 |---|---|---|
-| `mailMode` | demo fixtures | real Gmail — needs an OAuth client id |
+| `mailMode` | `unconfigured` — **no mailbox at all** | real Gmail — needs an OAuth client id |
 | `cryptoMode` | `demoCore`, base64, **not encryption** | real post-quantum crypto — needs the native core |
 
 They are deliberately independent, so you can commission one without the other.
 `appMode === 'live'` only when both are on.
+
+There used to be a third possibility here — a demo *mailbox* of fixtures, served
+whenever no OAuth client was configured. It has been removed. Fake crypto and
+fake mail are not the same kind of stand-in: `demoCore` is loudly reported as
+insecure and still drives the real send path, whereas the fixture mailbox
+quietly replaced the thing the product *is*, and every screen had to be read
+twice to know which one it was describing.
 
 ---
 
@@ -20,8 +27,10 @@ They are deliberately independent, so you can commission one without the other.
 cd app && npm install && npm run web
 ```
 
-Full UI, demo fixtures, and a banner saying nothing is really encrypted. Useful
-for reviewing the UI; not useful for anything else.
+The connect screen, with sign-in **disabled** and `degradedReason()` explaining
+that no OAuth client is configured. There is no mailbox to look at until you do
+step 1. To review UI without a Google account, point the app at a Gmail account
+you control — a throwaway is fine.
 
 ---
 
@@ -58,7 +67,7 @@ The OAuth and Gmail code is already written ([auth/googleAuth.ts](../app/src/aut
 Sign-in goes through **Google Play services**, not a browser redirect, because
 Google refuses custom URI schemes from an Android client. A device without Play
 services (a de-Googled ROM, the web build) cannot sign in at all — the app
-detects this and stays on demo fixtures rather than pretending otherwise.
+detects this and says so rather than pretending otherwise.
 
 Scopes are `openid`, `email` and `gmail.modify`
 ([config.ts](../app/src/config.ts)). `gmail.modify` is a **restricted** scope:
@@ -117,31 +126,26 @@ changes: `cryptoMode` flips to `real` on its own.
 
 ---
 
-## 3. Testing encryption without Google
+## 3. Testing encryption
 
-You do not need OAuth to exercise the crypto. Because the core is selected
-independently of the mail provider, linking the native core with **no** `.env`
-gives you real encryption over the demo mailbox — and `demoMail.send()` puts a
-sent message straight into the inbox store, so a full loop works on one device:
+You need a Gmail account to exercise the crypto, because there is no fixture
+mailbox to stand in for one. A throwaway account is enough — see
+[`docs/handoff.md`](handoff.md) for the one already used for this.
 
-> compose → real ML-KEM encrypt → appears in the inbox as ciphertext → open →
+With the native core linked and an OAuth client configured, send a message to
+yourself. It round-trips on one device:
+
+> compose → real ML-KEM encrypt → lands in the inbox as ciphertext → open →
 > real decrypt → subject restored
 
-### What changes when the real core loads
-
-The demo fixtures used to break here; that is handled now. With
-`core.kind === 'native'`:
-
-- The demo keyring is **not** seeded. `demoContactKeys` are `fakePublicKey()`
-  armor a real OpenPGP parser rejects, and importing them threw — leaving an
-  error banner and an empty keyring, with encrypted send blocked for everyone.
-- The demo mailbox serves **no** `demoCore` ciphertext, and says so in a
-  plaintext message rather than showing rows that fail to open.
-
-They cannot simply be regenerated with the real core: encrypting *from* Anya
-needs Anya's private key, which the demo does not have and should not ship. So
-encrypted demo mail now comes from sending one to yourself, which round-trips
-through the real core and demonstrates more.
+This used to be possible with no `.env` at all, against a demo mailbox of
+fixtures. That mailbox is gone, and with it a pile of caveats that existed only
+to keep it honest against a real core: the fixtures were encrypted by `demoCore`
+and a real core correctly refused to read them, the seeded contact keys were
+`fakePublicKey()` armor a real OpenPGP parser rejects, and neither could be
+regenerated — encrypting *from* a fictional contact needs that contact's private
+key, which the repo does not have and should not ship. Sending to yourself
+demonstrated more than any of it, so it is now the only path.
 
 ---
 

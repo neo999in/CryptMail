@@ -12,7 +12,8 @@
  * sealed like every other store, because a list of who someone is trying to
  * reach is exactly the metadata the product exists to keep local.
  */
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export const INVITE_STORE_KEY = 'cryptmail.invites.v1';
 
@@ -22,12 +23,12 @@ export type InviteLog = Record<string, string>;
 /** One invite per address per week. */
 export const INVITE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function loadInvites(): Promise<InviteLog> {
-  return loadJson<InviteLog>(INVITE_STORE_KEY, {});
+export async function loadInvites(account: AccountId): Promise<InviteLog> {
+  return loadScopedJson<InviteLog>(INVITE_STORE_KEY, account, {});
 }
 
-export async function saveInvites(log: InviteLog): Promise<void> {
-  await saveJson(INVITE_STORE_KEY, log);
+export async function saveInvites(account: AccountId, log: InviteLog): Promise<void> {
+  await saveScopedJson(INVITE_STORE_KEY, account, log);
 }
 
 const canonical = (email: string) => email.trim().toLowerCase();

@@ -11,7 +11,7 @@ import { cryptoMode } from '../config';
 import { recordInvite, saveInvites, shouldInvite } from '../store/inviteStore';
 import { Ctx, SendService } from './contracts';
 import { newOutboxId } from './scheduler';
-import { SendInput, SendOutcome } from './types';
+import { PlainSendInput, SendInput, SendOutcome } from './types';
 
 export function createSend(ctx: Ctx): SendService {
   const { store, mail } = ctx;
@@ -64,7 +64,7 @@ export function createSend(ctx: Ctx): SendService {
       }
     }
     if (log !== store.get().invites) {
-      await saveInvites(log);
+      await saveInvites(ctx.services.accounts.requireActive(), log);
       store.patch({ invites: log });
     }
   }
@@ -92,7 +92,7 @@ export function createSend(ctx: Ctx): SendService {
      *    fingerprint is a possible key substitution, and waiting cannot resolve
      *    it; only a person re-verifying the key can.
      */
-    async deliver({ id, to, subject, body, inReplyTo, references }: SendInput): Promise<SendOutcome> {
+    async deliver({ id, to, subject, body, inReplyTo, references, attachments }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
 
@@ -119,6 +119,9 @@ export function createSend(ctx: Ctx): SendService {
           pending: missing,
           inReplyTo,
           references,
+          // Held whole. A message that came back from the outbox without its
+          // attachment would be a different message than the one the user sent.
+          attachments,
         });
         await sendInvites(missing);
         return { status: 'queued', pending: missing };
@@ -140,6 +143,7 @@ export function createSend(ctx: Ctx): SendService {
         autocryptKey: identity.publicKeyArmored,
         inReplyTo,
         references,
+        attachments,
       });
 
       await mail.current.send(rfc822);
@@ -176,7 +180,7 @@ export function createSend(ctx: Ctx): SendService {
      * unconditionally: nothing is read about the recipient, no decision is made
      * from one, and the sentence above stays literally true.
      */
-    async sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }) {
+    async sendPlain(input: PlainSendInput) {
       const { session, identity } = store.get();
       if (!mail.current || !session) throw new Error('Not connected.');
       if (input.to.length === 0) throw new Error('Add a recipient first.');
@@ -193,6 +197,7 @@ export function createSend(ctx: Ctx): SendService {
           autocryptKey: identity?.publicKeyArmored,
           inReplyTo: input.inReplyTo,
           references: input.references,
+          attachments: input.attachments,
         }),
       );
       await ctx.services.mailbox.refreshInbox();

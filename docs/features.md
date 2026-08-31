@@ -8,7 +8,7 @@ The roadmap answers *"what are we committed to, and in what phase?"*; this file
 answers *"what exactly would we build, which files would it touch, what's
 blocking it, and how would we know it works?"*
 
-Last updated: 2026-07-25.
+Last updated: 2026-08-31.
 
 ---
 
@@ -22,8 +22,6 @@ no backend:
 |---|---|
 | 🟢 **Ready** | Buildable today, in TypeScript, against the existing demo core. No new native code, no server. |
 | 🟡 **Needs core** | Blocked on the real Rust `cryptmail-core` (M1/M2 of [prototype-plan.md](prototype-plan.md)). |
-| 🔵 **Needs backend** | Would need a server. [api.md](api.md) is now marked **not planned**, so this tier is mostly a list of things that are *not* being built and what replaced them. |
-| 🟣 **Needs surface** | Blocked on a new platform target (desktop, iOS, browser extension). |
 | ⚫ **Debt** | Not a feature — something already wrong that gates shipping to real users. |
 
 **Impact** and **effort** are S/M/L, from the perspective of a small team. They
@@ -33,8 +31,8 @@ are prioritisation aids, not estimates.
 
 ## Baseline — what exists today
 
-Six features have been built one-by-one on top of the encryption prototype, each
-test-driven and verified in the running app. Knowing this is what makes
+Twelve features have been built one-by-one on top of the encryption prototype,
+each test-driven and verified in the running app. Knowing this is what makes
 "upcoming" well-defined.
 
 | Shipped | Core module | Screens | Tests |
@@ -48,10 +46,14 @@ test-driven and verified in the running app. Knowing this is what makes
 | Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
 | Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
 | Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
+| Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
+| Category drawer (Primary/Bills/…) | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 16 |
+| Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
 
-Run with `npm test` (jest-expo). Convention: pure logic lives in a
-framework-free module with a `__tests__/*-test.ts` sibling; persistence lives in
-`store/*`; `state/AppState.tsx` orchestrates.
+416 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
+in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
+lives in `store/*`; `state/*` orchestrates (a React end in `AppState.tsx`, the
+work in plain service modules).
 
 **What is deliberately still fake:**
 
@@ -60,8 +62,9 @@ framework-free module with a `__tests__/*-test.ts` sibling; persistence lives in
 - No backend at all, and none planned — no CryptMail key directory, no push, no
   secure links. Key discovery goes to `keys.openpgp.org` and WKD from the client
   ([key-management.md](key-management.md) §Discovery).
-- All local storage is **plaintext AsyncStorage** (keyring, drafts, outbox,
-  search index). This is the prototype's stated "known debt."
+- Local storage is no longer plaintext — every store is sealed with
+  XChaCha20-Poly1305 under a device key (⚫ Debt 1) — but **web has no keychain**,
+  which `storageReason()` reports rather than hides.
 - One real provider connector (Gmail REST) plus a demo fixture client, behind
   the `MailClient` interface: `listInbox` / `getRaw` / `send` / `updateFlags`.
 
@@ -104,8 +107,7 @@ natively; the inbox is currently a flat single-action list. This is table stakes
 that also gives filters (0.1) something to act on.
 
 **Build sketch.** Extend `FlagPatch` with `labels?: { add?: string[]; remove?:
-string[] }`; implement in `demoMail.ts` and via `messages/{id}/modify` in
-`gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
+string[] }`; implement via `messages/{id}/modify` in `gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
 sibling-`Pressable` row pattern — a nested pressable inside the row breaks on
 RN-web.
 
@@ -173,22 +175,23 @@ autosave will duplicate it).
 **Done when.** A new message opens with the signature; editing and sending
 behaves; drafts don't accumulate copies.
 
-### 0.7 Reply / reply-all / forward · Impact L · Effort S
+### 0.7 Reply / reply-all / forward · Impact L · Effort S — ✅ **Built**
 
-**What.** The most conspicuous gap: there is no reply button.
+**What.** Reply, reply-all and forward from an open message.
 
-**Why.** Threading exists and `In-Reply-To`/`References` stay in the clear by
-design ([message-format.md](message-format.md)) — so replies can thread properly
-without leaking content. Small, and it makes the client feel real.
+**Built.** [`mail/reply.ts`](../app/src/mail/reply.ts) is the pure derivation:
+`buildReplyDraft` reshapes the decrypted subject/body and the summary's headers
+into prefilled Compose params, with `replyRecipients` / `replyAllRecipients`
+excluding the user's own address. `MessageScreen` calls it and navigates to
+Compose; nothing is re-fetched, and the body quoted is the one already decrypted
+in memory. `In-Reply-To`/`References` ride in the clear as provider metadata
+([message-format.md](message-format.md)) and are emitted on a reply but not on a
+forward, which starts a new conversation the way Gmail does. Reply-all goes
+through the same `resolveRecipients` fail-safe as any send, so a recipient
+without a key holds the message rather than downgrading it. 32 tests.
 
-**Build sketch.** `Compose` params gain `inReplyTo` / `references` / quoted body;
-`buildProtectedInner` and `buildEncryptedEnvelope` gain the two headers; quote
-the decrypted body from the search index. Reply-all must resolve *every*
-recipient's key and refuse to downgrade if one is missing — the existing
-fail-safe already covers this if `resolveRecipients` is used.
-
-**Done when.** A reply lands in the same conversation and the fail-safe fires
-when any recipient lacks a key.
+**Still open.** Nothing blocking. The quoted body is plain text, so rich quoting
+arrives with 0.9.
 
 ### 0.8 Remote-content / tracking-pixel blocking · Impact M · Effort M
 
@@ -238,20 +241,60 @@ sees content.
 **Done when.** Policy tests cover every setting, and the payload contract is
 written down before the relay exists.
 
-### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L
+### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L — **built**
 
 **What.** More than one mailbox, switchable, optionally merged.
 
 **Why.** The data model already keys on `account_id` ([data-model.md](data-model.md));
-the app hard-codes a single session. Retrofitting this later touches every
+the app hard-coded a single session. Retrofitting this later touches every
 store, so doing it earlier is cheaper.
 
-**Build sketch.** Key every store by account (`cryptmail.<store>.v1.<account>`),
-make `AppState` hold `accounts[]` + `activeAccount`, and give each its own
-`MailClient`. Identity and keyring stay per-account.
+**How it works.** Every per-account store is keyed
+`cryptmail.<store>.v1@<provider>:<address>`
+([`app/src/store/accountScope.ts`](../app/src/store/accountScope.ts)). The id
+pairs the provider with the address because the same mailbox read through
+fixtures and through Gmail is two different sets of local data. The registry of
+connected mailboxes is the one store that stays global
+([`accountsStore.ts`](../app/src/store/accountsStore.ts)); it is sealed like the
+rest, since a list of a person's mailboxes is exactly the metadata this product
+keeps off a server.
 
-**Done when.** Two demo accounts coexist, each with its own keyring and drafts,
-and switching never leaks state between them.
+`state/accounts.ts` owns which mailbox is in front, and
+[`AppState`](../app/src/state/AppState.tsx) exposes `accounts`,
+`activeAccount`, `unified`, and the four actions that change them. Each account
+gets its own `MailClient`, cached in `mail.clients`.
+
+**The rule that keeps them apart: exactly one account is active at a time**,
+including while the inbox is merged. Merging is a *reading* convenience — rows
+are tagged with the mailbox they came from, flag changes go to that mailbox's
+provider, and opening a row from another account **switches to it first**.
+Composing, sending and decrypting always use the active account, because each
+needs one identity and one keyring; choosing those per message is precisely how
+state leaks between mailboxes.
+
+Removing an account deletes every scoped store belonging to it. Leaving its
+search index — a plaintext copy of that mailbox's mail — on disk would make the
+button a lie, and re-adding the address would silently adopt it.
+
+An install that predates this keeps its data: `loadScopedJson` reads the old
+global key once, **moves** it under the first account signed in, and deletes it,
+so the second account starts empty rather than inheriting the first one's mail.
+
+**The single-account limit lives in the provider, not in the state layer.**
+[`googleAuth.restoreAll`](../app/src/auth/googleAuth.ts) can only return one
+session, because Play services holds a single signed-in user — so a build today
+reaches one mailbox. Everything above that line handles N, and a second provider
+(Outlook, IMAP) needs no change here.
+
+This used to be demonstrable at runtime, because `demoAuth` connected two
+fixture mailboxes. The demo mailbox was removed on 2026-08-31, so the two-account
+path is now exercised by fakes in the test rather than by a mode of the app.
+
+**Done when.** Two accounts coexist, each with its own keyring and drafts, and
+switching never leaks state between them. Covered end to end against the real
+service graph and the real stores — with only the auth provider and the Gmail
+client faked — by
+[`state/__tests__/accounts-test.ts`](../app/src/state/__tests__/accounts-test.ts).
 
 ### 0.12 Storage management & cache eviction · Impact S · Effort S
 
@@ -330,6 +373,85 @@ users never receive. Also the hardest copy to translate well — start early.
 **Done when.** The inbox and message screens are fully navigable by screen
 reader, and every trust state has a text equivalent.
 
+### 0.17 Client-side key sharing · Impact M · Effort M — ✎ designed
+
+**What.** Two more ways a public key can reach a CryptMail user without a
+server, a keyserver, a file or a camera: reading an armored public-key block a
+human pasted into an email body, and a one-action "send my key over any channel
+you already have" on the sending side with a matching one-action import.
+
+**Why.** Discovery's automatic sources are all either a network service (VKS,
+WKD) or a header CryptMail itself wrote (Autocrypt). A correspondent who does
+the oldest thing in PGP — pastes their key into the message — is still reported
+as having no key, and invite-and-queue then emails them an invitation to install
+the app so they can send the key they just sent.
+
+**Build sketch.** Design is written up in
+[superpowers/specs/2026-08-14-client-side-key-sharing-design.md](superpowers/specs/2026-08-14-client-side-key-sharing-design.md),
+including the size floor a post-quantum certificate imposes (~2,400 base64
+characters, incompressible), which rules out anything read aloud or typed by
+hand. Reuses [`pgp/parseArmoredKey.ts`](../app/src/pgp/parseArmoredKey.ts);
+imported keys land as `trust: 'seen'` like any directory key.
+
+**Done when.** A key pasted into a message body is offered for import on open,
+and a key handed over an outside channel imports in one action on the far end —
+neither ever landing as `verified`.
+
+### 0.18 Attachments · Impact L · Effort M–L — ✅ **Built**
+
+**What.** Attach files to a message, receive them, and get them back out —
+sealed inside the encrypted tree along with their names.
+
+**Built.** [`mail/attachment.ts`](../app/src/mail/attachment.ts) is the model:
+base64 content, a decoded size, and a **5 MB** cap with `attachmentRefusal` as
+the single place that says why a file cannot be attached. That number is
+measured, not chosen: see "still open" below. [`core/mime.ts`](../app/src/core/mime.ts) builds the parts:
+`buildProtectedInner` emits the `text/plain` body followed by one base64 part
+per file inside the existing `multipart/mixed`, so filename and type sit *inside*
+the ciphertext exactly as [message-format.md](message-format.md) specifies —
+`encrypted.asc` stays the only name a provider sees. `parseProtectedInner` reads
+them back; [`mail/plainBody.ts`](../app/src/mail/plainBody.ts)'s `attachmentsOf`
+does the same for ordinary inbound mail, so the reader renders both the same way.
+
+Both cores carry them, unchanged in shape: the demo core round-trips them
+through its encoded payload and the native path hands the same inner tree to
+Rust, so nothing new crosses the bridge but the strings that already did.
+
+The send path treats a file as part of the message and nothing else: a held
+message keeps its attachments and delivers them when the key arrives, a
+scheduled one carries them through the outbox, a rescued one becomes a draft
+with them still on it, and a forward takes them along (a reply does not). The
+composer's unencrypted mode says plainly that a file sent that way travels in
+the clear, filenames included.
+
+Reading: images render at size, everything else is a named row, and each row
+says whether it was decrypted on this device. Saving is a per-file tap —
+nothing is written to disk by opening a message —
+via [`lib/files.ts`](../app/src/lib/files.ts), the one module that talks to the
+platform (`expo-document-picker`, `expo-file-system`, the share sheet on
+Android, an anchor download on web). 33 tests across the model, the MIME
+round-trip, the inbound reader and the send path.
+
+**Still open — the size ceiling.** Two limits bind. *Arithmetic:* base64 (+33%)
+then armor (+33%) roughly doubles a file, and a provider's 25 MB applies to the
+encoded message, so ~14 MB of raw file is the most that can ever arrive; no
+optimisation moves it. *Cost:* everything is held in memory as base64 and
+crosses the bridge as one string, on the JS thread. Measured through the demo
+core on desktop V8 — 1 MB: 0.3 s send / 1.0 s open · 5 MB: 3.6 s / 4.1 s ·
+10 MB: 3.5 s / 7.6 s · 25 MB: 21 s / 45 s with peak memory in gigabytes. Hermes
+on a mid-range phone is 2–5× slower with a heap in the low hundreds of MB, so
+the last row is a process kill rather than a slow send. Hence 5 MB, which covers
+photos, decks and PDFs. Raising it needs chunked base64 helpers
+([`lib/base64.ts`](../app/src/lib/base64.ts) builds a multi-million-element
+`number[]`), Gmail's resumable upload endpoint, and then the streaming path
+(file paths, chunked read in Rust — Phase 1,
+[prototype-plan.md](prototype-plan.md)); after that ~10 MB is honest. A second, separate limit stays until then: an autosaved draft is sealed
+JSON in AsyncStorage and cannot hold tens of megabytes, so files past
+`MAX_STORED_ATTACHMENT_BYTES` live only in the compose session and the screen
+names them rather than losing them quietly (`splitForStorage`). Inline `cid:` images are
+carried and rendered as attachments, but the body is plain text, so a true
+inline placement waits on the HTML reader (0.9).
+
 ---
 
 ## Tier 1 — 🟡 Needs the real crypto core
@@ -339,7 +461,7 @@ now against the demo core, with the crypto swapped in later.
 
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
-| **Attachments** — send, receive, inline images, preview | L | M–L | `buildProtectedInner` emits a single `text/plain` part inside `multipart/mixed`; attachments are added parts there. Needs streaming over the bridge (file paths, not base64 strings) for anything past ~1 MB. UI is 🟢 today. |
+| ~~**Attachments** — send, receive, inline images, preview~~ | — | — | ✅ **Built** (0.18 below), against the demo core and the real one alike. Files up to 5 MB — a measured limit, not an arbitrary one. What is still open is the chunked-base64 and streaming work that would raise it, and holding a large file in a saved draft. |
 | **Encrypted local store (SQLCipher)** | L | S–M | Superseded for now: stores are sealed individually (⚫ Debt 1). SQLCipher remains the [data-model.md](data-model.md) target for query performance, not for the encryption property. |
 | **Encrypted search index** | M | M | Today's index is plaintext decrypted content on disk, which fights any no-plaintext-cache mode. Encrypting it lets search and that mode coexist. |
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |
@@ -352,49 +474,6 @@ now against the demo core, with the crypto swapped in later.
 | **Expiring / self-destruct messages** | M | M | Client-enforced only; the copy must be honest that a recipient can always keep a copy. |
 | **S/MIME support** | M | L | Enterprise interop; a large second format surface. |
 | **Client-side spam / malware scanning** | M | L | E2EE kills server-side scanning — a real, acknowledged gap. Must run after local decrypt. |
-
----
-
-## Tier 2 — 🔵 Would need a backend
-
-[api.md](api.md) is marked **not planned**. This tier is now mostly a record of
-what was dropped and what took its place; two rows moved out of it entirely.
-
-| Feature | Impact | Effort | Notes |
-|---|---|---|---|
-| ~~**Key directory**~~ | — | — | ❌ **Not being built.** Replaced by client-side lookup against `keys.openpgp.org` + WKD, which removes the manual key-exchange seam without us hosting a database of `email → key` or a live log of who is about to email whom. |
-| ~~**Invite flow for key-less recipients**~~ | — | — | ✅ **Built, and needed no backend.** A contentless plaintext invite plus an `awaiting-key` hold in the outbox ([`outbox/outbox.ts`](../app/src/outbox/outbox.ts)). One invite per address per week. |
-| ~~**Secure-link fallback for key-less recipients**~~ | — | — | ❌ **Rejected**, not deferred: hosting ciphertext and a web reader makes CryptMail a service. Invite-and-queue covers the case; the passphrase-in-an-attachment variants train people to fall for phishing. |
-| **Encrypted key backup + recovery codes** | L | M | ⬇️ **Mostly demoted to Tier 0** — the server only ever held an opaque blob, so it bought convenience, not security. Built as manual export (0.15). What is still 🔵 is *automatic* fetch on a new device — and even that is better served by storing the blob as a self-addressed message than by a server. |
-| **Push relay** | L | M | The one entry here still worth arguing for. It is also what would let a held message leave a device that is not open. Payload carries "new mail" only — never content. Pairs with 0.10. |
-| **Multi-device sync + device approval** | M | L | Includes a flag-conflict merge rule — read/star state genuinely diverges across devices. |
-| **Key transparency log** | L | L | Would make keyserver misbehaviour *detectable* rather than merely bounded by the `changed` check. The strongest argument for ever running our own directory. CONIKS/KT-style. |
-| **Abuse controls** — PoW + rate limits on lookups | M | M | Moot without a directory of our own to enumerate. |
-
----
-
-## Tier 3 — 🟣 Needs a new platform surface
-
-| Feature | Impact | Effort | Notes |
-|---|---|---|---|
-| ⭐ **Browser extension — decrypt in place inside Gmail/Outlook web** | L | L | The highest-ceiling item in this document. It inverts the adoption problem: instead of asking people to switch clients, turn the ciphertext block into readable text in the tab they already have open. New threat model (key material in a browser extension) — prototype it the moment the core is stable, not before. |
-| **Desktop app (Tauri)** | L | L | In the original architecture; the prototype went mobile-first, so it is effectively unbuilt. |
-| **iOS app** | L | L | Keychain / Secure Enclave for the wrapped key. |
-| **Web PWA** | M | L | Listed in the architecture, but browser key storage is a serious threat-model question — decide deliberately. |
-| **Widgets / watch** | S | M | Must inherit the notification policy from 0.10. |
-
----
-
-## Tier 4 — Product quality (not user-facing, load-bearing)
-
-| Item | Impact | Effort | Notes |
-|---|---|---|---|
-| **Conformance tests vs [message-format.md](message-format.md)** | L | M | Named as cross-cutting in the roadmap. The 52 tests cover app logic; the *envelope spec* has none. Highest-value testing work available. |
-| **Interop test suite** (Thunderbird / Proton / GnuPG) | M | M | Protected-headers behaviour varies across clients; find out from tests, not from users. |
-| **MIME-parser fuzzing** | M | M | The parser eats attacker-controlled bytes. |
-| **Reproducible builds** | M | M | Lets others verify the shipped binary matches audited source — a trust multiplier for a crypto app. |
-| **Opt-in, privacy-first telemetry** | M | M | Must never carry content or metadata. Local-first, aggregate-only, or not at all. |
-| **Independent security audit** | L | L | Phase 3, but scope and budget it early. |
 
 ---
 
@@ -416,8 +495,8 @@ than shipping without any Tier 0 item.
    **Still open** — the only one of these five that is.
 4. ~~**No token-revocation handling.**~~ **Fixed.** A revoked grant returns the
    app to signed-out with a reason; transient failures deliberately do not.
-5. ~~**The README says "design documentation only. No code yet."**~~ Check it
-   still says that before believing this line either way.
+5. ~~**The README says "design documentation only. No code yet."**~~ **Fixed.**
+   It now describes the client that exists.
 
 ---
 
@@ -426,14 +505,14 @@ than shipping without any Tier 0 item.
 If the goal is *a client someone would actually use*, without pretending the
 crypto is finished:
 
-1. **0.7 Reply/forward** — the most conspicuous gap, and small.
-2. **0.1 Filters & rules** — the flagship "we had to build this client-side
-   because encryption" feature.
-3. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
-4. **0.5 Contacts + trust dashboard** — makes the security model visible where
+1. **0.1 Filters & rules** — the flagship "we had to build this client-side
+   because encryption" feature, and the category drawer is already the shipped
+   proof that classification has to run after local decrypt.
+2. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
+3. **0.5 Contacts + trust dashboard** — makes the security model visible where
    recipients are chosen.
-5. **Tier 4 conformance tests** — before more surface area accretes on an
-   unverified envelope spec.
+4. **0.17 Client-side key sharing** — designed and unblocked; closes the last
+   discovery gap that needs no network.
 
 If the goal is *shippable to a real user*: encryption at rest, the verification
 ceremony, and now key recovery end to end are done, so the order is
@@ -459,8 +538,8 @@ One entry per feature, in the tier that matches its true blocker:
 **Done when.** An observable check, not "it works."
 ```
 
-Keep the pure-logic-module + `__tests__/*-test.ts` convention: it is why the
-last six features each shipped with tests and no framework mocking.
+Keep the pure-logic-module + `__tests__/*-test.ts` convention: it is why every
+feature so far shipped with tests and no framework mocking.
 
 > These are candidates, not commitments. When one is picked up, run it through
 > brainstorm → spec → plan like anything else, and fold what's accepted back

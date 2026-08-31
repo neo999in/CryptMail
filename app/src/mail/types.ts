@@ -1,7 +1,7 @@
 /**
  * Provider connector contract (architecture.md §2). The prototype ships one
- * real implementation (Gmail REST) and one demo implementation; everything
- * above this line is provider-agnostic.
+ * implementation, Gmail REST; everything above this line is
+ * provider-agnostic, which is what keeps Outlook and IMAP additive.
  */
 
 export type MailSummary = {
@@ -37,7 +37,7 @@ export type MailSummary = {
 export type FlagPatch = { unread?: boolean; starred?: boolean; archived?: boolean };
 
 export interface MailClient {
-  readonly kind: 'gmail' | 'demo';
+  readonly kind: 'gmail';
   readonly address: string;
   listInbox(limit?: number): Promise<MailSummary[]>;
   /** Full RFC 5322 source — what the crypto core needs. */

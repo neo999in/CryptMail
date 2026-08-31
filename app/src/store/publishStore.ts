@@ -11,7 +11,8 @@
  * a different key, and a stale "published" mark against it would leave senders
  * fetching a key this device can no longer read.
  */
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export const PUBLISH_STORE_KEY = 'cryptmail.publish.v1';
 
@@ -34,17 +35,18 @@ export type PublishState = {
 
 const UNPUBLISHED: PublishState = { status: 'unpublished', fingerprint: null, updatedAt: null };
 
-export async function loadPublishState(): Promise<PublishState> {
-  return loadJson<PublishState>(PUBLISH_STORE_KEY, UNPUBLISHED);
+export async function loadPublishState(account: AccountId): Promise<PublishState> {
+  return loadScopedJson<PublishState>(PUBLISH_STORE_KEY, account, UNPUBLISHED);
 }
 
 export async function savePublishState(
+  account: AccountId,
   status: PublishStatus,
   fingerprint: string | null,
   at: Date = new Date(),
 ): Promise<PublishState> {
   const state: PublishState = { status, fingerprint, updatedAt: at.toISOString() };
-  await saveJson(PUBLISH_STORE_KEY, state);
+  await saveScopedJson(PUBLISH_STORE_KEY, account, state);
   return state;
 }
 

@@ -8,6 +8,7 @@ import { Held, holdReason, listScheduled, stillPending } from '../outbox/outbox'
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
+import { Icon } from '../ui/Icon';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Scheduled'>;
@@ -60,6 +61,7 @@ export function ScheduledScreen({ navigation }: Props) {
       to: item.to,
       subject: item.subject,
       body: item.body,
+      attachments: item.attachments,
       updatedAt: new Date().toISOString(),
     });
     await cancelScheduled(item.id);
@@ -107,6 +109,16 @@ export function ScheduledScreen({ navigation }: Props) {
               <Text numberOfLines={1} style={s.recipients}>
                 To: {item.to.length > 0 ? item.to.join(', ') : 'no recipients'}
               </Text>
+              {item.attachments?.length ? (
+                <View style={s.attached}>
+                  <Icon name="paperclip" size={12} color={color.inkFaint} />
+                  <Text style={s.attachedText}>
+                    {item.attachments.length === 1
+                      ? item.attachments[0].name
+                      : `${item.attachments.length} files`}
+                  </Text>
+                </View>
+              ) : null}
               {item.body.trim() ? (
                 <Text numberOfLines={2} style={s.preview}>
                   {item.body.trim()}
@@ -200,5 +212,7 @@ const s = StyleSheet.create({
   outcomeWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine, color: color.coralInk },
   recipients: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5 },
   preview: { ...type.small, color: color.inkFaint, marginTop: 2 },
+  attached: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 4 },
+  attachedText: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
 });

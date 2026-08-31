@@ -47,7 +47,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
     if (ids.length === 0) return;
     let scheduled = store.get().scheduled;
     for (const id of ids) scheduled = removeScheduled(scheduled, id);
-    await saveOutbox(scheduled);
+    await saveOutbox(ctx.services.accounts.requireActive(), scheduled);
     store.patch({ scheduled });
   }
 
@@ -60,7 +60,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
      */
     async hold(item: Held) {
       const scheduled = upsertScheduled(store.get().scheduled, item);
-      await saveOutbox(scheduled);
+      await saveOutbox(ctx.services.accounts.requireActive(), scheduled);
       store.patch({ scheduled });
     },
 
@@ -89,6 +89,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         reason: 'time',
         inReplyTo: input.inReplyTo,
         references: input.references,
+        attachments: input.attachments,
       });
     },
 
@@ -121,6 +122,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         body: item.body,
         inReplyTo: item.inReplyTo,
         references: item.references,
+        attachments: item.attachments,
       });
       if (outcome.status !== 'sent') return outcome;
       await forget([id]);
@@ -172,6 +174,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             body: item.body,
             inReplyTo: item.inReplyTo,
             references: item.references,
+            attachments: item.attachments,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {
@@ -211,6 +214,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             body: item.body,
             inReplyTo: item.inReplyTo,
             references: item.references,
+            attachments: item.attachments,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {
@@ -224,6 +228,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             body: item.body,
             inReplyTo: item.inReplyTo,
             references: item.references,
+            attachments: item.attachments,
             updatedAt: new Date().toISOString(),
           });
         } finally {
@@ -240,8 +245,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         scheduled = removeScheduled(scheduled, d.id);
         drafts = upsertDraft(drafts, d);
       }
-      await saveOutbox(scheduled);
-      if (rescued.length > 0) await saveDrafts(drafts);
+      await saveOutbox(ctx.services.accounts.requireActive(), scheduled);
+      if (rescued.length > 0) await saveDrafts(ctx.services.accounts.requireActive(), drafts);
       store.patch({
         scheduled,
         drafts,

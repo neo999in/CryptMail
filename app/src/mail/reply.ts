@@ -12,6 +12,7 @@
  * forward, which starts a new conversation the way Gmail does.
  */
 import { displayName } from '../lib/format';
+import { Attachment } from './attachment';
 
 export type ReplyKind = 'reply' | 'replyAll' | 'forward';
 
@@ -29,6 +30,8 @@ export type ReplySource = {
   messageId?: string;
   /** The original message's raw `References` header, if any. */
   references?: string;
+  /** The files on the original, already decrypted and in memory. */
+  attachments?: Attachment[];
 };
 
 /** The prefilled compose fields a reply/forward produces. */
@@ -38,6 +41,16 @@ export type ReplyDraft = {
   quotedBody: string;
   inReplyTo?: string;
   references?: string[];
+  /**
+   * Files carried into the new draft. Forward only.
+   *
+   * A forward that silently drops the attachment is the bug every mail client
+   * gets complained about, and here it would be worse than usual: the file was
+   * decrypted on this device and the sender cannot resend it to someone else.
+   * A reply carries none — quoting someone's text back at them is normal, mailing
+   * their file back to them is not.
+   */
+  attachments?: Attachment[];
 };
 
 const canonical = (email: string) => email.trim().toLowerCase();
@@ -151,7 +164,12 @@ export function forwardedBody(src: ReplySource): string {
  */
 export function buildReplyDraft(kind: ReplyKind, src: ReplySource, self: string): ReplyDraft {
   if (kind === 'forward') {
-    return { to: [], subject: forwardSubject(src.subject), quotedBody: forwardedBody(src) };
+    return {
+      to: [],
+      subject: forwardSubject(src.subject),
+      quotedBody: forwardedBody(src),
+      attachments: src.attachments?.length ? src.attachments : undefined,
+    };
   }
   const to = kind === 'replyAll' ? replyAllRecipients(src, self) : replyRecipients(src, self);
   const references = buildReferences(src);
