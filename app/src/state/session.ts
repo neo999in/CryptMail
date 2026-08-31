@@ -10,6 +10,8 @@ import { createGmailClient } from '../mail/gmail';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
+import { AccountId, accountIdFor } from '../store/accountScope';
+import { loadAccounts, NO_ACCOUNTS, saveAccounts } from '../store/accountsStore';
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
 import { Keyring, loadKeyring, saveKeyring, upsertKey } from '../store/keyring';
@@ -34,6 +36,9 @@ type Attached = {
 
 export function createSession(ctx: Ctx): SessionService {
   const { store, mail } = ctx;
+  // Named, so `signIn` and `boot` can reuse `attach` without the object literal
+  // having to refer to itself.
+  let service: SessionService;
 
   /**
    * Connect the provider and load everything this account owns on this device.
@@ -44,15 +49,30 @@ export function createSession(ctx: Ctx): SessionService {
    * seen — a fingerprint change for everyone, caused by the app, for nothing.
    * Generation is a decision the user makes on the setup screen.
    */
-  async function attach(session: Session): Promise<Attached> {
-    mail.current =
+  /**
+   * The provider for one account, built once and kept.
+   *
+   * Cached per account so switching back and forth does not rebuild a Gmail
+   * client — and so a merged inbox can list every mailbox without one.
+   */
+  async function clientFor(session: Session, account: AccountId) {
+    const existing = mail.clients.get(account);
+    if (existing) return existing;
+
+    const client =
       session.provider === 'demo'
         ? await createDemoMailClient(session.email)
-        : createGmailClient(session.email, auth.freshAccessToken);
+        : createGmailClient(session.email, () => auth.freshAccessToken(session.email));
+    mail.clients.set(account, client);
+    return client;
+  }
+
+  async function load(session: Session, account: AccountId): Promise<Attached> {
+    mail.current = await clientFor(session, account);
 
     const identity = await core.loadIdentity(session.email);
 
-    let keyring = await loadKeyring();
+    let keyring = await loadKeyring(account);
     // Seeded only for the demo core. `demoContactKeys` are `fakePublicKey()`
     // armor, which a real OpenPGP parser rejects — feeding them to a native
     // core throws, leaving an error banner and an *empty* keyring, so
@@ -64,36 +84,68 @@ export function createSession(ctx: Ctx): SessionService {
       keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.anya), 'manual', demoContacts.anya.name);
       keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.jordan), 'autocrypt', demoContacts.jordan.name);
       keyring[demoContacts.anya.email] = { ...keyring[demoContacts.anya.email], trust: 'verified' };
-      await saveKeyring(keyring);
+      await saveKeyring(account, keyring);
     }
 
     return {
       identity,
-      recovery: await loadRecoveryState(),
-      publish: await loadPublishState(),
-      invites: await loadInvites(),
+      recovery: await loadRecoveryState(account),
+      publish: await loadPublishState(account),
+      invites: await loadInvites(account),
       keyring,
-      searchIndex: await loadSearchIndex(),
-      drafts: await loadDrafts(),
-      scheduled: await loadOutbox(),
+      searchIndex: await loadSearchIndex(account),
+      drafts: await loadDrafts(account),
+      scheduled: await loadOutbox(account),
       verifyLink: null,
     };
   }
 
-  return {
+  service = {
+    /**
+     * Everything this account owns, in front.
+     *
+     * Registering first is what makes the rest safe: `register` writes
+     * `activeAccount`, and every scoped store read below is keyed on it — so a
+     * switch cannot load one account's keyring under another's id.
+     */
+    async attach(session) {
+      const account = await ctx.services.accounts.register(session);
+      store.patch({ session, ...(await load(session, account)) });
+    },
+
     async boot(isCancelled) {
       try {
         // Before anything reads a store. Every local store is encrypted at rest
         // and none of them can be decrypted until the device key is loaded.
         await initStorage();
 
-        const session = await auth.restore();
-        if (!session) {
+        const sessions = await auth.restoreAll();
+        if (sessions.length === 0) {
           if (!isCancelled()) store.patch({ booting: false });
           return;
         }
-        const attached = await attach(session);
-        if (!isCancelled()) store.patch({ booting: false, session, ...attached });
+
+        // Which mailbox was in front when the app was last closed. Read
+        // *before* registering anything: `register` marks each account active
+        // as it goes, so asking afterwards would only ever name whichever
+        // session happened to be restored last.
+        const stored = await loadAccounts();
+        const wanted =
+          sessions.find((s) => accountIdFor(s.provider, s.email) === stored.active) ?? sessions[0];
+
+        // Register every session, so the switcher and the merged inbox know
+        // about all of them even though only one is loaded — and build each
+        // provider up front for the same reason. `wanted` goes last, which is
+        // what leaves it active.
+        for (const session of sessions) {
+          const id = accountIdFor(session.provider, session.email);
+          await clientFor(session, id);
+          if (session !== wanted) await ctx.services.accounts.register(session);
+        }
+
+        const account = await ctx.services.accounts.register(wanted);
+        const attached = await load(wanted, account);
+        if (!isCancelled()) store.patch({ booting: false, session: wanted, ...attached });
       } catch (e) {
         // A grant revoked while the app was closed shows up here. Land on the
         // sign-in screen with the reason, not on a broken inbox.
@@ -101,19 +153,37 @@ export function createSession(ctx: Ctx): SessionService {
       }
     },
 
+    /**
+     * Connect a mailbox — the first one, or one more.
+     *
+     * `auth.signIn` adds a session rather than replacing one, so this is also
+     * "add account": the new mailbox becomes active and the previous one stays
+     * connected behind it.
+     */
     async signIn() {
       store.patch({ error: null });
       const session = await auth.signIn();
       // The patch lands in the store synchronously, so the refresh below — and
       // the Autocrypt harvest it triggers — already knows whose mailbox this is.
-      store.patch({ session, ...(await attach(session)) });
+      await service.attach(session);
       await ctx.services.mailbox.refreshInbox();
     },
 
+    /** Disconnect every account. Removing just one is `accounts.removeAccount`. */
     async signOut() {
       await auth.signOut();
       mail.current = null;
-      store.patch({ session: null, identity: null, messages: [], verifyLink: null });
+      mail.clients.clear();
+      await saveAccounts(NO_ACCOUNTS);
+      store.patch({
+        session: null,
+        accounts: [],
+        activeAccount: null,
+        unified: false,
+        identity: null,
+        messages: [],
+        verifyLink: null,
+      });
     },
 
     /**
@@ -127,8 +197,15 @@ export function createSession(ctx: Ctx): SessionService {
     handleAuthLoss(e) {
       if (!needsReauth(e)) return false;
       mail.current = null;
+      mail.clients.clear();
       store.patch({
         session: null,
+        // The account list goes too: leaving `activeAccount` set would let a
+        // later write land in the store of a mailbox this device can no longer
+        // reach, under a session that is gone.
+        accounts: [],
+        activeAccount: null,
+        unified: false,
         identity: null,
         messages: [],
         verifyLink: null,
@@ -138,4 +215,6 @@ export function createSession(ctx: Ctx): SessionService {
       return true;
     },
   };
+
+  return service;
 }

@@ -112,13 +112,22 @@ export const googleAuth: AuthProvider = {
     return sessionFrom(response.data);
   },
 
-  async restore(): Promise<Session | null> {
-    if (!hasGoogleClient) return null;
+  /**
+   * At most one Gmail session.
+   *
+   * Play services holds exactly one signed-in user per app, so this provider
+   * genuinely cannot restore two — the multi-account plumbing above it is real,
+   * but reaching *two Google mailboxes at once* needs a second grant that this
+   * library does not offer. Demo mode exercises the multi-account path today;
+   * doing it for Gmail is a change to this file alone.
+   */
+  async restoreAll(): Promise<Session[]> {
+    if (!hasGoogleClient) return [];
     configure();
 
     const response = await signInSilentlyShared();
-    if (isNoSavedCredentialFoundResponse(response) || !isSuccessResponse(response)) return null;
-    return sessionFrom(response.data);
+    if (isNoSavedCredentialFoundResponse(response) || !isSuccessResponse(response)) return [];
+    return [await sessionFrom(response.data)];
   },
 
   async signOut(): Promise<void> {

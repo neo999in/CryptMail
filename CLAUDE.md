@@ -80,8 +80,8 @@ Inside it, React and the work are kept apart:
   updates it **synchronously** and then re-renders, so async work that resumes
   after an `await` reads current values through `store.get()` rather than a
   render-time snapshot. Do not reintroduce `useRef` mirrors of state fields.
-- `session` · `mailbox` · `contacts` · `identity` · `publish` · `send` ·
-  `scheduler` · `drafts` are plain TypeScript service modules — no React, so
+- `session` · `accounts` · `mailbox` · `contacts` · `identity` · `publish` ·
+  `send` · `scheduler` · `drafts` are plain TypeScript service modules — no React, so
   they are directly testable. Each takes a `Ctx` and reaches siblings through
   `ctx.services.*` at call time, which is what lets a sync trigger a drain, a
   drain deliver, and a delivery trigger a sync without ordering games.
@@ -135,6 +135,18 @@ storage as a string), and
 platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
 [app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
 world sends, `mime.ts` writes what we send, and the two stay separate.
+
+Several mailboxes can be connected at once. Every per-account store is keyed
+`cryptmail.<store>.v1@<provider>:<address>`
+([app/src/store/accountScope.ts](app/src/store/accountScope.ts)); the registry
+naming them is the one global store
+([accountsStore.ts](app/src/store/accountsStore.ts)). **Exactly one account is
+active at a time**, including when the inbox is merged — merging is a reading
+convenience, and opening a row from another account switches to it first, while
+composing, sending and decrypting always use the active account. Every scoped
+store write goes through `services.accounts.requireActive()`; if you add a
+store, key it by account and add its base key to `PER_ACCOUNT_STORE_KEYS`, or
+removing an account will leave its data behind.
 
 Trust state is derived, not stored twice: inbox rows call `encryptionFor()`
 (headers only, no network, no decryption), while opening a message upgrades trust
@@ -202,7 +214,7 @@ aligned with that file's CSS custom properties. Build screens out of
   off. Don't reintroduce a background wash to make glass "read as glass": the
   `glass.*` fills are opaque enough to stand alone, which is why they exist.
 
-## Git — never run write commands, run only if permission is granted
+## Git — never run write commands, run only if permission is granted no Claude trailers on commits
 
 no Claude trailers on commits
 
@@ -214,7 +226,7 @@ Run only if permission is granted
 Forbidden, without exception:
 
 ```
-git commit    git push      git merge      git rebase
+git commit (no Claude trailers on commits)   git push      git merge      git rebase
 git reset     git revert    git checkout/switch/restore (that discards work)
 git stash     git clean     git cherry-pick
 git branch -D/-d/-m         git tag        git remote

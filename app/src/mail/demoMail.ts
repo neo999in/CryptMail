@@ -22,10 +22,20 @@
 import { core } from '../core';
 import { demoCore, fakePublicKey } from '../core/demoCore';
 import { buildPlaintext, parseRfc822 } from '../core/mime';
+import { encodeUtf8Base64 } from '../lib/base64';
 import { parseAddress } from '../lib/format';
 import { MailClient, MailSummary } from './types';
 
 export const DEMO_ADDRESS = 'you@gmail.com';
+
+/**
+ * The demo mailboxes, in the order `demoAuth` connects them.
+ *
+ * Two, because one is not enough to demonstrate anything about multiple
+ * accounts: the second exists so a keyring, a drafts list and an inbox can be
+ * shown side by side and seen not to bleed into one another.
+ */
+export const DEMO_ADDRESSES = [DEMO_ADDRESS, 'you@work.example'] as const;
 
 export const demoContacts = {
   anya: {
@@ -82,7 +92,7 @@ export async function createDemoMailClient(
       await delay(420);
       // A sent message lands in the mailbox exactly as the provider stores it —
       // ciphertext included. That is the point of the demo.
-      store.unshift(toStored(`sent-${store.length + 1}`, rfc822, false));
+      store.unshift(toStored(idIn(address, `sent-${store.length + 1}`), rfc822, false));
     },
 
     async updateFlags(id, patch) {
@@ -100,8 +110,40 @@ export async function createDemoMailClient(
   };
 }
 
+/**
+ * The file on the demo board-deck message, matching the mockup's `board-q3.pdf`.
+ *
+ * Real PDF bytes, and deliberately tiny: it exists so the reader's attachment
+ * row, the "decrypted on this device" label and the save action are all
+ * reachable without a live account — the same reason the rest of these fixtures
+ * exist. Like every demo message it is *encoded*, not encrypted (rule 2).
+ */
+const DEMO_DECK = {
+  id: 'demo-deck',
+  name: 'board-q3.pdf',
+  mimeType: 'application/pdf',
+  size: 37,
+  data: encodeUtf8Base64('%PDF-1.4\n% CryptMail demo attachment\n'),
+};
+
+/**
+ * A message id that is unique across mailboxes.
+ *
+ * The fixtures are the same three messages in every demo account, so without
+ * this both of them would hold a `demo-1` — and the unified inbox, which puts
+ * two accounts' messages in one list, would then group them into one thread and
+ * star or archive both at once. Gmail ids are already distinct per account;
+ * these have to be made so.
+ *
+ * The **whole** address goes into the prefix, not the local part: every address
+ * in `DEMO_ADDRESSES` is a `you@…`, so a local-part prefix collides for exactly
+ * the two mailboxes this exists to keep apart.
+ */
+const idIn = (address: string, id: string) => `${address.replace(/[^a-z0-9]+/gi, '-')}-${id}`;
+
 async function seed(address: string, includeDemoCiphertext: boolean): Promise<Stored[]> {
   const now = Date.now();
+  const mine = (id: string) => idIn(address, id);
   const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
 
   const newsletter = buildPlaintext({
@@ -126,12 +168,13 @@ async function seed(address: string, includeDemoCiphertext: boolean): Promise<St
         'Compose a message to yourself instead — it will be encrypted and decrypted for real.',
     });
     return [
-      toStored('demo-note', explanation, true, undefined, at(5)),
-      toStored('demo-3', newsletter, false, undefined, at(60 * 26)),
+      toStored(mine('demo-note'), explanation, true, undefined, at(5)),
+      toStored(mine('demo-3'), newsletter, false, undefined, at(60 * 26)),
     ];
   }
 
   const fromAnya = await demoCore.buildEncrypted({
+    attachments: [DEMO_DECK],
     from: `${demoContacts.anya.name} <${demoContacts.anya.email}>`,
     to: [address],
     subject: 'Q3 board deck — final numbers',
@@ -161,10 +204,10 @@ async function seed(address: string, includeDemoCiphertext: boolean): Promise<St
   });
 
   return [
-    toStored('demo-1', fromAnya, true, 'thr-q3board', at(41)),
-    toStored('demo-2', jordanReply, true, 'thr-redlines', at(130)),
-    toStored('demo-2a', jordanOriginal, false, 'thr-redlines', at(200)),
-    toStored('demo-3', newsletter, false, undefined, at(60 * 26)),
+    toStored(mine('demo-1'), fromAnya, true, mine('thr-q3board'), at(41)),
+    toStored(mine('demo-2'), jordanReply, true, mine('thr-redlines'), at(130)),
+    toStored(mine('demo-2a'), jordanOriginal, false, mine('thr-redlines'), at(200)),
+    toStored(mine('demo-3'), newsletter, false, undefined, at(60 * 26)),
   ];
 }
 

@@ -10,6 +10,7 @@
  * TypeScript and know nothing about React —
  *
  *   session.ts    sign in/out, and loading what this account owns on the device
+ *   accounts.ts   which mailbox is in front, and what else is connected
  *   mailbox.ts    syncing, opening a message, flags
  *   contacts.ts   the keyring: harvest, discovery, verification
  *   identity.ts   this device's own key, and its recovery backup
@@ -94,6 +95,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ...state,
       signIn: services.session.signIn,
       signOut: services.session.signOut,
+      addAccount: services.accounts.addAccount,
+      switchAccount: services.accounts.switchAccount,
+      removeAccount: services.accounts.removeAccount,
+      setUnified: services.accounts.setUnified,
       refreshInbox: services.mailbox.refreshInbox,
       openMessage: services.mailbox.openMessage,
       encryptionFor,

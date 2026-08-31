@@ -10,7 +10,8 @@
  * here**: a code kept on the device it recovers protects nothing, since anything
  * that can read this store can already read the key.
  */
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export const RECOVERY_STORE_KEY = 'cryptmail.recovery.v1';
 
@@ -29,19 +30,23 @@ export type RecoveryState = {
 
 const NEVER: RecoveryState = { backedUpAt: null, fingerprint: null };
 
-export async function loadRecoveryState(): Promise<RecoveryState> {
-  return loadJson<RecoveryState>(RECOVERY_STORE_KEY, NEVER);
+export async function loadRecoveryState(account: AccountId): Promise<RecoveryState> {
+  return loadScopedJson<RecoveryState>(RECOVERY_STORE_KEY, account, NEVER);
 }
 
-export async function recordBackup(fingerprint: string, at: Date = new Date()): Promise<RecoveryState> {
+export async function recordBackup(
+  account: AccountId,
+  fingerprint: string,
+  at: Date = new Date(),
+): Promise<RecoveryState> {
   const state: RecoveryState = { backedUpAt: at.toISOString(), fingerprint };
-  await saveJson(RECOVERY_STORE_KEY, state);
+  await saveScopedJson(RECOVERY_STORE_KEY, account, state);
   return state;
 }
 
 /** Forget the mark — used when restoring, since the new identity has its own backup story. */
-export async function clearBackupRecord(): Promise<RecoveryState> {
-  await saveJson(RECOVERY_STORE_KEY, NEVER);
+export async function clearBackupRecord(account: AccountId): Promise<RecoveryState> {
+  await saveScopedJson(RECOVERY_STORE_KEY, account, NEVER);
   return NEVER;
 }
 

@@ -242,20 +242,55 @@ sees content.
 **Done when.** Policy tests cover every setting, and the payload contract is
 written down before the relay exists.
 
-### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L
+### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L — **built**
 
 **What.** More than one mailbox, switchable, optionally merged.
 
 **Why.** The data model already keys on `account_id` ([data-model.md](data-model.md));
-the app hard-codes a single session. Retrofitting this later touches every
+the app hard-coded a single session. Retrofitting this later touches every
 store, so doing it earlier is cheaper.
 
-**Build sketch.** Key every store by account (`cryptmail.<store>.v1.<account>`),
-make `AppState` hold `accounts[]` + `activeAccount`, and give each its own
-`MailClient`. Identity and keyring stay per-account.
+**How it works.** Every per-account store is keyed
+`cryptmail.<store>.v1@<provider>:<address>`
+([`app/src/store/accountScope.ts`](../app/src/store/accountScope.ts)). The id
+pairs the provider with the address because the same mailbox read through
+fixtures and through Gmail is two different sets of local data. The registry of
+connected mailboxes is the one store that stays global
+([`accountsStore.ts`](../app/src/store/accountsStore.ts)); it is sealed like the
+rest, since a list of a person's mailboxes is exactly the metadata this product
+keeps off a server.
+
+`state/accounts.ts` owns which mailbox is in front, and
+[`AppState`](../app/src/state/AppState.tsx) exposes `accounts`,
+`activeAccount`, `unified`, and the four actions that change them. Each account
+gets its own `MailClient`, cached in `mail.clients`.
+
+**The rule that keeps them apart: exactly one account is active at a time**,
+including while the inbox is merged. Merging is a *reading* convenience — rows
+are tagged with the mailbox they came from, flag changes go to that mailbox's
+provider, and opening a row from another account **switches to it first**.
+Composing, sending and decrypting always use the active account, because each
+needs one identity and one keyring; choosing those per message is precisely how
+state leaks between mailboxes.
+
+Removing an account deletes every scoped store belonging to it. Leaving its
+search index — a plaintext copy of that mailbox's mail — on disk would make the
+button a lie, and re-adding the address would silently adopt it.
+
+An install that predates this keeps its data: `loadScopedJson` reads the old
+global key once, **moves** it under the first account signed in, and deletes it,
+so the second account starts empty rather than inheriting the first one's mail.
+
+Gmail is still one account at a time —
+[`googleAuth.restoreAll`](../app/src/auth/googleAuth.ts) can only return one
+session because Play services holds a single signed-in user. Everything above
+that line is multi-account, and demo mode connects two mailboxes
+(`DEMO_ADDRESSES`) to exercise it.
 
 **Done when.** Two demo accounts coexist, each with its own keyring and drafts,
-and switching never leaks state between them.
+and switching never leaks state between them. Covered end to end, against the
+real stores, by
+[`state/__tests__/accounts-test.ts`](../app/src/state/__tests__/accounts-test.ts).
 
 ### 0.12 Storage management & cache eviction · Impact S · Effort S
 

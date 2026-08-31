@@ -7,9 +7,11 @@
 import { Session } from '../auth';
 import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
+import { Attachment } from '../mail/attachment';
 import { MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
+import { AccountId, AccountRef } from '../store/accountScope';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState, PublishStatus } from '../store/publishStore';
@@ -23,12 +25,31 @@ export type EncryptionState =
 /** Re-exported so screens keep a single import site for everything `useApp` returns. */
 export type { RecipientState };
 
+/**
+ * An inbox row, tagged with the mailbox it came from.
+ *
+ * The tag is what makes a merged inbox openable: a row carries its own account,
+ * so opening it can put that account in front rather than trying to decrypt
+ * another mailbox's mail with this one's key. It is a `MailSummary` everywhere
+ * a summary is expected, so nothing downstream had to learn about accounts.
+ *
+ * Ids are assumed unique across the accounts on a device — true for Gmail, and
+ * made true for the demo fixtures by `idIn` in `mail/demoMail.ts`.
+ */
+export type InboxItem = MailSummary & { account: AccountId };
+
 export type OpenedMessage = {
   summary: MailSummary;
   encryption: EncryptionState;
   subject: string;
   body: string;
   decrypted: DecryptedMessage | null;
+  /**
+   * Files on this message — out of the decrypted tree for encrypted mail, out of
+   * the raw MIME for plain. Empty when it carried none, so the reader has one
+   * shape to render either way.
+   */
+  attachments: Attachment[];
   /** Raw source — the ciphertext the provider stores. Shown in "what Gmail sees". */
   raw: string;
   error?: string;
@@ -52,11 +73,43 @@ export type SendInput = {
   /** Threading headers, emitted in the clear on the outer envelope (message-format.md). */
   inReplyTo?: string;
   references?: string[];
+  /** Files to seal in alongside the body. Held with the message if it is held. */
+  attachments?: Attachment[];
+};
+
+/**
+ * What the deliberately-unencrypted send takes.
+ *
+ * Its own type rather than `SendInput`: nothing here is ever held, so there is
+ * no id, and keeping the two apart means a held message can never be replayed
+ * down the plaintext path by an accident of structural typing.
+ */
+export type PlainSendInput = {
+  to: string[];
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  references?: string[];
+  attachments?: Attachment[];
 };
 
 export type State = {
   booting: boolean;
   session: Session | null;
+  /** Every mailbox connected on this device. Empty until the first sign-in. */
+  accounts: AccountRef[];
+  /**
+   * Whose keyring, identity, drafts and outbox are loaded.
+   *
+   * Exactly one account is ever *active*, including while the inbox is merged:
+   * composing, sending and decrypting all need one identity, and picking it
+   * per-message is how state leaks between mailboxes.
+   */
+  activeAccount: AccountId | null;
+  /** Whether the inbox lists every account at once. Reading only. */
+  unified: boolean;
+  /** True while a switch is loading the other account's stores. */
+  switchingAccount: boolean;
   identity: Identity | null;
   /** Whether this device's key has ever been backed up. Drives the Keys warning. */
   recovery: RecoveryState;
@@ -92,7 +145,7 @@ export type State = {
   drafts: Drafts;
   /** Messages queued to send at a future time. */
   scheduled: ScheduledOutbox;
-  messages: MailSummary[];
+  messages: InboxItem[];
   loadingInbox: boolean;
   error: string | null;
 };
@@ -100,6 +153,14 @@ export type State = {
 export type Actions = {
   signIn(): Promise<void>;
   signOut(): Promise<void>;
+  /** Connect another mailbox alongside the ones already here, and switch to it. */
+  addAccount(): Promise<void>;
+  /** Put another connected mailbox in front, loading everything it owns. */
+  switchAccount(id: AccountId): Promise<void>;
+  /** Disconnect one mailbox and erase every local store belonging to it. */
+  removeAccount(id: AccountId): Promise<void>;
+  /** Show every account's mail in one list, or just the active one's. */
+  setUnified(on: boolean): Promise<void>;
   refreshInbox(): Promise<void>;
   openMessage(summary: MailSummary): Promise<OpenedMessage>;
   encryptionFor(summary: MailSummary): EncryptionState;
@@ -144,7 +205,7 @@ export type Actions = {
    * encryption fails — see `sendPlain` in `state/send.ts` for why that
    * distinction is the whole of rule 1.
    */
-  sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }): Promise<void>;
+  sendPlain(input: PlainSendInput): Promise<void>;
   canSendEncrypted(): { allowed: boolean; reason?: string };
   saveDraft(draft: Draft): Promise<void>;
   deleteDraft(id: string): Promise<void>;

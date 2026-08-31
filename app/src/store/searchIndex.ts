@@ -9,14 +9,15 @@
  * remove the copy.
  */
 import { SearchIndex } from '../search/search';
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export const SEARCH_STORE_KEY = 'cryptmail.searchindex.v1';
 
-export async function loadSearchIndex(): Promise<SearchIndex> {
-  return loadJson<SearchIndex>(SEARCH_STORE_KEY, {});
+export async function loadSearchIndex(account: AccountId): Promise<SearchIndex> {
+  return loadScopedJson<SearchIndex>(SEARCH_STORE_KEY, account, {});
 }
 
-export async function saveSearchIndex(index: SearchIndex): Promise<void> {
-  await saveJson(SEARCH_STORE_KEY, index);
+export async function saveSearchIndex(account: AccountId, index: SearchIndex): Promise<void> {
+  await saveScopedJson(SEARCH_STORE_KEY, account, index);
 }

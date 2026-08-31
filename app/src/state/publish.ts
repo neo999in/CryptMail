@@ -73,6 +73,7 @@ export function createPublish(ctx: Ctx): PublishService {
 
       const { status } = await directory.publish(identity.publicKeyArmored, identity.email);
       const publish = await savePublishState(
+        ctx.services.accounts.requireActive(),
         status === 'published' ? 'published' : 'pending',
         identity.fingerprint,
       );
@@ -84,7 +85,11 @@ export function createPublish(ctx: Ctx): PublishService {
     },
 
     async declinePublish(): Promise<PublishState> {
-      const publish = await savePublishState('declined', store.get().identity?.fingerprint ?? null);
+      const publish = await savePublishState(
+        ctx.services.accounts.requireActive(),
+        'declined',
+        store.get().identity?.fingerprint ?? null,
+      );
       store.patch({ publish, verifyLink: null });
       return publish;
     },
@@ -111,7 +116,11 @@ export function createPublish(ctx: Ctx): PublishService {
         const info = found ? await core.importPublicKey(found.armored) : null;
         if (info && normaliseFingerprint(info.fingerprint) === normaliseFingerprint(identity.fingerprint)) {
           store.patch({
-            publish: await savePublishState('published', identity.fingerprint),
+            publish: await savePublishState(
+              ctx.services.accounts.requireActive(),
+              'published',
+              identity.fingerprint,
+            ),
             verifyLink: null,
           });
           return;

@@ -10,15 +10,17 @@
  * others. The provider used to do this with two late-bound refs
  * (`drainRef`, `refreshPublishRef`) assigned halfway down the file.
  */
+import { Session } from '../auth';
 import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { Held } from '../outbox/outbox';
+import { AccountId } from '../store/accountScope';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
 import { RecipientState } from './recipients';
 import { Store } from './store';
-import { OpenedMessage, SendInput, SendOutcome } from './types';
+import { OpenedMessage, PlainSendInput, SendInput, SendOutcome } from './types';
 
 /**
  * The provider for the signed-in account.
@@ -26,13 +28,25 @@ import { OpenedMessage, SendInput, SendOutcome } from './types';
  * Deliberately not part of `State`: nothing renders it, and swapping it must not
  * cost a re-render of every screen.
  */
-export type MailHolder = { current: MailClient | null };
+export type MailHolder = {
+  /** The active account's provider. Everything that sends or reads uses this. */
+  current: MailClient | null;
+  /**
+   * A provider per connected account, so the merged inbox can list them all
+   * without a sign-in round trip per switch. Keyed by `AccountId`.
+   */
+  clients: Map<AccountId, MailClient>;
+};
 
 export type SessionService = {
-  /** Restore a stored session on launch. `isCancelled` guards a unmounted provider. */
+  /** Restore every stored session on launch. `isCancelled` guards a unmounted provider. */
   boot(isCancelled: () => boolean): Promise<void>;
+  /** Connect a mailbox. The first one signs in; a later one adds an account. */
   signIn(): Promise<void>;
+  /** Disconnect everything and return to the sign-in screen. */
   signOut(): Promise<void>;
+  /** Load everything one account owns on this device and put it in front. */
+  attach(session: Session): Promise<void>;
   /** Drop a session the provider will no longer honour. True if that is what happened. */
   handleAuthLoss(e: unknown): boolean;
 };
@@ -75,7 +89,7 @@ export type SendService = {
   /** Encrypt and send, or hold — never plaintext. The whole of rule 1 lives here. */
   deliver(input: SendInput): Promise<SendOutcome>;
   sendEncrypted(input: SendInput): Promise<SendOutcome>;
-  sendPlain(input: { to: string[]; subject: string; body: string; inReplyTo?: string; references?: string[] }): Promise<void>;
+  sendPlain(input: PlainSendInput): Promise<void>;
 };
 
 export type SchedulerService = {
@@ -90,6 +104,19 @@ export type SchedulerService = {
   run(): Promise<void>;
 };
 
+export type AccountsService = {
+  /** The active account, or throw — every scoped store write is keyed on it. */
+  requireActive(): AccountId;
+  /** The session for one connected account, whichever is in front. */
+  sessionFor(id: AccountId): Session | undefined;
+  switchAccount(id: AccountId): Promise<void>;
+  addAccount(): Promise<void>;
+  removeAccount(id: AccountId): Promise<void>;
+  setUnified(on: boolean): Promise<void>;
+  /** Remember a connected account and mark it active. Returns its id. */
+  register(session: Session): Promise<AccountId>;
+};
+
 export type DraftsService = {
   saveDraft(draft: Draft): Promise<void>;
   deleteDraft(id: string): Promise<void>;
@@ -97,6 +124,7 @@ export type DraftsService = {
 
 export type Services = {
   session: SessionService;
+  accounts: AccountsService;
   mailbox: MailboxService;
   contacts: ContactsService;
   identity: IdentityService;

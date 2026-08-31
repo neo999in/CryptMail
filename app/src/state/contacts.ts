@@ -16,7 +16,7 @@ export function createContacts(ctx: Ctx): ContactsService {
     /** Persist a new keyring and make it visible to concurrent async work at once. */
     async commitKeyring(next: Keyring) {
       if (next === store.get().keyring) return next;
-      await saveKeyring(next);
+      await saveKeyring(ctx.services.accounts.requireActive(), next);
       store.patch({ keyring: next });
       return next;
     },
