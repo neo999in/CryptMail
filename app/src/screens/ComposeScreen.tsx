@@ -24,6 +24,7 @@ import {
   formatBytes,
   MAX_ATTACHMENT_BYTES,
   removeAttachment,
+  splitForStorage,
   totalBytes,
 } from '../mail/attachment';
 import { RootStackParamList } from '../navigation';
@@ -123,17 +124,23 @@ export function ComposeScreen({ route, navigation }: Props) {
     const handle = setTimeout(() => {
       if (closingRef.current) return;
       if (isDraftEmpty({ to, subject, body, attachments })) void deleteDraftRef.current(draftId);
-      else
+      else {
+        // A draft is sealed JSON in AsyncStorage, which cannot take a 25 MB
+        // file — so the big ones stay in this screen's memory and the draft
+        // records their names. `unsaved` below is what tells the user.
+        const { stored, omitted } = splitForStorage(attachments);
         void saveDraftRef.current({
           id: draftId,
           to,
           subject,
           body,
-          attachments,
+          attachments: stored,
+          attachmentsOmitted: omitted.length > 0 ? omitted : undefined,
           inReplyTo,
           references,
           updatedAt: new Date().toISOString(),
         });
+      }
     }, 600);
     return () => clearTimeout(handle);
   }, [to, subject, body, attachments, draftId]);
@@ -154,6 +161,12 @@ export function ComposeScreen({ route, navigation }: Props) {
     if (addressKey.length === 0) return;
     void discoverRef.current(addressKey.split(','));
   }, [addressKey, plain]);
+
+  // Files too large to ride in the autosaved draft: held for this session only.
+  // Read from the draft on resume (they are gone, and it says which), and from
+  // the live list while composing (they are here, but will not survive leaving).
+  const unsaved = useMemo(() => splitForStorage(attachments).omitted, [attachments]);
+  const lost = existing?.attachmentsOmitted ?? [];
 
   const recipients = useMemo(() => resolveRecipients(to), [resolveRecipients, to]);
   const missing = recipients.filter((r) => r.status === 'missing');
@@ -477,14 +490,29 @@ export function ComposeScreen({ route, navigation }: Props) {
             </View>
           ) : null}
 
-          {/* Said once, before a file is picked rather than after one is refused.
-              The cap is a bridge limit, not a policy, and docs/prototype-plan.md
-              records the streaming path that lifts it. */}
+          {/* Said once, before a file is picked rather than after one is refused. */}
           <Text style={s.attachNote}>
             {plain
-              ? `Attachments on an unencrypted message travel in the clear, filenames included. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} each.`
-              : `Files are sealed inside the message with the subject and body — even their names. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} each for now.`}
+              ? `Attachments on an unencrypted message travel in the clear, filenames included. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`
+              : `Files are sealed inside the message with the subject and body — even their names. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`}
           </Text>
+
+          {/* Two different facts, and neither may be left unsaid: a file that
+              will not survive leaving this screen, and one that already did
+              not. Both name the file — "some attachments" would be useless. */}
+          {lost.length > 0 ? (
+            <Text style={[s.attachNote, s.attachWarn]}>
+              {lost.join(', ')} {lost.length > 1 ? 'were' : 'was'} attached to this draft but too
+              large to save with it. Attach {lost.length > 1 ? 'them' : 'it'} again before sending.
+            </Text>
+          ) : null}
+          {unsaved.length > 0 ? (
+            <Text style={[s.attachNote, s.attachWarn]}>
+              {unsaved.join(', ')} {unsaved.length > 1 ? 'are' : 'is'} too large to keep in a saved
+              draft. Send this message before leaving, or {unsaved.length > 1 ? 'they' : 'it'} will
+              need attaching again.
+            </Text>
+          ) : null}
         </View>
 
         {error ? (
@@ -773,6 +801,7 @@ const s = StyleSheet.create({
   attachTotal: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11.5 },
   attachChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   attachNote: { color: color.inkFaint, fontFamily: font.sans, fontSize: 12, lineHeight: 17 },
+  attachWarn: { color: color.brass },
 
   errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 4 },
   error: { color: color.coral, flex: 1, fontFamily: font.sans, fontSize: 13 },

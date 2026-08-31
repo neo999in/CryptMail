@@ -10,8 +10,10 @@ import {
   formatBytes,
   isImage,
   MAX_ATTACHMENT_BYTES,
+  MAX_STORED_ATTACHMENT_BYTES,
   MAX_TOTAL_ATTACHMENT_BYTES,
   removeAttachment,
+  splitForStorage,
   totalBytes,
 } from '../attachment';
 import { bytesToBase64 } from '../../lib/base64';
@@ -45,8 +47,14 @@ describe('attachmentRefusal', () => {
     expect(attachmentRefusal({ name: 'a.pdf', size: 500_000 }, [])).toBeNull();
   });
 
+  it('allows the everyday large file a provider would carry', () => {
+    // The cap is Gmail's own 25 MB, so an 8 MB deck is ordinary, not an edge case.
+    expect(attachmentRefusal({ name: 'deck.pdf', size: 8 * 1024 * 1024 }, [])).toBeNull();
+  });
+
   it('refuses a file over the per-file cap, and says how big it was', () => {
     const refusal = attachmentRefusal({ name: 'video.mp4', size: MAX_ATTACHMENT_BYTES + 1 }, []);
+    expect(refusal).toContain('25.0 MB');
     expect(refusal).toContain('video.mp4');
     expect(refusal).toContain(formatBytes(MAX_ATTACHMENT_BYTES));
   });
@@ -97,5 +105,37 @@ describe('presentation', () => {
     expect(isImage({ mimeType: 'image/png' })).toBe(true);
     expect(isImage({ mimeType: 'IMAGE/JPEG' })).toBe(true);
     expect(isImage({ mimeType: 'application/pdf' })).toBe(false);
+  });
+});
+
+describe('splitForStorage', () => {
+  const KB = 1024;
+
+  it('keeps everything when it fits the draft budget', () => {
+    const list = [file({ size: 10 * KB }), file({ id: 'a2', size: 20 * KB })];
+    expect(splitForStorage(list)).toEqual({ stored: list, omitted: [] });
+  });
+
+  it('names what a draft cannot hold instead of dropping it silently', () => {
+    const big = file({ id: 'big', name: 'holiday.mov', size: 20 * 1024 * KB });
+    const small = file({ id: 'small', name: 'notes.txt', size: 4 * KB });
+
+    const { stored, omitted } = splitForStorage([big, small]);
+    expect(stored.map((a) => a.name)).toEqual(['notes.txt']);
+    expect(omitted).toEqual(['holiday.mov']);
+  });
+
+  it('spends the budget in order, so a run of files cannot overrun it', () => {
+    const half = Math.floor(MAX_STORED_ATTACHMENT_BYTES / 2);
+    const list = [
+      file({ id: 'a1', name: 'one', size: half }),
+      file({ id: 'a2', name: 'two', size: half }),
+      file({ id: 'a3', name: 'three', size: half }),
+    ];
+
+    const { stored, omitted } = splitForStorage(list);
+    expect(stored.map((a) => a.name)).toEqual(['one', 'two']);
+    expect(omitted).toEqual(['three']);
+    expect(stored.reduce((n, a) => n + a.size, 0)).toBeLessThanOrEqual(MAX_STORED_ATTACHMENT_BYTES);
   });
 });

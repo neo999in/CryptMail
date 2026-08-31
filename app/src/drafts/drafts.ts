@@ -26,6 +26,15 @@ export type DraftFields = {
    * keeps a draft from growing past what AsyncStorage will take.
    */
   attachments?: Attachment[];
+  /**
+   * Names of files that were attached but *not* stored with this draft.
+   *
+   * A draft is sealed JSON in AsyncStorage and cannot hold tens of megabytes
+   * (`MAX_STORED_ATTACHMENT_BYTES`), so a large file lives only in the compose
+   * session. Recording the name means resuming the draft can say which file to
+   * re-attach, instead of the file simply not being there.
+   */
+  attachmentsOmitted?: string[];
   /** Threading for a reply draft, so resuming it still lands in the conversation. */
   inReplyTo?: string;
   references?: string[];

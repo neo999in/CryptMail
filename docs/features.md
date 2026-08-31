@@ -364,9 +364,9 @@ neither ever landing as `verified`.
 sealed inside the encrypted tree along with their names.
 
 **Built.** [`mail/attachment.ts`](../app/src/mail/attachment.ts) is the model:
-base64 content, a decoded size, and the two caps (1 MB per file, 4 MB per
-message) with `attachmentRefusal` as the single place that says why a file
-cannot be attached. [`core/mime.ts`](../app/src/core/mime.ts) builds the parts:
+base64 content, a decoded size, and a 25 MB cap — the ceiling mail providers
+themselves enforce — with `attachmentRefusal` as the single place that says why
+a file cannot be attached. [`core/mime.ts`](../app/src/core/mime.ts) builds the parts:
 `buildProtectedInner` emits the `text/plain` body followed by one base64 part
 per file inside the existing `multipart/mixed`, so filename and type sit *inside*
 the ciphertext exactly as [message-format.md](message-format.md) specifies —
@@ -393,10 +393,15 @@ platform (`expo-document-picker`, `expo-file-system`, the share sheet on
 Android, an anchor download on web). 33 tests across the model, the MIME
 round-trip, the inbound reader and the send path.
 
-**Still open.** The 1 MB cap. Everything is held in memory as base64 and copied
-across the bridge as a string, so a large file is refused up front rather than
-taken and dropped later; the fix is file paths and a streaming read in Rust
-(Phase 1, [prototype-plan.md](prototype-plan.md)). Inline `cid:` images are
+**Still open.** Everything is held in memory as base64 and crosses the bridge as
+one string, so a 25 MB file is a ~33 MB string copied several times between disk
+and the wire — survivable, and the operation most likely to be killed on a
+low-memory device. The fix is file paths and a chunked read in Rust (Phase 1,
+[prototype-plan.md](prototype-plan.md)), after which no cap needs to exist here
+at all. A second, separate limit stays until then: an autosaved draft is sealed
+JSON in AsyncStorage and cannot hold tens of megabytes, so files past
+`MAX_STORED_ATTACHMENT_BYTES` live only in the compose session and the screen
+names them rather than losing them quietly (`splitForStorage`). Inline `cid:` images are
 carried and rendered as attachments, but the body is plain text, so a true
 inline placement waits on the HTML reader (0.9).
 
@@ -409,7 +414,7 @@ now against the demo core, with the crypto swapped in later.
 
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
-| ~~**Attachments** — send, receive, inline images, preview~~ | — | — | ✅ **Built** (0.18 below), against the demo core and the real one alike. What is still open is only the >1 MB case: streaming over the bridge as file paths rather than base64 strings. |
+| ~~**Attachments** — send, receive, inline images, preview~~ | — | — | ✅ **Built** (0.18 below), against the demo core and the real one alike. Files up to 25 MB, the provider's own ceiling. What is still open is streaming over the bridge as file paths rather than base64 strings, and holding a large file in a saved draft. |
 | **Encrypted local store (SQLCipher)** | L | S–M | Superseded for now: stores are sealed individually (⚫ Debt 1). SQLCipher remains the [data-model.md](data-model.md) target for query performance, not for the encryption property. |
 | **Encrypted search index** | M | M | Today's index is plaintext decrypted content on disk, which fights any no-plaintext-cache mode. Encrypting it lets search and that mode coexist. |
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |

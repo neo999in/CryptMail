@@ -93,11 +93,13 @@ Implemented by `buildProtectedInner` / `parseProtectedInner` in
   part *with* one is a file. That single rule is what keeps the two apart on the
   way back in.
 
-**Size.** The prototype caps a file at 1 MB and a message at 4 MB of
-attachments, refusing before it reads. This is a bridge limit, not a format one:
-content is carried as base64 strings because that is all that crosses the core
-boundary, and the streaming path that lifts it (file paths, read in Rust) is
-Phase 1 work. See `app/src/mail/attachment.ts` and prototype-plan.md.
+**Size.** A message may carry 25 MB of attachments — the ceiling mail providers
+enforce — and a file past it is refused before it is read. Content is carried as
+base64 strings because that is all that crosses the core boundary, so a large
+send is a large string copied several times; the streaming path that removes
+that (file paths, chunked read in Rust) is Phase 1 work. A separate and much
+smaller budget governs what an autosaved *draft* may hold, which is a storage
+limit, not a format one. See `app/src/mail/attachment.ts` and prototype-plan.md.
 
 An **unencrypted** message (the deliberate plaintext mode) uses the same part
 shape in a top-level `multipart/mixed` — where the filenames are visible to every
