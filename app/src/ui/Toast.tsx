@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View, Pressable, Platform, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { color, glass, radius, shadow, type, font } from '../theme';
+import { color, radius, shadow, type, font } from '../theme';
+import { useAccent } from './appearance';
 import { Icon } from './Icon';
 
 export type ToastProps = {
@@ -25,6 +26,7 @@ export function Toast({
   startedAt,
 }: ToastProps) {
   const insets = useSafeAreaInsets();
+  const accent = useAccent();
   const progress = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function Toast({
     >
       <View style={styles.content}>
         <View style={styles.left}>
-          <Icon name="send" size={16} color={color.brass} />
+          <Icon name="send" size={16} color={accent} />
           <Text style={styles.message} numberOfLines={2}>
             {message}
           </Text>
@@ -65,7 +67,7 @@ export function Toast({
               pressed && { backgroundColor: color.press }
             ]}
           >
-            <Text style={styles.actionText}>{actionLabel}</Text>
+            <Text style={[styles.actionText, { color: accent }]}>{actionLabel}</Text>
           </Pressable>
         )}
       </View>
@@ -73,7 +75,7 @@ export function Toast({
         <Animated.View
           style={[
             styles.progressBar,
-            { transform: [{ scaleX: progress }] },
+            { backgroundColor: accent, transform: [{ scaleX: progress }] },
           ]}
         />
       </View>
@@ -86,11 +88,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    backgroundColor: glass.fillStrong,
+    // Opaque, not a glass fill: the toast floats over whatever screen is up,
+    // and a translucent one reads as unfinished against the true-black ground.
+    backgroundColor: color.surface,
     borderRadius: radius.lg,
-    borderColor: glass.hairline,
+    borderColor: color.line,
     borderWidth: 1,
-    zIndex: 9999,
+    zIndex: 99999,
+    elevation: 100,
     overflow: 'hidden',
     ...shadow.floating,
   },
@@ -121,7 +126,6 @@ const styles = StyleSheet.create({
   actionText: {
     fontFamily: font.sansBold,
     fontSize: 13,
-    color: color.brass,
     textTransform: 'uppercase',
   },
   progressTrack: {
@@ -131,7 +135,6 @@ const styles = StyleSheet.create({
   progressBar: {
     height: '100%',
     width: '100%',
-    backgroundColor: color.brass,
     opacity: 0.4,
     // Scale from the left edge so the bar shrinks right-to-left.
     transformOrigin: 'left center',

@@ -409,8 +409,6 @@ export function ComposeScreen({ route, navigation }: Props) {
       });
     } catch (e) {
       closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSending(false);
     }
   };
