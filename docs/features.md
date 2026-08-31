@@ -49,6 +49,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
 | Category drawer (Primary/Bills/…) | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 16 |
 | Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
+| Spam & phishing detection | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
 
 416 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
@@ -473,7 +474,7 @@ now against the demo core, with the crypto swapped in later.
 | **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |
 | **Expiring / self-destruct messages** | M | M | Client-enforced only; the copy must be honest that a recipient can always keep a copy. |
 | **S/MIME support** | M | L | Enterprise interop; a large second format surface. |
-| **Client-side spam / malware scanning** | M | L | E2EE kills server-side scanning — a real, acknowledged gap. Must run after local decrypt. |
+| ~~**Client-side spam / phishing scanning**~~ | — | — | ✅ **Built, and needed no core.** [`spam/`](../app/src/spam/) — weighted symbol scoring over headers, content, links and attachment metadata, plus a personal Naive Bayes model trained by "Mark as spam"/"Mark as not spam" and persisted sealed in [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts). Runs after local decrypt; header analysis works on unopened encrypted mail because those headers are cleartext. Entirely local — no URL is ever fetched to classify a message. **Malware scanning is still open**: it needs attachment bodies (Tier 1 *Attachments*) and a scanning engine, and only filename/type metadata is inspected today. |
 
 ---
 

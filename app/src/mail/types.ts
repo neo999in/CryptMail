@@ -31,6 +31,24 @@ export type MailSummary = {
    * sync path learn senders' keys without opening — or decrypting — anything.
    */
   autocrypt?: string;
+  /**
+   * Cleartext envelope headers, when the provider supplied them.
+   *
+   * Read by the spam engine (`spam/headers.ts`): whether a message authenticated,
+   * whether replies would leave the sender's domain, and whether it carries
+   * unsubscribe hygiene are the strongest client-side phishing signals, and all
+   * three live in headers rather than in the body.
+   *
+   * Every one is optional and stays optional. They are metadata the provider may
+   * or may not stamp, and **absence is never treated as failure** — a message with
+   * no `Authentication-Results` is the ordinary case, not a suspicious one. A
+   * connector that supplies none of them yields exactly the behaviour that existed
+   * before these fields did.
+   */
+  replyTo?: string;
+  authenticationResults?: string;
+  listUnsubscribe?: string;
+  returnPath?: string;
 };
 
 /** A change to a message's flags. `archived: true` removes it from the inbox. */

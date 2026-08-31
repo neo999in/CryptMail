@@ -80,6 +80,7 @@ export function InboxScreen({ navigation }: Props) {
     signOut,
     searchIndex,
     toggleStar,
+    spam,
   } =
     useApp();
   const { category, setCategory } = useCategoryFilter();
@@ -94,6 +95,16 @@ export function InboxScreen({ navigation }: Props) {
     void refreshInbox();
   }, [refreshInbox]);
 
+  /**
+   * What the categorizer needs to reach the same spam verdict the message view
+   * shows: the personal model, the user's own marks, and this account's address.
+   * Memoised because it goes into the filter pass below.
+   */
+  const spamContext = useMemo(
+    () => ({ model: spam.model, marks: spam.marks, selfAddress: session?.email }),
+    [spam, session?.email],
+  );
+
   /** One pass: decorate with encryption state, then filter, then group by day. */
   const sections = useMemo(() => {
     const visible = messages
@@ -105,7 +116,9 @@ export function InboxScreen({ navigation }: Props) {
         // The drawer's category filter reads only on-device content, exactly like
         // search: categorizeMessage classifies unopened encrypted mail as 'primary'
         // rather than reading its ciphertext (categorizer/categorizer.ts).
-        if (category !== null && categorizeMessage(summary, encrypted, searchIndex) !== category) return false;
+        if (category !== null && categorizeMessage(summary, encrypted, searchIndex, spamContext) !== category) {
+          return false;
+        }
         // Encrypted mail is matched on its decrypted content once opened (search/search.ts).
         return messageMatchesQuery(summary, encrypted, searchIndex, query);
       })
@@ -125,7 +138,7 @@ export function InboxScreen({ navigation }: Props) {
       else buckets.set(bucket, [row]);
     }
     return [...buckets].map(([title, data]) => ({ title, data }));
-  }, [category, encryptionFor, filter, messages, query, searchIndex]);
+  }, [category, encryptionFor, filter, messages, query, searchIndex, spamContext]);
 
   const unread = messages.filter((m) => m.unread).length;
   const attention = useMemo(

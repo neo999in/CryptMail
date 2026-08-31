@@ -7,7 +7,7 @@
  * multipart boundary, the part headers and the raw `=E2=80=87` escapes at the
  * user.
  */
-import { attachmentsOf, plainBodyOf } from '../plainBody';
+import { attachmentsOf, htmlOf, plainBodyOf } from '../plainBody';
 
 const crlf = (s: string) => s.replace(/\n/g, '\r\n');
 
@@ -209,5 +209,87 @@ describe('attachmentsOf', () => {
 
     const [image] = attachmentsOf(nested);
     expect(image).toMatchObject({ name: 'shot.png', mimeType: 'image/png', inline: true, contentId: 'shot@example.com' });
+  });
+});
+
+/**
+ * `htmlOf` exists for one reason: `plainBodyOf` flattens markup to text, and that
+ * destroys the pairing of visible label and destination that an anchor *is*. That
+ * pairing is the evidence behind the strongest phishing signal the filter has, so
+ * the markup has to reach `spam/urls.ts` intact — read there, never rendered.
+ */
+describe('htmlOf', () => {
+  it('returns the HTML part of a multipart/alternative, as markup', () => {
+    const raw = crlf(
+      'Content-Type: multipart/alternative; boundary="b1"\n\n' +
+        '--b1\n' +
+        'Content-Type: text/plain\n\n' +
+        'Sign in at bank.example.\n' +
+        '--b1\n' +
+        'Content-Type: text/html\n\n' +
+        '<p><a href="https://evil.example/login">https://bank.example</a></p>\n' +
+        '--b1--\n',
+    );
+    const html = htmlOf(raw);
+    // Both halves of the anchor survive, which is the whole point.
+    expect(html).toContain('href="https://evil.example/login"');
+    expect(html).toContain('https://bank.example</a>');
+  });
+
+  it('returns a bare text/html message', () => {
+    const raw = 'Content-Type: text/html\n\n<a href="https://a.example/x">here</a>';
+    expect(htmlOf(raw)).toContain('href="https://a.example/x"');
+  });
+
+  it('descends into a nested multipart, as mail with attachments carries', () => {
+    const raw = crlf(
+      'Content-Type: multipart/mixed; boundary="outer"\n\n' +
+        '--outer\n' +
+        'Content-Type: multipart/alternative; boundary="inner"\n\n' +
+        '--inner\n' +
+        'Content-Type: text/plain\n\n' +
+        'plain\n' +
+        '--inner\n' +
+        'Content-Type: text/html\n\n' +
+        '<a href="https://buried.example/x">buried</a>\n' +
+        '--inner--\n' +
+        '--outer\n' +
+        'Content-Type: application/pdf\n' +
+        'Content-Transfer-Encoding: base64\n\n' +
+        'JVBERi0=\n' +
+        '--outer--\n',
+    );
+    expect(htmlOf(raw)).toContain('https://buried.example/x');
+  });
+
+  it('decodes quoted-printable before returning it', () => {
+    // Without decoding, `=3D` and a soft break would split the href in half and
+    // hide exactly the link worth reading.
+    const raw =
+      'Content-Type: text/html\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\n' +
+      '<a href=3D"https://evil.example/log=\nin">Sign in</a>';
+    expect(htmlOf(raw)).toContain('href="https://evil.example/login"');
+  });
+
+  it('decodes a base64 HTML part', () => {
+    // Literal base64 rather than an encoder call: the test must not depend on a
+    // Node global that the React Native runtime does not have.
+    const raw =
+      'Content-Type: text/html\n' +
+      'Content-Transfer-Encoding: base64\n\n' +
+      'PGEgaHJlZj0iaHR0cHM6Ly9hLmV4YW1wbGUveCI+eDwvYT4=';
+    expect(htmlOf(raw)).toContain('https://a.example/x');
+  });
+
+  it('returns an empty string when the message has no HTML part', () => {
+    expect(htmlOf('Content-Type: text/plain\n\nJust words.')).toBe('');
+    expect(htmlOf('From: a@b.c\n\nNo content type.')).toBe('');
+  });
+
+  it('returns an empty string rather than throwing on malformed markup', () => {
+    const raw = 'Content-Type: multipart/alternative; boundary="missing"\n\norphan text';
+    expect(htmlOf(raw)).toBe('');
+    expect(() => htmlOf('')).not.toThrow();
   });
 });

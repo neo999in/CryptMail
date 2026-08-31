@@ -1,15 +1,19 @@
 /**
  * Reading the mailbox: syncing it, opening a message, and flag changes.
  */
-import { core } from '../core';
+import { spamInputFor } from '../categorizer/categorizer';
+import { core, PLACEHOLDER_SUBJECT } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
-import { attachmentsOf, plainBodyOf } from '../mail/plainBody';
+import { attachmentsOf, htmlOf, plainBodyOf } from '../mail/plainBody';
 import { MailSummary } from '../mail/types';
 import { indexContent } from '../search/search';
+import { extractLinks, learn, unlearn } from '../spam/spam';
+import type { SpamMark } from '../spam/spam';
 import { AccountId } from '../store/accountScope';
 import { findKey } from '../store/keyring';
 import { saveSearchIndex } from '../store/searchIndex';
+import { saveSpamState, setMark } from '../store/spamModelStore';
 import { Ctx, MailboxService, message } from './contracts';
 import { trustForOpened } from './derive';
 import { InboxItem, OpenedMessage } from './types';
@@ -67,6 +71,19 @@ export function createMailbox(ctx: Ctx): MailboxService {
     return lists.flat().sort((a, b) => b.date.localeCompare(a.date));
   }
 
+  /**
+   * Anchor pairs in a piece of readable markup, or `undefined` when there are
+   * none.
+   *
+   * The distinction matters downstream: the categoriser falls back to the URLs
+   * written in prose when it is given no pairs, and an empty array would suppress
+   * that fallback while carrying no information of its own.
+   */
+  function linksIn(html: string): OpenedMessage['links'] {
+    const found = extractLinks(html);
+    return found.length > 0 ? found : undefined;
+  }
+
   const service: MailboxService = {
     async refreshInbox() {
       if (!mail.current) return;
@@ -114,6 +131,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
           // An ordinary email's files are right there in the MIME, in the clear.
           attachments: attachmentsOf(raw),
           raw,
+          // Anchor pairs from the HTML part, if any. Read, never rendered: the
+          // scan in `spam/urls.ts` extracts `href`/label pairs and drops
+          // anything that is not http(s), so nothing executable is recorded.
+          links: linksIn(htmlOf(raw)),
         };
       }
 
@@ -213,7 +234,66 @@ export function createMailbox(ctx: Ctx): MailboxService {
     setUnread: (id, unread) => service.setFlags(id, { unread }),
 
     archiveMessage: (id) => service.setFlags(id, { archived: true }),
+
+    markSpam: (id) => applyMark(id, 'spam'),
+
+    markNotSpam: (id) => applyMark(id, 'ham'),
   };
+
+  /**
+   * Record the user's verdict for one message and train the filter from it.
+   *
+   * Three things happen together, and the order is the point:
+   *
+   * 1. the previous mark, if any, is **untrained** — otherwise a user who
+   *    corrects themselves leaves both verdicts in the counts, and the filter
+   *    learns that the message's tokens mean nothing in particular;
+   * 2. the new mark is trained, from exactly the content this device can read
+   *    (`spamInputFor` — an unopened encrypted message contributes its cleartext
+   *    headers and nothing else);
+   * 3. mark and model are persisted in one record, so a restart cannot restore a
+   *    mark whose training was lost or vice versa.
+   *
+   * Marking spam does *not* archive or delete the message. The mark moves it to
+   * the Spam category, which is a filing decision the user can reverse; removing
+   * it from the mailbox is a different action with a different button.
+   */
+  async function applyMark(id: string, mark: SpamMark): Promise<void> {
+    const state = store.get();
+    const summary = state.messages.find((m) => m.id === id);
+    if (!summary) return;
+
+    // `state.spam` is the *active* account's model, so a row belonging to another
+    // mailbox must not train it. In practice this cannot fire — opening a merged
+    // row switches to its account first, and marking happens from the reader —
+    // but the guard is what keeps that an invariant rather than an assumption.
+    const account = ctx.services.accounts.requireActive();
+    if (summary.account !== account) return;
+
+    const encrypted = isEncrypted(summary);
+    const input = spamInputFor(summary, encrypted, state.searchIndex, {
+      selfAddress: state.session?.email,
+    });
+
+    const previous = state.spam.marks[id];
+    let model = state.spam.model;
+    if (previous === mark) return;
+    if (previous) model = unlearn(model, input, previous);
+    model = learn(model, input, mark);
+
+    const spam = { model, marks: setMark(state.spam.marks, id, mark) };
+    store.patch({ spam });
+    await saveSpamState(account, spam);
+  }
 
   return service;
 }
+
+/**
+ * Whether a row is encrypted, from its headers alone.
+ *
+ * The same test `derive.ts` applies for the inbox badge, and it is the test that
+ * decides whether the body may be read: a placeholder subject means the provider
+ * is holding ciphertext, so only content in the local index is readable.
+ */
+const isEncrypted = (summary: MailSummary): boolean => summary.subject.trim() === PLACEHOLDER_SUBJECT;

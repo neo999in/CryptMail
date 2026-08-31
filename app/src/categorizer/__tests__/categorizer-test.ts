@@ -4,6 +4,7 @@ import {
   categorize,
   categorizeMessage,
   checkIsSpam,
+  spamInputFor,
   unreadCountsByCategory,
 } from '../categorizer';
 
@@ -55,9 +56,65 @@ describe('categorize', () => {
 });
 
 describe('checkIsSpam', () => {
-  test('is a stub that classifies nothing as spam yet', () => {
+  test('shouting and a keyword are not a classification on their own', () => {
+    // The engine's central constraint: no single rule reaches the threshold, so a
+    // loud line of text with none of the structural evidence stays legitimate.
     expect(checkIsSpam('WIN A FREE PRIZE NOW!!! CLICK HERE')).toBe(false);
+  });
+
+  test('empty text is never spam', () => {
     expect(checkIsSpam('')).toBe(false);
+    expect(checkIsSpam('   ')).toBe(false);
+  });
+
+  test('legitimate mail using the words a naive filter watches for stays legitimate', () => {
+    expect(
+      checkIsSpam(
+        'The password for your account was changed on Tuesday. If this was you, no ' +
+          'action is needed. You can review recent sign-in activity at any time. We will ' +
+          'never ask you for your password or payment details by email.',
+      ),
+    ).toBe(false);
+  });
+
+  test('a combination of pretexts does classify', () => {
+    expect(
+      checkIsSpam(
+        'URGENT: your account will be suspended within 24 hours. Verify your account ' +
+          'immediately and pay the outstanding balance of $240 by wire transfer to avoid ' +
+          'permanent suspension. Click here to verify and confirm your password now.',
+      ),
+    ).toBe(true);
+  });
+
+  test('urgency, a threat and a credential request together are not enough without headers', () => {
+    // The same three intent families, and nothing else — which is also how a bank
+    // writes its own fraud alert and how an IT department writes a password-expiry
+    // notice. On text alone, with no sender, no authentication and no links, that
+    // wording must not be a verdict: the structural evidence that separates the
+    // warning from the attack is in the headers, and here there are none.
+    expect(
+      checkIsSpam(
+        'URGENT: unusual activity was detected and your account will be suspended ' +
+          'within 24 hours. Verify your account immediately to avoid permanent ' +
+          'suspension. Click here to verify and confirm your password now.',
+      ),
+    ).toBe(false);
+  });
+
+  test('a verdict the caller already computed decides it', () => {
+    const verdict = (classification: 'legitimate' | 'spam' | 'phishing-suspicious') => ({
+      classification,
+      score: 0,
+      phishingScore: 0,
+      symbols: [],
+      bayesApplied: false,
+      bayesProbability: null,
+      overridden: false,
+    });
+    expect(checkIsSpam('anything at all', verdict('spam'))).toBe(true);
+    expect(checkIsSpam('anything at all', verdict('phishing-suspicious'))).toBe(true);
+    expect(checkIsSpam('URGENT!!! verify your account immediately', verdict('legitimate'))).toBe(false);
   });
 });
 
@@ -89,6 +146,100 @@ describe('categorizeMessage', () => {
   test('the placeholder subject of an encrypted message is never inspected', () => {
     expect(categorizeMessage(summary({ subject: 'invoice past due' }), true, emptyIndex)).toBe('primary');
   });
+
+  test('an explicit mark wins over the score, either way', () => {
+    const plain = summary({ id: 'm1', subject: 'Your December statement', snippet: 'Balance due soon' });
+    expect(categorizeMessage(plain, false, emptyIndex, { marks: { m1: 'spam' } })).toBe('spam');
+    expect(categorizeMessage(plain, false, emptyIndex, { marks: { m1: 'ham' } })).toBe('bills');
+  });
+
+  test('header evidence still files unopened encrypted mail as spam', () => {
+    // Headers are cleartext, so a message failing DMARC while claiming a brand it
+    // does not own is suspicious whether or not its body has been read. Nothing
+    // about its ciphertext is inspected to reach that.
+    const encrypted = summary({
+      from: { address: 'security@paypa1-verify.example', name: 'PayPal Service' },
+      replyTo: 'paypal.recovery@gmail.com',
+      authenticationResults: 'mx.google.com; spf=fail; dkim=none; dmarc=fail header.from=paypa1-verify.example',
+    });
+    expect(categorizeMessage(encrypted, true, emptyIndex)).toBe('spam');
+  });
+});
+
+describe('spamInputFor', () => {
+  const emptyIndex: SearchIndex = {};
+
+  test('plaintext mail contributes its subject and snippet', () => {
+    const input = spamInputFor(summary({ subject: 'Hello', snippet: 'Body text' }), false, emptyIndex);
+    expect(input.subject).toBe('Hello');
+    expect(input.body).toBe('Body text');
+  });
+
+  test('unopened encrypted mail contributes headers only', () => {
+    const input = spamInputFor(
+      summary({ subject: '[Encrypted message]', snippet: 'Encrypted — open to decrypt on this device.' }),
+      true,
+      emptyIndex,
+    );
+    expect(input.subject).toBeUndefined();
+    expect(input.body).toBeUndefined();
+    expect(input.from?.address).toBe('store@shop.example');
+  });
+
+  test('opened encrypted mail contributes the decrypted content, never the snippet', () => {
+    const index: SearchIndex = { m1: { subject: 'Real subject', body: 'Real body' } };
+    const input = spamInputFor(summary({ snippet: 'ciphertext artefact' }), true, index);
+    expect(input.subject).toBe('Real subject');
+    expect(input.body).toBe('Real body');
+  });
+
+  test('URLs written in prose are paired with themselves, so a URL cannot misrepresent itself', () => {
+    const input = spamInputFor(
+      summary({ subject: 'Look', snippet: 'See https://example.com/a for details' }),
+      false,
+      emptyIndex,
+    );
+    expect(input.links).toEqual([{ href: 'https://example.com/a', text: 'https://example.com/a' }]);
+  });
+
+  test('anchor pairs from an opened message take precedence over prose URLs', () => {
+    const links = [{ href: 'https://evil.example/login', text: 'https://bank.example' }];
+    const input = spamInputFor(
+      summary({ subject: 'Look', snippet: 'See https://example.com/a' }),
+      false,
+      emptyIndex,
+      { links },
+    );
+    expect(input.links).toBe(links);
+  });
+
+  test('text with no URLs yields no links at all, rather than an empty list', () => {
+    // An empty array would suppress the URL-in-prose fallback while carrying no
+    // information of its own.
+    expect(spamInputFor(summary({ subject: 'Hi', snippet: 'no links here' }), false, emptyIndex).links)
+      .toBeUndefined();
+  });
+
+  test('the four cleartext headers are passed through as given', () => {
+    const input = spamInputFor(
+      summary({
+        replyTo: 'someone@else.example',
+        authenticationResults: 'mx.google.com; spf=pass',
+        listUnsubscribe: '<mailto:stop@list.example>',
+        returnPath: '<bounce@list.example>',
+        messageId: '<abc@shop.example>',
+      }),
+      false,
+      emptyIndex,
+    );
+    expect(input.headers).toEqual({
+      replyTo: 'someone@else.example',
+      authenticationResults: 'mx.google.com; spf=pass',
+      listUnsubscribe: '<mailto:stop@list.example>',
+      returnPath: '<bounce@list.example>',
+      messageId: '<abc@shop.example>',
+    });
+  });
 });
 
 describe('unreadCountsByCategory', () => {
@@ -117,8 +268,13 @@ describe('unreadCountsByCategory', () => {
     expect(unreadCountsByCategory(items, emptyIndex).bills).toBe(1);
   });
 
-  test('spam stays zero while checkIsSpam is a stub', () => {
+  test('a shouted subject alone does not reach the spam bucket', () => {
     const items = [{ summary: summary({ subject: 'WIN A FREE PRIZE', unread: true }), encrypted: false }];
     expect(unreadCountsByCategory(items, emptyIndex).spam).toBe(0);
+  });
+
+  test('an explicit user mark counts under spam', () => {
+    const items = [{ summary: summary({ id: 'x', subject: 'Lunch Friday?', unread: true }), encrypted: false }];
+    expect(unreadCountsByCategory(items, emptyIndex, { marks: { x: 'spam' } }).spam).toBe(1);
   });
 });

@@ -58,6 +58,9 @@ export type MailboxService = {
   toggleStar(id: string): Promise<void>;
   setUnread(id: string, unread: boolean): Promise<void>;
   archiveMessage(id: string): Promise<void>;
+  /** Record the user's spam verdict for a message and train the filter from it. */
+  markSpam(id: string): Promise<void>;
+  markNotSpam(id: string): Promise<void>;
 };
 
 export type ContactsService = {

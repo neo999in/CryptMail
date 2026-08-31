@@ -18,6 +18,7 @@ import { loadOutbox } from '../store/outboxStore';
 import { loadPublishState, PublishState } from '../store/publishStore';
 import { loadRecoveryState, RecoveryState } from '../store/recoveryStore';
 import { loadSearchIndex } from '../store/searchIndex';
+import { loadSpamState, SpamState } from '../store/spamModelStore';
 import { Ctx, message, SessionService } from './contracts';
 
 type Attached = {
@@ -29,6 +30,8 @@ type Attached = {
   searchIndex: SearchIndex;
   drafts: Drafts;
   scheduled: ScheduledOutbox;
+  /** What this device has learned about spam, and the marks it learned from. */
+  spam: SpamState;
   /** Nothing found for a previous account belongs to this one. */
   verifyLink: null;
 };
@@ -86,6 +89,7 @@ export function createSession(ctx: Ctx): SessionService {
       searchIndex: await loadSearchIndex(account),
       drafts: await loadDrafts(account),
       scheduled: await loadOutbox(account),
+      spam: await loadSpamState(account),
       verifyLink: null,
     };
   }
