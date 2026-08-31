@@ -41,6 +41,7 @@ export function initialState(): State {
     searchIndex: {},
     drafts: {},
     scheduled: {},
+    snoozed: {},
     messages: [],
     loadingInbox: false,
     error: null,

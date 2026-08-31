@@ -22,6 +22,7 @@ import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
 import { messageMatchesQuery } from '../search/search';
+import { isSnoozed } from '../snooze/snooze';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
@@ -60,7 +61,7 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 /** Inbox — encryption state on every row, at a glance. */
 export function InboxScreen({ navigation }: Props) {
-  const { session, messages, loadingInbox, error, refreshInbox, encryptionFor, signOut, searchIndex, toggleStar } =
+  const { session, messages, snoozed, loadingInbox, error, refreshInbox, encryptionFor, signOut, searchIndex, toggleStar } =
     useApp();
   const { category, setCategory } = useCategoryFilter();
   const insets = useSafeAreaInsets();
@@ -76,7 +77,9 @@ export function InboxScreen({ navigation }: Props) {
 
   /** One pass: decorate with encryption state, then filter, then group by day. */
   const sections = useMemo(() => {
+    const now = new Date().toISOString();
     const visible = messages
+      .filter((summary) => !isSnoozed(snoozed, summary.id, now))
       .map((summary) => ({ summary, encryption: encryptionFor(summary) }))
       .filter(({ summary, encryption }) => {
         const encrypted = encryption.kind === 'encrypted';
@@ -105,12 +108,13 @@ export function InboxScreen({ navigation }: Props) {
       else buckets.set(bucket, [row]);
     }
     return [...buckets].map(([title, data]) => ({ title, data }));
-  }, [category, encryptionFor, filter, messages, query, searchIndex]);
+  }, [category, encryptionFor, filter, messages, query, searchIndex, snoozed]);
 
-  const unread = messages.filter((m) => m.unread).length;
+  const now = new Date().toISOString();
+  const unread = messages.filter((m) => m.unread && !isSnoozed(snoozed, m.id, now)).length;
   const attention = useMemo(
-    () => messages.filter((m) => needsAttention(encryptionFor(m))).length,
-    [encryptionFor, messages],
+    () => messages.filter((m) => !isSnoozed(snoozed, m.id, now) && needsAttention(encryptionFor(m))).length,
+    [encryptionFor, messages, snoozed, now],
   );
   const firstLoad = loadingInbox && messages.length === 0;
   const filtering = query.trim().length > 0 || filter !== 'all' || category !== null;

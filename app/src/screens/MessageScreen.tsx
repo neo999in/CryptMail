@@ -34,17 +34,21 @@ import {
   Skeleton,
   SecondaryButton,
 } from '../ui/primitives';
+import { SnoozeModal } from '../ui/SnoozeModal';
+import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 
 /** Reading — restored subject, trust chip, and the provider's view on demand. */
 export function MessageScreen({ route, navigation }: Props) {
-  const { messages, openMessage, keyring, identity, session, toggleStar, archiveMessage, setUnread } = useApp();
+  const { messages, openMessage, keyring, identity, session, toggleStar, archiveMessage, setUnread, snoozeMessage, unsnoozeMessage } = useApp();
+  const { showToast } = useToast();
   const insets = useSafeAreaInsets();
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
 
@@ -135,6 +139,22 @@ export function MessageScreen({ route, navigation }: Props) {
       inReplyTo: d.inReplyTo,
       references: d.references,
     });
+  };
+
+  const handleSnooze = (until: string) => {
+    if (!summary) return;
+    const msgId = summary.id;
+    void snoozeMessage(msgId, until);
+    showToast({
+      message: 'Snoozed message',
+      actionLabel: 'Undo',
+      onAction: () => {
+        void unsnoozeMessage(msgId);
+      },
+      durationMs: 5000,
+      icon: 'clock',
+    });
+    navigation.goBack();
   };
 
   return (
@@ -236,6 +256,11 @@ export function MessageScreen({ route, navigation }: Props) {
                   onPress={() => void toggleStar(summary.id)}
                 />
                 <SecondaryButton
+                  title="Snooze"
+                  icon="clock"
+                  onPress={() => setSnoozeOpen(true)}
+                />
+                <SecondaryButton
                   title="Archive"
                   icon="archive"
                   onPress={() => {
@@ -309,6 +334,11 @@ export function MessageScreen({ route, navigation }: Props) {
       ) : null}
 
       <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
+      <SnoozeModal
+        visible={snoozeOpen}
+        onSnooze={handleSnooze}
+        onClose={() => setSnoozeOpen(false)}
+      />
     </View>
   );
 }

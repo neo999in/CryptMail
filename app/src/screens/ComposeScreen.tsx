@@ -260,6 +260,11 @@ export function ComposeScreen({ route, navigation }: Props) {
       await deleteDraft(draftId);
       navigation.goBack();
 
+      const undoData = { id: draftId, to: [...to], subject, body, inReplyTo, references };
+      showToast({
+        message: 'Sending message…',
+        actionLabel: 'Undo',
+        durationMs: UNDO_DELAY_MS,
         onAction: () => {
           void (async () => {
             await cancelScheduled(undoData.id);
@@ -273,6 +278,7 @@ export function ComposeScreen({ route, navigation }: Props) {
               updatedAt: new Date().toISOString(),
             });
           })();
+        },
       });
     } catch (e) {
       closingRef.current = false;
@@ -320,6 +326,37 @@ export function ComposeScreen({ route, navigation }: Props) {
       closingRef.current = false;
       setSending(false);
     }
+  };
+
+  const schedule = async (at: Date) => {
+    setSending(true);
+    setError(null);
+    closingRef.current = true;
+    try {
+      await scheduleSend({
+        id: draftId,
+        to,
+        subject: subject.trim() || '(no subject)',
+        body,
+        inReplyTo,
+        references,
+        sendAt: at.toISOString(),
+      });
+      await deleteDraft(draftId);
+      navigation.goBack();
+    } catch (e) {
+      closingRef.current = false;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={s.screen}
+    >
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {/*
           Above everything, because it decides what the rest of the screen means.

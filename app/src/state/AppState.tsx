@@ -84,6 +84,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // on launch.
   useEffect(() => {
     if (!state.session) return;
+    void services.snooze.loadSnoozes();
     void services.scheduler.run();
     const handle = setInterval(() => void services.scheduler.run(), SCHEDULER_INTERVAL_MS);
     return () => clearInterval(handle);
@@ -120,6 +121,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       scheduleSend: services.scheduler.scheduleSend,
       cancelScheduled: services.scheduler.cancelScheduled,
       sendScheduledNow: services.scheduler.sendScheduledNow,
+      snoozeMessage: services.snooze.snoozeMessage,
+      unsnoozeMessage: services.snooze.unsnoozeMessage,
     }),
     [state, services, encryptionFor, resolveRecipients, publishStatus],
   );

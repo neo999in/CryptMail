@@ -10,6 +10,7 @@ import { Draft, Drafts } from '../drafts/drafts';
 import { MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
+import { SnoozeMap } from '../snooze/snooze';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState, PublishStatus } from '../store/publishStore';
@@ -92,6 +93,8 @@ export type State = {
   drafts: Drafts;
   /** Messages queued to send at a future time. */
   scheduled: ScheduledOutbox;
+  /** Messages snoozed until a future time. */
+  snoozed: SnoozeMap;
   messages: MailSummary[];
   loadingInbox: boolean;
   error: string | null;
@@ -158,4 +161,8 @@ export type Actions = {
    * longer in the outbox — and throws when a recipient's key changed.
    */
   sendScheduledNow(id: string): Promise<SendOutcome | null>;
+  /** Snooze a message: hide it from the inbox until `until` (ISO-8601 string). */
+  snoozeMessage(id: string, until: string): Promise<void>;
+  /** Unsnooze a message early: immediately return it to the inbox. */
+  unsnoozeMessage(id: string): Promise<void>;
 };
