@@ -74,6 +74,9 @@ test-results/
 # Claude Code config
 .claude/
 
+# local-only commit notes
+commit.md
+
 # editors
 .vscode/
 !.vscode/extensions.json
