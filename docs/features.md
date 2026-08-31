@@ -107,8 +107,7 @@ natively; the inbox is currently a flat single-action list. This is table stakes
 that also gives filters (0.1) something to act on.
 
 **Build sketch.** Extend `FlagPatch` with `labels?: { add?: string[]; remove?:
-string[] }`; implement in `demoMail.ts` and via `messages/{id}/modify` in
-`gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
+string[] }`; implement via `messages/{id}/modify` in `gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
 sibling-`Pressable` row pattern — a nested pressable inside the row breaks on
 RN-web.
 
@@ -281,15 +280,20 @@ An install that predates this keeps its data: `loadScopedJson` reads the old
 global key once, **moves** it under the first account signed in, and deletes it,
 so the second account starts empty rather than inheriting the first one's mail.
 
-Gmail is still one account at a time —
+**The single-account limit lives in the provider, not in the state layer.**
 [`googleAuth.restoreAll`](../app/src/auth/googleAuth.ts) can only return one
-session because Play services holds a single signed-in user. Everything above
-that line is multi-account, and demo mode connects two mailboxes
-(`DEMO_ADDRESSES`) to exercise it.
+session, because Play services holds a single signed-in user — so a build today
+reaches one mailbox. Everything above that line handles N, and a second provider
+(Outlook, IMAP) needs no change here.
 
-**Done when.** Two demo accounts coexist, each with its own keyring and drafts,
-and switching never leaks state between them. Covered end to end, against the
-real stores, by
+This used to be demonstrable at runtime, because `demoAuth` connected two
+fixture mailboxes. The demo mailbox was removed on 2026-08-31, so the two-account
+path is now exercised by fakes in the test rather than by a mode of the app.
+
+**Done when.** Two accounts coexist, each with its own keyring and drafts, and
+switching never leaks state between them. Covered end to end against the real
+service graph and the real stores — with only the auth provider and the Gmail
+client faked — by
 [`state/__tests__/accounts-test.ts`](../app/src/state/__tests__/accounts-test.ts).
 
 ### 0.12 Storage management & cache eviction · Impact S · Effort S

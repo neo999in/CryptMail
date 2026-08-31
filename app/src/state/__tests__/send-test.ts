@@ -58,10 +58,10 @@ jest.mock('../../store/inviteStore', () => ({
 }));
 
 /** Every scoped store write is keyed on this; the send path never leaves it. */
-const ACCOUNT = 'demo:me@example.com';
+const ACCOUNT = 'gmail:me@example.com';
 
 const SESSION: Session = {
-  provider: 'demo',
+  provider: 'gmail',
   email: 'me@example.com',
   accessToken: 'token',
   expiresAt: Date.now() + 3_600_000,
@@ -94,7 +94,7 @@ function harness(over: Partial<State> = {}) {
       ...initialState(),
       booting: false,
       session: SESSION,
-      accounts: [{ id: ACCOUNT, provider: 'demo', email: SESSION.email }],
+      accounts: [{ id: ACCOUNT, provider: 'gmail', email: SESSION.email }],
       activeAccount: ACCOUNT,
       identity: IDENTITY,
       ...over,
@@ -104,7 +104,7 @@ function harness(over: Partial<State> = {}) {
   const { services, mail } = createServices(store);
 
   const client: MailClient = {
-    kind: 'demo',
+    kind: 'gmail',
     address: SESSION.email,
     listInbox: async () => [],
     getRaw: async () => '',

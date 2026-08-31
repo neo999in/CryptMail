@@ -1,4 +1,4 @@
-export type Provider = 'gmail' | 'outlook' | 'imap' | 'demo';
+export type Provider = 'gmail' | 'outlook' | 'imap';
 
 export type Session = {
   provider: Provider;

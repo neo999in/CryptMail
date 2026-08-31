@@ -67,11 +67,13 @@ boundary that reviews will hold you to.
 ## Status
 
 **Design docs + a working prototype app** in [app/](app/) — Expo / React Native /
-TypeScript. It runs in **demo mode**: mail comes from fixtures and the crypto
-core is a clearly-labelled non-cryptographic stand-in, so nothing it produces is
-actually encrypted. The real Rust core (M1/M2 of
-[docs/prototype-plan.md](docs/prototype-plan.md)) and Google OAuth client are not
-wired up yet; every send path checks for them rather than silently downgrading.
+TypeScript. Two capabilities are configured per checkout: a Google OAuth client
+for mail, and the Rust core for crypto. Without the OAuth client there is **no
+mailbox** — sign-in is disabled and the app says why, rather than serving
+fixtures that look like mail. Without the native core the crypto is a
+clearly-labelled non-cryptographic stand-in, so nothing it produces is actually
+encrypted, and every screen says so. Every send path checks for both rather than
+silently downgrading.
 
 On top of that base the client has search over decrypted mail, threading, drafts
 with autosave, star/archive/read actions, scheduled send, and import of real

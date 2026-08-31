@@ -14,8 +14,8 @@ import { initLocalCrypto, resetLocalCryptoForTests, seal, SecretStore } from '..
 import { loadScopedJson, removeScoped, saveScopedJson } from '../secureJson';
 
 const BASE = 'cryptmail.keyring.v1';
-const ONE = accountIdFor('demo', 'you@gmail.com');
-const TWO = accountIdFor('demo', 'you@work.example');
+const ONE = accountIdFor('gmail', 'you@gmail.com');
+const TWO = accountIdFor('gmail', 'you@work.example');
 
 function memoryStore(): SecretStore {
   const data: Record<string, string> = {};
@@ -39,16 +39,16 @@ describe('account ids', () => {
   });
 
   /**
-   * The same mailbox read through fixtures and through Gmail is two different
-   * sets of local data. Merging them would put demo ciphertext — which is not
-   * encrypted at all — into a real account's search index.
+   * One address reached through two providers is two different sets of local
+   * data — a different identity, a different keyring, a different search index
+   * — so the id has to keep them apart even when the address is identical.
    */
   it('keeps the same address apart across providers', () => {
-    expect(accountIdFor('demo', 'a@b.com')).not.toBe(accountIdFor('gmail', 'a@b.com'));
+    expect(accountIdFor('imap', 'a@b.com')).not.toBe(accountIdFor('gmail', 'a@b.com'));
   });
 
   it('scopes a store key without losing it', () => {
-    expect(scopedKey(BASE, ONE)).toBe(`${BASE}@demo:you@gmail.com`);
+    expect(scopedKey(BASE, ONE)).toBe(`${BASE}@gmail:you@gmail.com`);
   });
 });
 

@@ -8,7 +8,7 @@
  *
  * | | demo | live |
  * |---|---|---|
- * | Trigger | demo mailbox (`mailMode === 'demo'`) | real Gmail |
+ * | Trigger | no mailbox configured (`mailMode !== 'gmail'`) | real Gmail |
  * | Lookup | in-memory fixtures | `keys.openpgp.org`, then WKD |
  *
  * Screens never touch this — `AppState` does (CLAUDE.md rule 5).

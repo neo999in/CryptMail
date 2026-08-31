@@ -10,8 +10,9 @@ apps show ciphertext while CryptMail shows the message. It is a client, never a
 mail provider.
 
 The repo currently holds **design docs + a Phase 0 prototype frontend**. The Rust
-crypto core (M1/M2) and the Google OAuth client (M3) do not exist yet, so the app
-boots in **demo mode**.
+crypto core (M1/M2) and the Google OAuth client (M3) are configured per checkout,
+so an unconfigured build boots to a connect screen it cannot get past, and says
+why. There is **no demo mailbox** — see the capability table below.
 
 ## Layout and commands
 
@@ -61,15 +62,15 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 
 ```
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
-                                ──▶  mail/    (Gmail REST | demo fixtures)
-                                ──▶  auth/    (Google OAuth PKCE | demo)
+                                ──▶  mail/    (Gmail REST)
+                                ──▶  auth/    (Google OAuth via Play services)
                                 ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
 [app/src/state/](app/src/state/) is the **only** layer aware of all five
 subsystems. Screens never call a provider, the core, or a store directly — they
-call actions on `useApp()`. Keep that seam; it is what makes the demo/live swap
+call actions on `useApp()`. Keep that seam; it is what makes the core swap
 and the future Rust core a drop-in.
 
 Inside it, React and the work are kept apart:
@@ -103,14 +104,20 @@ Two interfaces define the swappable edges:
 [app/src/core/index.ts](app/src/core/index.ts) picks the implementation once:
 `getNativeCore() ?? demoCore`. [app/src/config.ts](app/src/config.ts) derives
 `appMode` from whether an OAuth client id **and** a native core are both present,
-and `demoReason()` explains a downgrade to the user rather than hiding it.
+and `degradedReason()` explains a downgrade to the user rather than hiding it.
 
-| | demo | live |
+| | degraded | live |
 |---|---|---|
 | Trigger | no OAuth client **or** no native core | both present |
-| Mail | fixtures in `src/mail/demoMail.ts` | Gmail REST |
+| Mail | **none** — sign-in is disabled and says why | Gmail REST |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
 | Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
+
+There is deliberately no fake mailbox. The crypto stand-in stays because it is
+reported as insecure on every screen and still drives the real send path; a
+fixture mailbox instead replaced the thing the product *is*, so every screen had
+to be read twice to know which one it described. Testing therefore needs a real
+(throwaway) Gmail account — see [docs/running-it.md](docs/running-it.md).
 
 To reach live mode: build the native core (M2), register the Kotlin module as
 `CryptMailCore` with the five methods in
@@ -136,7 +143,9 @@ platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
 [app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
 world sends, `mime.ts` writes what we send, and the two stay separate.
 
-Several mailboxes can be connected at once. Every per-account store is keyed
+Several mailboxes can be connected at once — the state layer handles N, though
+`googleAuth` reaches one, since Play services holds a single signed-in user.
+Every per-account store is keyed
 `cryptmail.<store>.v1@<provider>:<address>`
 ([app/src/store/accountScope.ts](app/src/store/accountScope.ts)); the registry
 naming them is the one global store
@@ -178,7 +187,7 @@ These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
    [app/src/state/send.ts](app/src/state/send.ts) and covered by
    [app/src/state/__tests__/send-test.ts](app/src/state/__tests__/send-test.ts),
    which asserts it against the bytes a fake provider was handed. It holds in
-   demo mode too. `sendPlain` is the user's separate, explicit choice to write an
+   a demo core too. `sendPlain` is the user's separate, explicit choice to write an
    unencrypted email; nothing on the encrypted path may reach it — including the
    invite, which builds its own message.
 2. **The demo core is not crypto.** [app/src/core/demoCore.ts](app/src/core/demoCore.ts)

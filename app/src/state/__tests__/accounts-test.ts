@@ -7,17 +7,21 @@
  * handing the second account the first one's keyring, drafts or search index.
  * Only an end-to-end sign-in / switch / read can show that has not happened.
  *
- * Demo mode is what makes it runnable: `demoAuth` connects a second mailbox
- * with no network and no credential, which is exactly why `DEMO_ADDRESSES` has
- * two entries.
+ * The auth provider and the Gmail client are faked here, and that is now the
+ * only way to reach two accounts at once: this used to ride on `demoAuth` and
+ * the fixture mailbox, and both were removed with demo mail. The real
+ * `googleAuth` can hold exactly one session, because Play services has one
+ * signed-in user — so **the single-account limit lives in the provider, not in
+ * the state layer**, and these tests are what keep that true. If a second
+ * provider ever lands (Outlook, IMAP), the plumbing below is already correct.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { accountIdFor } from '../../store/accountScope';
+import { Session } from '../../auth';
+import { MailClient, MailSummary } from '../../mail/types';
+import { accountIdFor, scopedKey } from '../../store/accountScope';
 import { DRAFTS_STORE_KEY, loadDrafts } from '../../store/draftsStore';
 import { KEYRING_STORE_KEY, loadKeyring } from '../../store/keyring';
-import { scopedKey } from '../../store/accountScope';
-import { DEMO_ADDRESSES } from '../../mail/demoMail';
 import { createServices } from '../services';
 import { createStore, initialState } from '../store';
 import { State } from '../types';
@@ -32,9 +36,119 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
 // which is the right shape for a test and changes nothing under test here.
 jest.mock('expo-secure-store', () => ({ isAvailableAsync: async () => false }));
 
-const [FIRST, SECOND] = DEMO_ADDRESSES;
-const ONE = accountIdFor('demo', FIRST);
-const TWO = accountIdFor('demo', SECOND);
+const FIRST = 'you@gmail.com';
+const SECOND = 'you@work.example';
+const ONE = accountIdFor('gmail', FIRST);
+const TWO = accountIdFor('gmail', SECOND);
+
+/** Sessions this fake provider has handed out. `mock`-prefixed so jest may hoist. */
+const mockConnected: Session[] = [];
+
+/**
+ * An auth provider that can hold more than one session.
+ *
+ * This is the whole reason the test can exercise two accounts: it adds a
+ * session per `signIn` instead of replacing one, which is exactly the contract
+ * `AuthProvider` declares and exactly what `googleAuth` cannot do.
+ */
+jest.mock('../../auth', () => {
+  const actual = jest.requireActual('../../auth');
+  const mailboxes = ['you@gmail.com', 'you@work.example'];
+  return {
+    ...actual,
+    auth: {
+      provider: 'gmail',
+      async signIn() {
+        const next = mailboxes.find((e) => !mockConnected.some((s) => s.email === e));
+        if (!next) return mockConnected[0];
+        const session: Session = {
+          provider: 'gmail',
+          email: next,
+          accessToken: 'test-token',
+          expiresAt: Date.now() + 3_600_000,
+        };
+        mockConnected.push(session);
+        return session;
+      },
+      async restoreAll() {
+        return [...mockConnected];
+      },
+      async signOut(email?: string) {
+        const keep = email === undefined ? [] : mockConnected.filter((s) => s.email !== email);
+        mockConnected.length = 0;
+        mockConnected.push(...keep);
+      },
+      async freshAccessToken() {
+        return 'test-token';
+      },
+    },
+  };
+});
+
+/**
+ * One fake mailbox per address, with ids derived from the whole address.
+ *
+ * Distinct ids matter: the merged inbox groups on them, so two mailboxes
+ * sharing an id would collapse into one thread and a star would land on both.
+ * That is a real bug this feature shipped once — see the id-collision test.
+ */
+// Built from char codes so no escape sequence has to survive being written
+// into this file; RFC 5322 wants CRLF between header lines.
+const CRLF = String.fromCharCode(13, 10);
+
+function mockMailboxFor(address: string): MailClient {
+  const tag = address.replace(/[^a-z0-9]+/gi, '-');
+  const raw = (subject: string) =>
+    [
+      'From: someone@example.com',
+      `To: ${address}`,
+      `Subject: ${subject}`,
+      '',
+      'Body text.',
+    ].join(CRLF);
+
+  const rows: MailSummary[] = [
+    {
+      id: `${tag}-1`,
+      from: { address: 'someone@example.com', name: 'Someone' },
+      to: [address],
+      date: '2026-08-30T10:00:00.000Z',
+      subject: `Hello ${address}`,
+      snippet: 'Body text.',
+      unread: true,
+      starred: false,
+    },
+    {
+      id: `${tag}-2`,
+      from: { address: 'other@example.com', name: 'Other' },
+      to: [address],
+      date: '2026-08-29T09:00:00.000Z',
+      subject: 'Older note',
+      snippet: 'Body text.',
+      unread: false,
+      starred: false,
+    },
+  ];
+
+  return {
+    kind: 'gmail',
+    address,
+    async listInbox(limit = 20) {
+      return rows.slice(0, limit);
+    },
+    async getRaw(id) {
+      const row = rows.find((r) => r.id === id);
+      if (!row) throw new Error(`No such message: ${id}`);
+      return raw(row.subject);
+    },
+    async send() {},
+    async updateFlags() {},
+  };
+}
+
+jest.mock('../../mail/gmail', () => ({
+  createGmailClient: (address: string) => mockMailboxFor(address),
+}));
 
 function harness() {
   let state: State = initialState();
@@ -54,7 +168,7 @@ async function connectBoth(h: ReturnType<typeof harness>) {
 
 beforeEach(async () => {
   await AsyncStorage.clear();
-  jest.resetModules();
+  mockConnected.length = 0;
 });
 
 describe('connecting a second mailbox', () => {
@@ -134,13 +248,28 @@ describe('switching', () => {
     expect(await loadKeyring(TWO)).toHaveProperty(['work-only@example.com']);
   });
 
+  /**
+   * Scoped keys, and nothing left at the bare global one.
+   *
+   * The unscoped key is what a pre-multi-account install wrote; `loadScopedJson`
+   * reads it once and moves it under the first account. A value still sitting
+   * there afterwards would be handed to the *second* account as well, which is
+   * the leak this whole feature exists to prevent.
+   */
   it('writes each account under its own storage key', async () => {
     const h = harness();
     await connectBoth(h);
+    await h.services.drafts.saveDraft({
+      id: 'scoped',
+      to: [],
+      subject: 'scoped',
+      body: '',
+      updatedAt: new Date().toISOString(),
+    });
 
-    expect(await AsyncStorage.getItem(scopedKey(KEYRING_STORE_KEY, ONE))).not.toBeNull();
-    expect(await AsyncStorage.getItem(KEYRING_STORE_KEY)).toBeNull();
+    expect(await AsyncStorage.getItem(scopedKey(DRAFTS_STORE_KEY, TWO))).not.toBeNull();
     expect(await AsyncStorage.getItem(DRAFTS_STORE_KEY)).toBeNull();
+    expect(await AsyncStorage.getItem(KEYRING_STORE_KEY)).toBeNull();
   });
 
   it('reopens the account that was in front, not whichever restored last', async () => {

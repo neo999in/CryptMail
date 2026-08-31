@@ -9,8 +9,8 @@
 import { accountRefFor } from '../accountScope';
 import { NO_ACCOUNTS, removeAccount, upsertAccount } from '../accountsStore';
 
-const ONE = accountRefFor('demo', 'you@gmail.com');
-const TWO = accountRefFor('demo', 'you@work.example');
+const ONE = accountRefFor('gmail', 'you@gmail.com');
+const TWO = accountRefFor('gmail', 'you@work.example');
 
 describe('upsertAccount', () => {
   it('adds an account and puts it in front', () => {
