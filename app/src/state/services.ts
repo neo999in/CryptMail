@@ -16,6 +16,7 @@ import { createPublish } from './publish';
 import { createScheduler } from './scheduler';
 import { createSend } from './send';
 import { createSession } from './session';
+import { createSnooze } from './snooze';
 import { Store } from './store';
 
 export function createServices(store: Store): { services: Services; mail: MailHolder } {
@@ -32,6 +33,7 @@ export function createServices(store: Store): { services: Services; mail: MailHo
   services.send = createSend(ctx);
   services.scheduler = createScheduler(ctx);
   services.drafts = createDrafts(ctx);
+  services.snooze = createSnooze(ctx);
 
   return { services, mail };
 }

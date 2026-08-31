@@ -56,6 +56,7 @@ export function initialState(): State {
     drafts: {},
     scheduled: {},
     spam: emptySpamState(),
+    snoozed: {},
     messages: [],
     loadingInbox: false,
     loadingMore: false,

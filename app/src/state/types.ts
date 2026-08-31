@@ -11,6 +11,7 @@ import { Attachment } from '../mail/attachment';
 import { Mailbox, MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
+import { SnoozeMap } from '../snooze/snooze';
 import type { LinkPair } from '../spam/spam';
 import { AccountId, AccountRef } from '../store/accountScope';
 import { InviteLog } from '../store/inviteStore';
@@ -179,6 +180,8 @@ export type State = {
    * looks the message up here.
    */
   messages: InboxItem[];
+  /** Messages snoozed until a future time — hidden from the inbox until then. */
+  snoozed: SnoozeMap;
   loadingInbox: boolean;
   /** A page of *older* mail is in flight. Separate from a sync, which replaces the list. */
   loadingMore: boolean;
@@ -329,4 +332,8 @@ export type Actions = {
    */
   markSpam(id: string): Promise<void>;
   markNotSpam(id: string): Promise<void>;
+  /** Snooze a message: hide it from the inbox until `until` (ISO-8601 string). */
+  snoozeMessage(id: string, until: string): Promise<void>;
+  /** Unsnooze a message early: immediately return it to the inbox. */
+  unsnoozeMessage(id: string): Promise<void>;
 };

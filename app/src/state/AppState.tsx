@@ -132,6 +132,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sendScheduledNow: services.scheduler.sendScheduledNow,
       markSpam: services.mailbox.markSpam,
       markNotSpam: services.mailbox.markNotSpam,
+      snoozeMessage: services.snooze.snoozeMessage,
+      unsnoozeMessage: services.snooze.unsnoozeMessage,
     }),
     [state, services, encryptionFor, resolveRecipients, publishStatus],
   );

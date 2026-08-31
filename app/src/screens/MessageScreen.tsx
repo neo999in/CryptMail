@@ -47,6 +47,8 @@ import {
   Skeleton,
   SecondaryButton,
 } from '../ui/primitives';
+import { SnoozeModal } from '../ui/SnoozeModal';
+import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 
@@ -69,7 +71,10 @@ export function MessageScreen({ route, navigation }: Props) {
     spam,
     markSpam,
     markNotSpam,
+    snoozeMessage,
+    unsnoozeMessage,
   } = useApp();
+  const { showToast } = useToast();
   const insets = useSafeAreaInsets();
   const { rowPadding } = useAppearance();
   const accent = useAccent();
@@ -81,6 +86,8 @@ export function MessageScreen({ route, navigation }: Props) {
   const [failure, setFailure] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** The snooze picker, opened from the overflow. */
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
   /**
@@ -295,6 +302,22 @@ export function MessageScreen({ route, navigation }: Props) {
       references: d.references,
       attachments: d.attachments,
     });
+  };
+
+  const handleSnooze = (until: string) => {
+    if (!summary) return;
+    const msgId = summary.id;
+    void snoozeMessage(msgId, until);
+    showToast({
+      message: 'Snoozed message',
+      actionLabel: 'Undo',
+      onAction: () => {
+        void unsnoozeMessage(msgId);
+      },
+      durationMs: 5000,
+      icon: 'clock',
+    });
+    navigation.goBack();
   };
 
   return (
@@ -586,6 +609,22 @@ export function MessageScreen({ route, navigation }: Props) {
             that trains something and is worth a deliberate second tap; the
             provider view because it is a curiosity, not a task. */}
         <Sheet bottomInset={insets.bottom} onClose={() => setMenuOpen(false)} title="More" visible={menuOpen}>
+          {/* Snoozing hides the row until a time the reader picks; it does not
+              file the message anywhere, and nothing about it reaches the
+              provider. It is here rather than in the toolbar because that row
+              is spaced for the glyphs it already has, and because picking a
+              time is a second tap regardless. */}
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setMenuOpen(false);
+              setSnoozeOpen(true);
+            }}
+            style={s.menuRow}
+          >
+            <Icon name="clock" size={18} color={color.inkDim} />
+            <Text style={s.menuLabel}>Snooze</Text>
+          </PressableRow>
           {/* One row, because the useful action is always the opposite of where
               the message is currently filed. It files the message and trains
               the personal model; it deliberately does not archive or delete —
@@ -644,6 +683,11 @@ export function MessageScreen({ route, navigation }: Props) {
         </Sheet>
 
         <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
+        <SnoozeModal
+          visible={snoozeOpen}
+          onSnooze={handleSnooze}
+          onClose={() => setSnoozeOpen(false)}
+        />
       </View>
     </ExpandingScreen>
   );

@@ -139,6 +139,20 @@ export type DraftsService = {
   deleteDraft(id: string): Promise<void>;
 };
 
+export type SnoozeService = {
+  /** Load one account's persisted snoozes into state. */
+  loadSnoozes(account: AccountId): Promise<void>;
+  /** Hide a message from the inbox until `until`. */
+  snoozeMessage(id: string, until: string): Promise<void>;
+  /** Immediately return a snoozed message to the inbox. */
+  unsnoozeMessage(id: string): Promise<void>;
+  /**
+   * Wake any messages whose snooze time has passed.
+   * Called on every scheduler tick and on launch.
+   */
+  wakedue(): Promise<void>;
+};
+
 export type Services = {
   session: SessionService;
   accounts: AccountsService;
@@ -149,6 +163,7 @@ export type Services = {
   send: SendService;
   scheduler: SchedulerService;
   drafts: DraftsService;
+  snooze: SnoozeService;
 };
 
 export type Ctx = {

@@ -20,6 +20,7 @@ import { PREFS_STORE_KEY } from './prefsStore';
 import { PUBLISH_STORE_KEY } from './publishStore';
 import { RECOVERY_STORE_KEY } from './recoveryStore';
 import { SEARCH_STORE_KEY } from './searchIndex';
+import { SNOOZE_STORE_KEY } from './snoozeStore';
 import { SPAM_STORE_KEY } from './spamModelStore';
 
 /**
@@ -38,6 +39,7 @@ export const PER_ACCOUNT_STORE_KEYS = [
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
   SPAM_STORE_KEY,
+  SNOOZE_STORE_KEY,
 ];
 
 /**

@@ -223,10 +223,14 @@ export function createScheduler(ctx: Ctx): SchedulerService {
     },
 
     /**
-     * One tick of the client-side scheduler: release what was waiting for a key,
-     * then send what is now due. A send that fails is preserved as a draft.
+     * One tick of the client-side scheduler: wake snoozed messages that are due,
+     * release what was waiting for a key, then send anything now due.
+     * A send that fails is preserved as a draft.
      */
     async run() {
+      // Wake any messages whose snooze time has passed.
+      await ctx.services.snooze.wakedue();
+
       await service.drainHeld();
 
       const now = new Date().toISOString();

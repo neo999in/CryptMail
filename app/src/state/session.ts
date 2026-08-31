@@ -19,6 +19,8 @@ import { loadPublishState, PublishState } from '../store/publishStore';
 import { loadRecoveryState, RecoveryState } from '../store/recoveryStore';
 import { loadSearchIndex } from '../store/searchIndex';
 import { loadSpamState, SpamState } from '../store/spamModelStore';
+import { SnoozeMap } from '../snooze/snooze';
+import { loadSnoozes } from '../store/snoozeStore';
 import { Ctx, message, SessionService } from './contracts';
 
 type Attached = {
@@ -32,6 +34,8 @@ type Attached = {
   scheduled: ScheduledOutbox;
   /** What this device has learned about spam, and the marks it learned from. */
   spam: SpamState;
+  /** Which of this mailbox's messages are hidden until a later time. */
+  snoozed: SnoozeMap;
   /** Nothing found for a previous account belongs to this one. */
   verifyLink: null;
 };
@@ -90,6 +94,7 @@ export function createSession(ctx: Ctx): SessionService {
       drafts: await loadDrafts(account),
       scheduled: await loadOutbox(account),
       spam: await loadSpamState(account),
+      snoozed: await loadSnoozes(account),
       verifyLink: null,
     };
   }

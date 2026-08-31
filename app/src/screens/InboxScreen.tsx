@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { AccountId, AccountRef } from '../store/accountScope';
 import { messageMatchesQuery } from '../search/search';
+import { isSnoozed } from '../snooze/snooze';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem } from '../state/types';
@@ -38,6 +39,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     unified,
     switchingAccount,
     messages,
+    snoozed,
     loadingInbox,
     loadingMore,
     canLoadMore,
@@ -72,7 +74,9 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
 
   /** One pass: decorate with encryption state, then filter, then group by day. */
   const sections = useMemo(() => {
+    const now = new Date().toISOString();
     const visible = messages
+      .filter((summary) => !isSnoozed(snoozed, summary.id, now))
       .map((summary) => ({ summary, encryption: encryptionFor(summary) }))
       .filter(({ summary, encryption }) => {
         const encrypted = encryption.kind === 'encrypted';
@@ -104,7 +108,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     }));
 
     return groupByDay(rows, (row) => row.thread.latest.date);
-  }, [category, encryptionFor, filter, messages, query, searchIndex, spamContext, tab]);
+  }, [category, encryptionFor, filter, messages, query, searchIndex, snoozed, spamContext, tab]);
 
   const firstLoad = loadingInbox && messages.length === 0;
   const filtering = query.trim().length > 0 || filter !== 'all' || category !== null;

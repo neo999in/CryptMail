@@ -434,6 +434,7 @@ export function ComposeScreen({ route, navigation }: Props) {
   };
 
   const schedule = async (sendAt: Date) => {
+    setSending(true);
     setError(null);
     closingRef.current = true;
     try {
@@ -452,6 +453,8 @@ export function ComposeScreen({ route, navigation }: Props) {
     } catch (e) {
       closingRef.current = false;
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
     }
   };
 
