@@ -104,8 +104,7 @@ natively; the inbox is currently a flat single-action list. This is table stakes
 that also gives filters (0.1) something to act on.
 
 **Build sketch.** Extend `FlagPatch` with `labels?: { add?: string[]; remove?:
-string[] }`; implement in `demoMail.ts` and via `messages/{id}/modify` in
-`gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
+string[] }`; implement via `messages/{id}/modify` in `gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
 sibling-`Pressable` row pattern — a nested pressable inside the row breaks on
 RN-web.
 

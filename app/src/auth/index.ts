@@ -1,13 +1,14 @@
-import { mailMode } from '../config';
-import { demoAuth } from './demoAuth';
 import { googleAuth } from './googleAuth';
 import { AuthProvider } from './types';
 
 /**
- * Sign-in follows the *mail* capability alone. It used to follow `appMode`,
- * which also required the native crypto core — so a correctly configured OAuth
- * client still fell back to the fake identity until the Rust core existed.
+ * The one way in.
+ *
+ * There used to be a `demoAuth` here, chosen when no OAuth client was
+ * configured, which signed the user into a fixture mailbox. Nothing falls back
+ * now: a build with no client id cannot sign in, and `degradedReason()` says
+ * why instead of quietly handing over a mailbox that is not theirs.
  */
-export const auth: AuthProvider = mailMode === 'gmail' ? googleAuth : demoAuth;
+export const auth: AuthProvider = googleAuth;
 
 export * from './types';

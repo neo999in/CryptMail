@@ -90,9 +90,11 @@ cd ..\app
 npx expo run:android
 ```
 
-**Check:** the banner reads *"Real encryption, demo mailbox"* on its own.
+**Check:** the *"DEMO CRYPTO"* banner disappears on its own.
 `getNativeCore()` returning non-null flips `cryptoMode` to `real`; nothing is
-configured by hand.
+configured by hand. (This check used to read *"Real encryption, demo mailbox"*;
+the demo mailbox was removed on 2026-08-31, so a mailbox now needs an OAuth
+client — see [running-it.md](running-it.md).)
 
 Metro on an emulator needs `adb reverse tcp:8081 tcp:8081`.
 

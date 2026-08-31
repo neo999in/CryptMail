@@ -5,14 +5,13 @@ import { auth, Session } from '../auth';
 import { needsReauth } from '../auth/types';
 import { core, Identity } from '../core';
 import { Drafts } from '../drafts/drafts';
-import { createDemoMailClient, demoContactKeys, demoContacts } from '../mail/demoMail';
 import { createGmailClient } from '../mail/gmail';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
-import { Keyring, loadKeyring, saveKeyring, upsertKey } from '../store/keyring';
+import { Keyring, loadKeyring } from '../store/keyring';
 import { loadOutbox } from '../store/outboxStore';
 import { loadPublishState, PublishState } from '../store/publishStore';
 import { loadRecoveryState, RecoveryState } from '../store/recoveryStore';
@@ -45,27 +44,18 @@ export function createSession(ctx: Ctx): SessionService {
    * Generation is a decision the user makes on the setup screen.
    */
   async function attach(session: Session): Promise<Attached> {
-    mail.current =
-      session.provider === 'demo'
-        ? await createDemoMailClient(session.email)
-        : createGmailClient(session.email, auth.freshAccessToken);
+    mail.current = createGmailClient(session.email, auth.freshAccessToken);
 
     const identity = await core.loadIdentity(session.email);
 
-    let keyring = await loadKeyring();
-    // Seeded only for the demo core. `demoContactKeys` are `fakePublicKey()`
-    // armor, which a real OpenPGP parser rejects — feeding them to a native
-    // core throws, leaving an error banner and an *empty* keyring, so
-    // encrypted send would be blocked for every recipient. Demo mail with a
-    // real core is handled in `demoMail.ts`; see the note there.
-    if (session.provider === 'demo' && core.kind === 'demo' && Object.keys(keyring).length === 0) {
-      // Seed the demo keyring so the inbox shows every trust state in the design:
-      // Anya verified, Jordan trusted-on-first-use, the newsletter sender unknown.
-      keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.anya), 'manual', demoContacts.anya.name);
-      keyring = upsertKey(keyring, await core.importPublicKey(demoContactKeys.jordan), 'autocrypt', demoContacts.jordan.name);
-      keyring[demoContacts.anya.email] = { ...keyring[demoContacts.anya.email], trust: 'verified' };
-      await saveKeyring(keyring);
-    }
+    // The keyring starts empty and fills from what the mailbox actually
+    // carries — Autocrypt headers on inbound mail, directory lookups, and keys
+    // the user pastes in. It used to be seeded with three fabricated contacts
+    // so the demo inbox could display every trust state at once; with the
+    // fixture mailbox gone there is nothing for those keys to be attached to,
+    // and inventing a "verified" contact the user never verified was always
+    // the wrong thing to put in a keyring.
+    const keyring = await loadKeyring();
 
     return {
       identity,

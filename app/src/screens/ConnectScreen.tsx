@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthError } from '../auth';
-import { demoReason, mailMode } from '../config';
+import { canConnectMailbox, degradedReason } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
@@ -31,7 +31,7 @@ export function ConnectScreen() {
     }
   };
 
-  const reason = demoReason();
+  const reason = degradedReason();
 
   return (
     <ScrollView
@@ -59,12 +59,18 @@ export function ConnectScreen() {
         <Muted>Keep your address. We layer encryption on top.</Muted>
 
         <View style={{ height: 8 }} />
+        {/* With no OAuth client there is nothing to sign in to. The button is
+            disabled rather than hidden, so the reason below it has something to
+            explain — and so nobody goes looking for a mailbox that was never
+            going to appear. */}
         <ProviderButton
           glyph="G"
           tint={color.coral}
-          label={mailMode === 'demo' ? 'Continue with demo mailbox' : 'Continue with Gmail'}
+          label="Continue with Gmail"
           onPress={connect}
           busy={busy}
+          disabled={!canConnectMailbox}
+          note={canConnectMailbox ? undefined : 'Not configured'}
         />
         <ProviderButton glyph="⊞" tint="#6DB0FF" label="Continue with Outlook" disabled note="Phase 1" />
         <ProviderButton glyph="@" tint={color.inkDim} label="Other (IMAP / SMTP)" disabled note="Phase 1" />

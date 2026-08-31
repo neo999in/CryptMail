@@ -58,7 +58,7 @@ jest.mock('../../store/inviteStore', () => ({
 }));
 
 const SESSION: Session = {
-  provider: 'demo',
+  provider: 'gmail',
   email: 'me@example.com',
   accessToken: 'token',
   expiresAt: Date.now() + 3_600_000,
@@ -93,7 +93,7 @@ function harness(over: Partial<State> = {}) {
   const { services, mail } = createServices(store);
 
   const client: MailClient = {
-    kind: 'demo',
+    kind: 'gmail',
     address: SESSION.email,
     listInbox: async () => [],
     getRaw: async () => '',
