@@ -153,7 +153,10 @@ export function InboxScreen({ navigation }: Props) {
         }
       />
     ),
-    [navigation, toggleStar],
+    // `accounts` and `unified` are read above, so they belong here: without
+    // them the row renderer keeps the values it closed over on first render —
+    // when nothing was merged — and the mailbox label never appears.
+    [accounts, navigation, toggleStar, unified],
   );
 
   /**

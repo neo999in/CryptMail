@@ -6,7 +6,7 @@
  * ciphertext, so serving those rows against a native core produces an inbox
  * whose messages fail to open. See the note at the top of `demoMail.ts`.
  */
-import { createDemoMailClient, DEMO_ADDRESS } from '../demoMail';
+import { createDemoMailClient, DEMO_ADDRESS, DEMO_ADDRESSES } from '../demoMail';
 import { demoCore } from '../../core/demoCore';
 
 async function inbox(includeDemoCiphertext: boolean) {
@@ -50,5 +50,31 @@ describe('with a real core', () => {
 
     const [newest] = await client.listInbox(1);
     expect(await client.getRaw(newest.id)).toBe(rfc822);
+  });
+
+  /**
+   * The two demo mailboxes must not share a message id.
+   *
+   * They carry the same fixtures, so ids are made unique per mailbox. When they
+   * were not, the merged inbox grouped both accounts' copies into one thread —
+   * and a star or archive on that row would have hit both mailboxes. Every
+   * address in DEMO_ADDRESSES is a `you@...`, so this specifically guards the
+   * prefix being taken from the whole address rather than the local part.
+   */
+  it('gives each demo mailbox its own message and thread ids', async () => {
+    const [first, second] = DEMO_ADDRESSES;
+    const one = await createDemoMailClient(first, false);
+    const two = await createDemoMailClient(second, false);
+
+    const idsOf = async (c: Awaited<ReturnType<typeof createDemoMailClient>>) => {
+      const rows = await c.listInbox(20);
+      return [...rows.map((r) => r.id), ...rows.flatMap((r) => (r.threadId ? [r.threadId] : []))];
+    };
+
+    const a = await idsOf(one);
+    const b = await idsOf(two);
+
+    expect(a.length).toBeGreaterThan(0);
+    expect(a.filter((id) => b.includes(id))).toEqual([]);
   });
 });

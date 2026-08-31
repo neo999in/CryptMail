@@ -131,10 +131,15 @@ const DEMO_DECK = {
  *
  * The fixtures are the same three messages in every demo account, so without
  * this both of them would hold a `demo-1` — and the unified inbox, which puts
- * two accounts' messages in one list, would then star or archive both at once.
- * Gmail ids are already distinct per account; these have to be made so.
+ * two accounts' messages in one list, would then group them into one thread and
+ * star or archive both at once. Gmail ids are already distinct per account;
+ * these have to be made so.
+ *
+ * The **whole** address goes into the prefix, not the local part: every address
+ * in `DEMO_ADDRESSES` is a `you@…`, so a local-part prefix collides for exactly
+ * the two mailboxes this exists to keep apart.
  */
-const idIn = (address: string, id: string) => `${address.split('@')[0]}-${id}`;
+const idIn = (address: string, id: string) => `${address.replace(/[^a-z0-9]+/gi, '-')}-${id}`;
 
 async function seed(address: string, includeDemoCiphertext: boolean): Promise<Stored[]> {
   const now = Date.now();

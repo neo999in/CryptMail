@@ -188,6 +188,23 @@ describe('the merged inbox', () => {
   });
 
   /**
+   * Every row must be its own message. Ids are assumed unique across accounts,
+   * and when the demo fixtures broke that assumption the merged list silently
+   * grouped both mailboxes' copies into one thread -- so a star landed on two
+   * messages in two different accounts at once. Checking the account set alone
+   * did not catch it, because both accounts were still represented.
+   */
+  it('does not collide ids between the two mailboxes', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+
+    const ids = h.get().messages.map((m) => m.id);
+
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  /**
    * Merging is a *reading* convenience. Exactly one account stays active, so
    * composing and decrypting still have one identity and one keyring — which is
    * what stops a merged view from being a leak.
