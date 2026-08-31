@@ -21,9 +21,11 @@ import { appMode, cryptoMode, mailMode } from '../config';
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
+import { AccountId, AccountRef } from '../store/accountScope';
 import { messageMatchesQuery } from '../search/search';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
+import { InboxItem } from '../state/types';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { InboxDrawerParamList, RootStackParamList } from '../navigation';
 import { Icon, IconName } from '../ui/Icon';
@@ -60,7 +62,25 @@ const FILTERS: { key: Filter; label: string }[] = [
 
 /** Inbox — encryption state on every row, at a glance. */
 export function InboxScreen({ navigation }: Props) {
-  const { session, messages, loadingInbox, error, refreshInbox, encryptionFor, signOut, searchIndex, toggleStar } =
+  const {
+    session,
+    accounts,
+    activeAccount,
+    unified,
+    switchingAccount,
+    addAccount,
+    switchAccount,
+    removeAccount,
+    setUnified,
+    messages,
+    loadingInbox,
+    error,
+    refreshInbox,
+    encryptionFor,
+    signOut,
+    searchIndex,
+    toggleStar,
+  } =
     useApp();
   const { category, setCategory } = useCategoryFilter();
   const insets = useSafeAreaInsets();
@@ -116,10 +136,13 @@ export function InboxScreen({ navigation }: Props) {
   const filtering = query.trim().length > 0 || filter !== 'all' || category !== null;
 
   const renderItem = useCallback(
-    ({ item, index }: { item: { thread: Thread; encryption: EncryptionState }; index: number }) => (
+    ({ item, index }: { item: { thread: Thread<InboxItem>; encryption: EncryptionState }; index: number }) => (
       <MailRow
         summary={item.thread.latest}
         encryption={item.encryption}
+        // Only while merged: in a single-account inbox every row is from the
+        // same mailbox, and saying so on each one is noise.
+        mailbox={unified ? mailboxName(accounts, item.thread.latest.account) : undefined}
         count={item.thread.count}
         index={index}
         onToggleStar={() => void toggleStar(item.thread.latest.id)}
@@ -132,6 +155,24 @@ export function InboxScreen({ navigation }: Props) {
     ),
     [navigation, toggleStar],
   );
+
+  /**
+   * Removing an account erases its keyring, drafts and search index, so it asks
+   * — and says so. It is reached by a long press rather than a visible button
+   * because the tap on that row means "switch to this mailbox", which is the
+   * thing people do constantly and must never do this by accident.
+   */
+  const confirmRemove = (account: AccountRef) => {
+    setMenuOpen(false);
+    Alert.alert(
+      `Remove ${account.email}?`,
+      'This deletes its keyring, drafts and locally decrypted mail from this device. Nothing on the server is touched.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => void removeAccount(account.id) },
+      ],
+    );
+  };
 
   const confirmSignOut = () => {
     setMenuOpen(false);
@@ -173,7 +214,10 @@ export function InboxScreen({ navigation }: Props) {
             </View>
             <View style={s.subRow}>
               <Text numberOfLines={1} style={s.headerSub}>
-                {session?.email ?? ''}
+                {/* Which mailbox is in front, always — a merged inbox still
+                    composes, sends and decrypts as exactly one account. */}
+                {switchingAccount ? 'Switching…' : (session?.email ?? '')}
+                {unified ? ' · all accounts' : ''}
               </Text>
               <Icon name="chevron" size={11} color={color.inkFaint} />
             </View>
@@ -308,7 +352,20 @@ export function InboxScreen({ navigation }: Props) {
       </MotiView>
 
       <AccountSheet
+        accounts={accounts}
+        activeAccount={activeAccount}
         email={session?.email ?? ''}
+        onAdd={() => {
+          setMenuOpen(false);
+          void addAccount();
+        }}
+        onRemove={confirmRemove}
+        onSwitch={(id) => {
+          setMenuOpen(false);
+          void switchAccount(id);
+        }}
+        onToggleUnified={() => void setUnified(!unified)}
+        unified={unified}
         onClose={() => setMenuOpen(false)}
         onDrafts={() => {
           setMenuOpen(false);
@@ -334,6 +391,7 @@ export function InboxScreen({ navigation }: Props) {
 function MailRow({
   summary,
   encryption,
+  mailbox,
   count = 1,
   index,
   onPress,
@@ -341,6 +399,14 @@ function MailRow({
 }: {
   summary: MailSummary;
   encryption: EncryptionState;
+  /**
+   * Which mailbox this row came from, shown only while the inbox is merged.
+   *
+   * A merged list without it is unreadable in the way that matters: the reply
+   * it prompts goes out from whichever account is in front, and the reader has
+   * no way to tell that is not the one the message arrived in.
+   */
+  mailbox?: string;
   /** Number of messages in this conversation; > 1 shows a thread-count chip. */
   count?: number;
   index: number;
@@ -380,6 +446,13 @@ function MailRow({
               </View>
             ) : null}
             <Text style={s.time}>{relativeTime(summary.date)}</Text>
+          </View>
+          <View style={s.rowTop}>
+            {mailbox ? (
+              <Text numberOfLines={1} style={s.mailbox} accessibilityLabel={`In ${mailbox}`}>
+                {mailbox}
+              </Text>
+            ) : null}
           </View>
           <Text numberOfLines={1} style={[s.subject, summary.unread && s.subjectUnread]}>
             {encrypted ? 'Encrypted message' : summary.subject}
@@ -462,10 +535,23 @@ function FilterPill({
   );
 }
 
-/** Bottom sheet for the account — the only place sign-out lives. */
+/**
+ * Bottom sheet for the account — the switcher, and the only place sign-out lives.
+ *
+ * Switching is one tap and shows which mailbox is in front, because the whole
+ * risk of two accounts is acting in the wrong one: the compose button, the
+ * keyring and the send path all follow whatever this sheet last selected.
+ */
 function AccountSheet({
   visible,
   email,
+  accounts,
+  activeAccount,
+  unified,
+  onSwitch,
+  onAdd,
+  onRemove,
+  onToggleUnified,
   onDrafts,
   onScheduled,
   onKeys,
@@ -474,6 +560,13 @@ function AccountSheet({
 }: {
   visible: boolean;
   email: string;
+  accounts: AccountRef[];
+  activeAccount: AccountId | null;
+  unified: boolean;
+  onSwitch: (id: AccountId) => void;
+  onAdd: () => void;
+  onRemove: (account: AccountRef) => void;
+  onToggleUnified: () => void;
   onDrafts: () => void;
   onScheduled: () => void;
   onKeys: () => void;
@@ -503,6 +596,37 @@ function AccountSheet({
             <Text style={s.sheetEmail}>{email}</Text>
           </View>
         </View>
+        {accounts.length > 1 ? (
+          <>
+            <SectionLabel>Accounts</SectionLabel>
+            {accounts.map((account) => (
+              <Pressable
+                accessibilityLabel={`Switch to ${account.email}`}
+                accessibilityRole="button"
+                key={account.id}
+                onLongPress={() => onRemove(account)}
+                onPress={() => onSwitch(account.id)}
+                style={({ pressed }) => [s.sheetItem, pressed && { backgroundColor: color.press }]}
+              >
+                <Avatar seed={account.email} label={initials(account.email)} size={26} />
+                <Text numberOfLines={1} style={[s.sheetItemText, { color: color.ink }]}>
+                  {account.email}
+                </Text>
+                {account.id === activeAccount ? (
+                  <Badge icon="check" tone="enc">
+                    In front
+                  </Badge>
+                ) : null}
+              </Pressable>
+            ))}
+            <SheetItem
+              icon={unified ? 'check' : 'inbox'}
+              label={unified ? 'Showing all accounts' : 'Show all accounts in one inbox'}
+              onPress={onToggleUnified}
+            />
+          </>
+        ) : null}
+        <SheetItem icon="plus" label="Add another account" onPress={onAdd} />
         <SheetItem icon="edit" label="Drafts" onPress={onDrafts} />
         <SheetItem icon="clock" label="Scheduled" onPress={onScheduled} />
         <SheetItem icon="key" label="Keys and fingerprints" onPress={onKeys} />
@@ -537,6 +661,11 @@ function SheetItem({
 }
 
 /* -------------------------------------------------------------- helpers ---- */
+
+/** The address behind an account id — what a row shows, never the id itself. */
+function mailboxName(accounts: AccountRef[], id: AccountId): string {
+  return accounts.find((a) => a.id === id)?.email ?? id;
+}
 
 function needsAttention(encryption: EncryptionState): boolean {
   return encryption.kind === 'encrypted' && (encryption.trust === 'changed' || encryption.trust === 'unknown');
@@ -601,6 +730,7 @@ const s = StyleSheet.create({
   countText: { color: color.brass, fontFamily: font.mono, fontSize: 11, textAlign: 'center' },
   subRow: { alignItems: 'center', flexDirection: 'row', gap: 5, marginTop: 2 },
   headerSub: { ...type.meta, color: color.inkFaint, flexShrink: 1 },
+  mailbox: { ...type.meta, color: color.inkFaint },
 
   demoStrip: {
     alignItems: 'center',

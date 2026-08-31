@@ -11,18 +11,23 @@
  */
 import { MailSummary } from '../mail/types';
 
-export type Thread = {
+/**
+ * Generic over the summary type so a merged inbox's rows keep the account tag
+ * they carry — grouping must not widen `InboxItem` back to a bare summary and
+ * lose which mailbox the thread is in.
+ */
+export type Thread<T extends MailSummary = MailSummary> = {
   /** The threadId, or the message id for a message that belongs to no thread. */
   id: string;
   /** Messages in the thread, oldest to newest. */
-  messages: MailSummary[];
+  messages: T[];
   /** The most recent message — what the inbox row represents. */
-  latest: MailSummary;
+  latest: T;
   count: number;
 };
 
-export function groupIntoThreads(messages: MailSummary[]): Thread[] {
-  const byKey = new Map<string, MailSummary[]>();
+export function groupIntoThreads<T extends MailSummary>(messages: T[]): Thread<T>[] {
+  const byKey = new Map<string, T[]>();
   for (const m of messages) {
     const key = m.threadId ?? m.id;
     const bucket = byKey.get(key);
@@ -30,7 +35,7 @@ export function groupIntoThreads(messages: MailSummary[]): Thread[] {
     else byKey.set(key, [m]);
   }
 
-  const threads: Thread[] = [];
+  const threads: Thread<T>[] = [];
   for (const [id, msgs] of byKey) {
     const ordered = msgs.slice().sort((a, b) => a.date.localeCompare(b.date));
     threads.push({ id, messages: ordered, latest: ordered[ordered.length - 1], count: ordered.length });

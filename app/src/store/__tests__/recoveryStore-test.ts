@@ -16,7 +16,12 @@ import {
   recordBackup,
   RECOVERY_STORE_KEY,
 } from '../recoveryStore';
+import { scopedKey } from '../accountScope';
 import { SEALED_STORE_KEYS } from '../index';
+
+/** Two accounts, so the per-account scoping is exercised rather than assumed. */
+const ACCOUNT = 'demo:you@gmail.com';
+const OTHER_ACCOUNT = 'demo:you@work.example';
 
 const FINGERPRINT = 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555';
 const OTHER = 'FFFF9999EEEE8888DDDD7777CCCC6666BBBB5555';
@@ -39,24 +44,24 @@ describe('recovery store', () => {
   });
 
   it('reports a fresh install as never backed up', async () => {
-    expect(await loadRecoveryState()).toEqual({ backedUpAt: null, fingerprint: null });
+    expect(await loadRecoveryState(ACCOUNT)).toEqual({ backedUpAt: null, fingerprint: null });
   });
 
   it('records and reloads a backup', async () => {
     const at = new Date('2026-08-07T12:00:00.000Z');
-    await recordBackup(FINGERPRINT, at);
+    await recordBackup(ACCOUNT, FINGERPRINT, at);
 
-    expect(await loadRecoveryState()).toEqual({
+    expect(await loadRecoveryState(ACCOUNT)).toEqual({
       backedUpAt: at.toISOString(),
       fingerprint: FINGERPRINT,
     });
   });
 
   it('clears the mark on restore', async () => {
-    await recordBackup(FINGERPRINT);
-    await clearBackupRecord();
+    await recordBackup(ACCOUNT, FINGERPRINT);
+    await clearBackupRecord(ACCOUNT);
 
-    expect(await loadRecoveryState()).toEqual({ backedUpAt: null, fingerprint: null });
+    expect(await loadRecoveryState(ACCOUNT)).toEqual({ backedUpAt: null, fingerprint: null });
   });
 
   /**
@@ -65,19 +70,30 @@ describe('recovery store', () => {
    * that later grows a sensitive field ends up unprotected.
    */
   it('is sealed on disk like every other store', async () => {
-    await recordBackup(FINGERPRINT);
+    await recordBackup(ACCOUNT, FINGERPRINT);
 
     expect(SEALED_STORE_KEYS).toContain(RECOVERY_STORE_KEY);
-    expect(await AsyncStorage.getItem(RECOVERY_STORE_KEY)).toMatch(/^CMSEAL1\./);
+    expect(await AsyncStorage.getItem(scopedKey(RECOVERY_STORE_KEY, ACCOUNT))).toMatch(/^CMSEAL1\./);
+  });
+
+  /**
+   * The whole point of scoping: one account's backup mark must not answer for
+   * another's. Without it, connecting a second mailbox would show it as already
+   * backed up — the one false reassurance that costs a user their mail.
+   */
+  it('keeps each account to itself', async () => {
+    await recordBackup(ACCOUNT, FINGERPRINT);
+
+    expect(await loadRecoveryState(OTHER_ACCOUNT)).toEqual({ backedUpAt: null, fingerprint: null });
   });
 
   describe('needsBackup', () => {
     it('warns when the key has never been backed up', async () => {
-      expect(needsBackup(await loadRecoveryState(), FINGERPRINT)).toBe(true);
+      expect(needsBackup(await loadRecoveryState(ACCOUNT), FINGERPRINT)).toBe(true);
     });
 
     it('stops warning once this key is backed up', async () => {
-      const state = await recordBackup(FINGERPRINT);
+      const state = await recordBackup(ACCOUNT, FINGERPRINT);
 
       expect(needsBackup(state, FINGERPRINT)).toBe(false);
     });
@@ -88,13 +104,13 @@ describe('recovery store', () => {
      * actually using, and a stale "backed up" mark would say otherwise.
      */
     it('warns again when the identity changed since the backup', async () => {
-      const state = await recordBackup(OTHER);
+      const state = await recordBackup(ACCOUNT, OTHER);
 
       expect(needsBackup(state, FINGERPRINT)).toBe(true);
     });
 
     it('says nothing when there is no identity yet', async () => {
-      expect(needsBackup(await loadRecoveryState(), null)).toBe(false);
+      expect(needsBackup(await loadRecoveryState(ACCOUNT), null)).toBe(false);
     });
   });
 });

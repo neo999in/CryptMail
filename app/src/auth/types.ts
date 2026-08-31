@@ -11,11 +11,30 @@ export type Session = {
 
 export interface AuthProvider {
   readonly provider: Provider;
+  /**
+   * Sign in to *another* mailbox, in addition to any already connected.
+   *
+   * Adding rather than replacing is the whole of multi-account at this layer:
+   * the app can hold several sessions at once and `state/accounts.ts` decides
+   * which one is in front.
+   */
   signIn(): Promise<Session>;
-  restore(): Promise<Session | null>;
-  signOut(): Promise<void>;
-  /** Returns a valid access token, refreshing if needed. */
-  freshAccessToken(): Promise<string>;
+  /**
+   * Every session this device can still use, oldest first.
+   *
+   * Boot restores all of them so a second mailbox does not vanish when the app
+   * is closed. A provider that can only hold one returns an array of one.
+   */
+  restoreAll(): Promise<Session[]>;
+  /** Drop one account's session, or every one when no address is given. */
+  signOut(email?: string): Promise<void>;
+  /**
+   * A valid access token for one account, refreshing if needed.
+   *
+   * Takes the address because a device with two mailboxes has two grants, and
+   * handing the Gmail client the wrong one would read the wrong inbox.
+   */
+  freshAccessToken(email: string): Promise<string>;
 }
 
 export class AuthError extends Error {

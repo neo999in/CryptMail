@@ -174,7 +174,7 @@ crypto is.
 | Undo send | 🆕 | S | S | Hold-then-release window before the connector fires. |
 | Labels / archive / star / bulk + swipe actions | 🆕 | M | M | Maps to `updateFlags` in the connector interface. |
 | **Client-side filters / rules** | 🆕 | M | M | Server can't read content, so rules (auto-label, mute, forward) must run locally after decrypt. |
-| Multiple accounts + unified inbox | 🆕 | M | M | Data model already keys on `account_id`. |
+| Multiple accounts + unified inbox | ✅ | M | M | Built: every store keyed by `account_id`, one account active at a time even when merged (features.md 0.11). Gmail still holds one session; demo mode connects two. |
 | Address book / contacts + per-contact trust | 🆕 | M | M | Surfaces `contact_keys.trust` where the user picks recipients. |
 | Signatures (email sig) & templates / canned replies | 🆕 | S | S | Quality-of-life; low risk. |
 

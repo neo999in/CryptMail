@@ -4,14 +4,15 @@
 import { core } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
-import { plainBodyOf } from '../mail/plainBody';
+import { attachmentsOf, plainBodyOf } from '../mail/plainBody';
 import { MailSummary } from '../mail/types';
 import { indexContent } from '../search/search';
+import { AccountId } from '../store/accountScope';
 import { findKey } from '../store/keyring';
 import { saveSearchIndex } from '../store/searchIndex';
 import { Ctx, MailboxService, message } from './contracts';
 import { trustForOpened } from './derive';
-import { OpenedMessage } from './types';
+import { InboxItem, OpenedMessage } from './types';
 
 export function createMailbox(ctx: Ctx): MailboxService {
   const { store, mail } = ctx;
@@ -34,12 +35,44 @@ export function createMailbox(ctx: Ctx): MailboxService {
     await ctx.services.contacts.commitKeyring(keyring);
   }
 
+  const tag = (messages: MailSummary[], account: AccountId): InboxItem[] =>
+    messages.map((m) => ({ ...m, account }));
+
+  /**
+   * The rows to show: one mailbox, or all of them merged.
+   *
+   * A merged list is newest-first across accounts and tolerant of one provider
+   * failing — a Gmail account that is offline must not blank out the demo
+   * account's inbox sitting beside it, so a failed client contributes nothing
+   * and the rest still render. The active account is the exception: if *it*
+   * fails the error is worth showing, and it is re-thrown.
+   */
+  async function collect(): Promise<InboxItem[]> {
+    const { unified, activeAccount } = store.get();
+    if (!unified || !activeAccount) {
+      if (!mail.current || !activeAccount) return [];
+      return tag(await mail.current.listInbox(20), activeAccount);
+    }
+
+    const lists = await Promise.all(
+      [...mail.clients.entries()].map(async ([account, client]) => {
+        try {
+          return tag(await client.listInbox(20), account);
+        } catch (e) {
+          if (account === activeAccount) throw e;
+          return [];
+        }
+      }),
+    );
+    return lists.flat().sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   const service: MailboxService = {
     async refreshInbox() {
       if (!mail.current) return;
       store.patch({ loadingInbox: true, error: null });
       try {
-        const messages = await mail.current.listInbox(20);
+        const messages = await collect();
         store.patch({ messages, loadingInbox: false });
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
@@ -53,7 +86,21 @@ export function createMailbox(ctx: Ctx): MailboxService {
       }
     },
 
+    /**
+     * Open a message, from whichever mailbox it belongs to.
+     *
+     * A row from a *different* account switches to that account first rather
+     * than reaching for its provider directly. Decryption needs that account's
+     * identity, the sender's trust comes from its keyring, and the decrypted
+     * text is indexed into its search index — reading one mailbox's mail while
+     * another is loaded is exactly the leak this feature has to avoid.
+     */
     async openMessage(summary): Promise<OpenedMessage> {
+      const from = (summary as Partial<InboxItem>).account;
+      if (from && from !== store.get().activeAccount) {
+        await ctx.services.accounts.switchAccount(from);
+      }
+
       if (!mail.current) throw new Error('Not connected.');
       const raw = await mail.current.getRaw(summary.id);
 
@@ -64,6 +111,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
           subject: summary.subject,
           body: plainBodyOf(raw),
           decrypted: null,
+          // An ordinary email's files are right there in the MIME, in the clear.
+          attachments: attachmentsOf(raw),
           raw,
         };
       }
@@ -90,7 +139,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
           subject: decrypted.subject,
           body: decrypted.body,
         });
-        await saveSearchIndex(searchIndex);
+        await saveSearchIndex(ctx.services.accounts.requireActive(), searchIndex);
         store.patch({ searchIndex });
 
         if (summary.from.address === store.get().session?.email) {
@@ -100,6 +149,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
             subject: decrypted.subject,
             body: decrypted.body,
             decrypted,
+            attachments: decrypted.attachments,
             raw,
           };
         }
@@ -113,6 +163,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
           subject: decrypted.subject,
           body: decrypted.body,
           decrypted,
+          attachments: decrypted.attachments,
           raw,
         };
       } catch (e) {
@@ -122,6 +173,9 @@ export function createMailbox(ctx: Ctx): MailboxService {
           subject: summary.subject,
           body: '',
           decrypted: null,
+          // Nothing was decrypted, so there is nothing to offer — an undecrypted
+          // message has no readable files, only ciphertext.
+          attachments: [],
           raw,
           error: message(e),
         };
@@ -132,11 +186,20 @@ export function createMailbox(ctx: Ctx): MailboxService {
      * Optimistic flag update: apply locally at once for a responsive feel, then
      * persist to the provider. If the provider rejects it, resync from the inbox.
      */
+    /**
+     * Optimistic flag update, sent to the provider the row actually came from.
+     *
+     * In a merged inbox `mail.current` is only one of several mailboxes, so
+     * starring a row from another account through it would 404 — or, worse,
+     * change a different message that happens to share an id.
+     */
     async setFlags(id, change) {
-      if (!mail.current) return;
+      const row = store.get().messages.find((m) => m.id === id);
+      const client = (row && mail.clients.get(row.account)) ?? mail.current;
+      if (!client) return;
       store.patch({ messages: applyFlagPatch(store.get().messages, id, change) });
       try {
-        await mail.current.updateFlags(id, change);
+        await client.updateFlags(id, change);
       } catch {
         void service.refreshInbox();
       }

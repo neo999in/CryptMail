@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
+import { ACCOUNTS_STORE_KEY } from './accountsStore';
 import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
 import { DRAFTS_STORE_KEY } from './draftsStore';
@@ -19,8 +20,14 @@ import { PUBLISH_STORE_KEY } from './publishStore';
 import { RECOVERY_STORE_KEY } from './recoveryStore';
 import { SEARCH_STORE_KEY } from './searchIndex';
 
-/** Every store whose contents are sealed. Order is irrelevant; completeness is not. */
-export const SEALED_STORE_KEYS = [
+/**
+ * The stores that belong to one account, by their unscoped base key.
+ *
+ * `store/accountScope.ts` turns each of these into a per-account key. The list
+ * is what "forget this account" deletes, so a base key missing from it is data
+ * that survives removing the mailbox it belongs to — completeness matters.
+ */
+export const PER_ACCOUNT_STORE_KEYS = [
   KEYRING_STORE_KEY,
   DRAFTS_STORE_KEY,
   OUTBOX_STORE_KEY,
@@ -29,6 +36,17 @@ export const SEALED_STORE_KEYS = [
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
 ];
+
+/**
+ * Every store whose contents are sealed. Order is irrelevant; completeness is not.
+ *
+ * These are the *unscoped* keys, which is what the boot sweep wants: a
+ * per-account key is only ever written by `saveScopedJson`, and that always
+ * seals. What can still be sitting in the clear is a value written by an
+ * install that predates either encryption or accounts — and the second of those
+ * is read once more, by `loadScopedJson`, on the way into an account.
+ */
+export const SEALED_STORE_KEYS = [...PER_ACCOUNT_STORE_KEYS, ACCOUNTS_STORE_KEY];
 
 /**
  * Pick where the data-encryption key lives.

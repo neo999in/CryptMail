@@ -63,17 +63,24 @@ describe('signIn', () => {
   });
 });
 
-describe('restore', () => {
-  it('is null when nobody is signed in', async () => {
+describe('restoreAll', () => {
+  it('is empty when nobody is signed in', async () => {
     mockSignInSilently.mockResolvedValue({ type: 'noSavedCredentialFound', data: null });
-    await expect(googleAuth.restore()).resolves.toBeNull();
+    await expect(googleAuth.restoreAll()).resolves.toEqual([]);
   });
 
   it('rebuilds the session without an interactive prompt', async () => {
     mockSignInSilently.mockResolvedValue(USER);
-    const session = await googleAuth.restore();
+    const [session] = await googleAuth.restoreAll();
     expect(session?.email).toBe('alice@example.com');
     expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it('returns at most one session — Play services holds a single user', async () => {
+    // Multi-account is real above this layer; this provider genuinely cannot
+    // hold two grants, and says so rather than pretending.
+    mockSignInSilently.mockResolvedValue(USER);
+    await expect(googleAuth.restoreAll()).resolves.toHaveLength(1);
   });
 });
 
@@ -90,8 +97,8 @@ describe('concurrent silent sign-in', () => {
       }),
     );
 
-    const restoring = googleAuth.restore();
-    const refreshing = googleAuth.freshAccessToken();
+    const restoring = googleAuth.restoreAll();
+    const refreshing = googleAuth.freshAccessToken('alice@example.com');
     release(USER);
     await Promise.all([restoring, refreshing]);
 
@@ -110,8 +117,8 @@ describe('concurrent silent sign-in', () => {
       }),
     );
 
-    const restoring = googleAuth.restore();
-    const refreshing = googleAuth.freshAccessToken();
+    const restoring = googleAuth.restoreAll();
+    const refreshing = googleAuth.freshAccessToken('alice@example.com');
     // Let both get past signInSilently and reach getTokens before it settles.
     await new Promise<void>((resolve) => setImmediate(() => resolve()));
     release({ accessToken: 'at-9', idToken: 'id' });
@@ -122,8 +129,8 @@ describe('concurrent silent sign-in', () => {
 
   it('starts a fresh call once the previous one has settled', async () => {
     mockSignInSilently.mockResolvedValue(USER);
-    await googleAuth.restore();
-    await googleAuth.restore();
+    await googleAuth.restoreAll();
+    await googleAuth.restoreAll();
     expect(mockSignInSilently).toHaveBeenCalledTimes(2);
   });
 });
@@ -132,7 +139,7 @@ describe('freshAccessToken', () => {
   it('asks Play services rather than caching a token itself', async () => {
     mockSignInSilently.mockResolvedValue(USER);
     mockGetTokens.mockResolvedValue({ accessToken: 'at-2', idToken: 'id' });
-    await expect(googleAuth.freshAccessToken()).resolves.toBe('at-2');
+    await expect(googleAuth.freshAccessToken('alice@example.com')).resolves.toBe('at-2');
   });
 
   it('signs the user out when the grant is revoked', async () => {
@@ -140,7 +147,7 @@ describe('freshAccessToken', () => {
     mockGetTokens.mockRejectedValue(
       Object.assign(new Error('invalid_grant'), { code: 'invalid_grant' }),
     );
-    await expect(googleAuth.freshAccessToken()).rejects.toMatchObject({ code: 'reauth-required' });
+    await expect(googleAuth.freshAccessToken('alice@example.com')).rejects.toMatchObject({ code: 'reauth-required' });
     expect(mockSignOut).toHaveBeenCalled();
   });
 
@@ -148,7 +155,7 @@ describe('freshAccessToken', () => {
     // Signing out over a dropped connection would lose a perfectly good grant.
     mockSignInSilently.mockResolvedValue(USER);
     mockGetTokens.mockRejectedValue(new Error('Network request failed'));
-    await expect(googleAuth.freshAccessToken()).rejects.toMatchObject({ code: 'failed' });
+    await expect(googleAuth.freshAccessToken('alice@example.com')).rejects.toMatchObject({ code: 'failed' });
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 });

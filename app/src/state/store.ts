@@ -29,6 +29,10 @@ export function initialState(): State {
   return {
     booting: true,
     session: null,
+    accounts: [],
+    activeAccount: null,
+    unified: false,
+    switchingAccount: false,
     identity: null,
     recovery: { backedUpAt: null, fingerprint: null },
     publish: { status: 'unpublished', fingerprint: null, updatedAt: null },

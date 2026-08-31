@@ -8,7 +8,8 @@
  * quietly downgrade.
  */
 import { PublicKeyInfo, Trust } from '../core';
-import { loadJson, saveJson } from './secureJson';
+import { AccountId } from './accountScope';
+import { loadScopedJson, saveScopedJson } from './secureJson';
 
 export type ContactKey = PublicKeyInfo & {
   name?: string;
@@ -41,12 +42,12 @@ export const KEYRING_STORE_KEY = 'cryptmail.keyring.v1';
 
 export type Keyring = Record<string, ContactKey>;
 
-export async function loadKeyring(): Promise<Keyring> {
-  return loadJson<Keyring>(KEYRING_STORE_KEY, {});
+export async function loadKeyring(account: AccountId): Promise<Keyring> {
+  return loadScopedJson<Keyring>(KEYRING_STORE_KEY, account, {});
 }
 
-export async function saveKeyring(keyring: Keyring): Promise<void> {
-  await saveJson(KEYRING_STORE_KEY, keyring);
+export async function saveKeyring(account: AccountId, keyring: Keyring): Promise<void> {
+  await saveScopedJson(KEYRING_STORE_KEY, account, keyring);
 }
 
 /**

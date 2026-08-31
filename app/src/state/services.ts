@@ -6,6 +6,7 @@
  * makes the cycle between syncing, draining and sending expressible without
  * anything being defined in a particular order.
  */
+import { createAccounts } from './accounts';
 import { MailHolder, Services } from './contracts';
 import { createContacts } from './contacts';
 import { createDrafts } from './drafts';
@@ -18,10 +19,11 @@ import { createSession } from './session';
 import { Store } from './store';
 
 export function createServices(store: Store): { services: Services; mail: MailHolder } {
-  const mail: MailHolder = { current: null };
+  const mail: MailHolder = { current: null, clients: new Map() };
   const services = {} as Services;
   const ctx = { store, mail, services };
 
+  services.accounts = createAccounts(ctx);
   services.session = createSession(ctx);
   services.mailbox = createMailbox(ctx);
   services.contacts = createContacts(ctx);

@@ -17,6 +17,15 @@ The DB file is encrypted at rest with a key held in the OS keychain.
 >
 > Web has no keychain, so the key is stored beside the data there and
 > `storageReason()` says so in the UI.
+>
+> The `account_id` foreign keys below *are* honoured: each of those JSON stores
+> is written under a per-account key,
+> `cryptmail.<store>.v1@<provider>:<address>`, by
+> [`app/src/store/accountScope.ts`](../app/src/store/accountScope.ts). The
+> account id pairs the provider with the address rather than being the address
+> alone, because the same mailbox read through the demo fixtures and through
+> Gmail is two different sets of local data. `accounts` itself is the one
+> global store — it is the index that names the rest.
 
 ### `accounts`
 | column | type | notes |
