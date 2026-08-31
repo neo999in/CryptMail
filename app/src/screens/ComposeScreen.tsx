@@ -16,10 +16,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
 import { isDraftEmpty } from '../drafts/drafts';
+import { pickFiles, readPickedFile } from '../lib/files';
 import { isValidEmail } from '../lib/format';
+import {
+  Attachment,
+  addAttachment,
+  formatBytes,
+  MAX_ATTACHMENT_BYTES,
+  removeAttachment,
+  totalBytes,
+} from '../mail/attachment';
 import { RootStackParamList } from '../navigation';
 import { RecipientState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, type } from '../theme';
+import { AttachmentChip } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
 import { Badge, Field, Glass, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
 
@@ -75,6 +85,11 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [draft, setDraft] = useState('');
   const [subject, setSubject] = useState(existing?.subject ?? route.params?.subject ?? '');
   const [body, setBody] = useState(existing?.body ?? route.params?.quotedBody ?? '');
+  const [attachments, setAttachments] = useState<Attachment[]>(
+    existing?.attachments ?? route.params?.attachments ?? [],
+  );
+  /** Set while the picker is open or a chosen file is being read off disk. */
+  const [attaching, setAttaching] = useState(false);
   // Threading metadata for a reply/forward. Read-only for the life of this
   // compose session — a reply's conversation is fixed the moment it opens — so
   // it is derived, not state: from a resumed draft first, then the route params.
@@ -107,11 +122,21 @@ export function ComposeScreen({ route, navigation }: Props) {
   useEffect(() => {
     const handle = setTimeout(() => {
       if (closingRef.current) return;
-      if (isDraftEmpty({ to, subject, body })) void deleteDraftRef.current(draftId);
-      else void saveDraftRef.current({ id: draftId, to, subject, body, inReplyTo, references, updatedAt: new Date().toISOString() });
+      if (isDraftEmpty({ to, subject, body, attachments })) void deleteDraftRef.current(draftId);
+      else
+        void saveDraftRef.current({
+          id: draftId,
+          to,
+          subject,
+          body,
+          attachments,
+          inReplyTo,
+          references,
+          updatedAt: new Date().toISOString(),
+        });
     }, 600);
     return () => clearTimeout(handle);
-  }, [to, subject, body, draftId]);
+  }, [to, subject, body, attachments, draftId]);
 
   // Look up anyone we hold no key for. The result lands in the keyring, which
   // re-runs the memo below — so the "no key" state is what remains *after*
@@ -235,12 +260,56 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
   };
 
+  /**
+   * Pick files and read them in.
+   *
+   * A refusal is shown and the rest of the selection still lands: picking four
+   * files and losing all of them because one was too big would make the user
+   * repeat the whole selection to find out which. Cancelling shows nothing —
+   * it is not an error.
+   */
+  const attach = async () => {
+    setAttaching(true);
+    try {
+      const picked = await pickFiles();
+      // Accumulated locally rather than read back from state: each file is
+      // checked against the total *including* the ones added a moment ago in
+      // this same loop, and a re-render cannot land between the two.
+      let next = attachments;
+      let refusal: string | null = null;
+      for (const file of picked) {
+        const result = await readPickedFile(file, next);
+        if ('refused' in result) {
+          refusal = result.refused;
+          continue;
+        }
+        next = addAttachment(next, result.attachment);
+        setAttachments(next);
+      }
+      setError(refusal);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  const detach = (id: string) => setAttachments((prev) => removeAttachment(prev, id));
+
   const send = async () => {
     setSending(true);
     setError(null);
     closingRef.current = true;
     try {
-      const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
+      const outcome = await sendEncrypted({
+        id: draftId,
+        to,
+        subject: subject.trim() || '(no subject)',
+        body,
+        attachments,
+        inReplyTo,
+        references,
+      });
       await deleteDraft(draftId);
       // A held message has *not* been sent, and the screen does not get to
       // close as if it had. It stays put and says what actually happened.
@@ -263,7 +332,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await sendPlain({ to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
+      await sendPlain({ to, subject: subject.trim() || '(no subject)', body, attachments, inReplyTo, references });
       await deleteDraft(draftId);
       navigation.goBack();
     } catch (e) {
@@ -278,7 +347,16 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt: sendAt.toISOString() });
+      await scheduleSend({
+        id: draftId,
+        to,
+        subject: subject.trim() || '(no subject)',
+        body,
+        attachments,
+        inReplyTo,
+        references,
+        sendAt: sendAt.toISOString(),
+      });
       await deleteDraft(draftId);
       navigation.goBack();
     } catch (e) {
@@ -374,6 +452,40 @@ export function ComposeScreen({ route, navigation }: Props) {
             {...bodyFocus.bind}
           />
         </Field>
+
+        <View style={s.attachments}>
+          <View style={s.attachHead}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={attaching}
+              onPress={() => void attach()}
+              style={s.attachButton}
+            >
+              <Icon name="paperclip" size={14} color={color.inkDim} />
+              <Text style={s.attachButtonText}>{attaching ? 'Reading file…' : 'Attach a file'}</Text>
+            </Pressable>
+            {attachments.length > 0 ? (
+              <Text style={s.attachTotal}>{formatBytes(totalBytes(attachments))}</Text>
+            ) : null}
+          </View>
+
+          {attachments.length > 0 ? (
+            <View style={s.attachChips}>
+              {attachments.map((a) => (
+                <AttachmentChip key={a.id} attachment={a} onRemove={() => detach(a.id)} />
+              ))}
+            </View>
+          ) : null}
+
+          {/* Said once, before a file is picked rather than after one is refused.
+              The cap is a bridge limit, not a policy, and docs/prototype-plan.md
+              records the streaming path that lifts it. */}
+          <Text style={s.attachNote}>
+            {plain
+              ? `Attachments on an unencrypted message travel in the clear, filenames included. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} each.`
+              : `Files are sealed inside the message with the subject and body — even their names. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} each for now.`}
+          </Text>
+        </View>
 
         {error ? (
           <View style={s.errorRow}>
@@ -643,6 +755,24 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     width: 20,
   },
+
+  attachments: { gap: 10, marginTop: 4, marginBottom: 14 },
+  attachHead: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
+  attachButton: {
+    alignItems: 'center',
+    backgroundColor: color.panel,
+    borderColor: color.line,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  attachButtonText: { color: color.ink, fontFamily: font.sansSemibold, fontSize: 13 },
+  attachTotal: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11.5 },
+  attachChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  attachNote: { color: color.inkFaint, fontFamily: font.sans, fontSize: 12, lineHeight: 17 },
 
   errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 4 },
   error: { color: color.coral, flex: 1, fontFamily: font.sans, fontSize: 13 },

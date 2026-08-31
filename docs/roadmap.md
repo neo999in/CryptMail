@@ -128,7 +128,8 @@ If I could add only five things after the Phase 0 proof, in this order:
    sits unencrypted on disk (the prototype's own "known debt"), directly
    contradicting [security.md](security.md). Unglamorous, but it gates shipping
    to any real user. *Impact M · Effort S–M.*
-3. **Threading + attachment UX** — 🆕. The two table stakes whose absence makes
+3. **Threading + attachment UX** — attachments ✅ (features.md 0.18), threading
+   still open. The two table stakes whose absence makes
    this "not an email client." Attachment *crypto* is planned; the *experience*
    (compose, inline images, preview, the >1 MB bridge path) is not.
    *Impact L · Effort M.*
@@ -166,7 +167,7 @@ crypto is.
 |---|---|---|---|---|
 | Threading / conversation view | 🆕 | L | M | `In-Reply-To`/`References` are already in the clear ([message-format.md](message-format.md)); group on them. |
 | Rich-text / HTML compose + reader | 🆕 | M | M | Sanitise inbound HTML hard; it's an XSS/exfil surface even when decrypted. |
-| Attachment UX (send, inline images, preview) | 🆕 | L | M | Crypto is 📋 Phase 1; the *experience* and the >1 MB bridge/streaming path are not. |
+| Attachment UX (send, inline images, preview) | ✅ | L | M | Built: sealed inside the encrypted tree, filenames included (features.md 0.18). Only the >1 MB bridge/streaming path remains. |
 | Encrypted drafts + autosave | 🆕 | M | S | Store as ciphertext; a draft is plaintext-at-rest otherwise. |
 | Scheduled send / send later | 🆕 | M | S | Local queue; must survive app kill. |
 | Snooze | 🆕 | S | S | Client-side; provider can't do it for encrypted mail. |
@@ -283,7 +284,7 @@ Quick-win quadrant (high impact, low-ish effort) — where to look first:
 
 | | Low effort | Medium effort | High effort |
 |---|---|---|---|
-| **High impact** | Autocrypt (📋1), SQLCipher (📋1) | Threading, Attachment UX, Encrypted search, Conformance tests | Browser extension ⭐, Desktop, iOS |
+| **High impact** | Autocrypt (📋1), SQLCipher (📋1) | Threading, Encrypted search, Conformance tests | Browser extension ⭐, Desktop, iOS |
 | **Medium impact** | Recovery drill, Import PGP keys, Scheduled send, Privacy notifications | Filters/rules, Remote-content blocking, Contact trust dashboard, Mailbox export | S/MIME, Web PWA |
 | **Lower impact** | Undo/snooze, Signatures, Padding, Header minimisation | SAS verify, VIP alerts, Multiple identities | — |
 

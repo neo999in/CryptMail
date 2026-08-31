@@ -24,6 +24,7 @@
  * scheduler lives in state/scheduler.ts; persistence in store/outboxStore.ts.
  */
 import { Identity } from '../core';
+import { Attachment } from '../mail/attachment';
 import { resolveRecipientStates } from '../state/recipients';
 import { Keyring } from '../store/keyring';
 
@@ -40,6 +41,8 @@ export type Scheduled = {
   /** Threading, carried so a drained hold still lands in its conversation. */
   inReplyTo?: string;
   references?: string[];
+  /** Files, carried whole — a held message is delivered exactly as written. */
+  attachments?: Attachment[];
 };
 
 /** A queued message plus why it has not gone yet. */

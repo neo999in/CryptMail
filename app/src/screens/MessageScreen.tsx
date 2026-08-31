@@ -17,11 +17,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
+import { saveAttachment } from '../lib/files';
 import { hostOf, linkify } from '../lib/links';
+import { Attachment } from '../mail/attachment';
 import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplySource } from '../mail/reply';
 import { RootStackParamList } from '../navigation';
 import { OpenedMessage, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
+import { AttachmentList } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
 import {
   Avatar,
@@ -47,6 +50,9 @@ export function MessageScreen({ route, navigation }: Props) {
   const [copied, setCopied] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
+  /** The attachment currently being written out, and any failure saving one. */
+  const [saving, setSaving] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const summary = messages.find((m) => m.id === route.params.id);
 
@@ -99,6 +105,25 @@ export function MessageScreen({ route, navigation }: Props) {
     setTimeout(() => setCopied(false), 1800);
   };
 
+  /**
+   * Hand a file back to the user.
+   *
+   * This is the one point where decrypted content leaves the app, so it is
+   * deliberately a tap the reader makes per file — nothing is written to disk
+   * by opening a message. `lib/files.ts` says what "saving" means per platform.
+   */
+  const save = async (attachment: Attachment) => {
+    setSaving(attachment.id);
+    setSaveError(null);
+    try {
+      await saveAttachment(attachment);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const senderName = displayName(summary.from.address, summary.from.name);
   const key = keyring[summary.from.address];
   const own = opened?.encryption.kind === 'encrypted' && !!opened.encryption.own;
@@ -119,6 +144,7 @@ export function MessageScreen({ route, navigation }: Props) {
           body: opened.body,
           messageId: summary.messageId,
           references: summary.references,
+          attachments: opened.attachments,
         }
       : null;
   // Reply-All only earns its own button when it would reach anyone Reply wouldn't.
@@ -134,6 +160,7 @@ export function MessageScreen({ route, navigation }: Props) {
       quotedBody: d.quotedBody,
       inReplyTo: d.inReplyTo,
       references: d.references,
+      attachments: d.attachments,
     });
   };
 
@@ -217,7 +244,20 @@ export function MessageScreen({ route, navigation }: Props) {
                   <Banner tone="warn" icon="alert">{opened.error}</Banner>
                 </View>
               ) : (
-                <Body text={opened.body} onLinkPress={setTappedLink} />
+                <>
+                  <Body text={opened.body} onLinkPress={setTappedLink} />
+                  <AttachmentList
+                    attachments={opened.attachments}
+                    decrypted={opened.encryption.kind === 'encrypted'}
+                    onSave={(a) => void save(a)}
+                    busyId={saving}
+                  />
+                  {saveError ? (
+                    <View style={{ marginTop: 12 }}>
+                      <Banner tone="warn" icon="alert">{saveError}</Banner>
+                    </View>
+                  ) : null}
+                </>
               )}
             </Reveal>
 

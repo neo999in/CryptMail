@@ -7,7 +7,7 @@
  * multipart boundary, the part headers and the raw `=E2=80=87` escapes at the
  * user.
  */
-import { plainBodyOf } from '../plainBody';
+import { attachmentsOf, plainBodyOf } from '../plainBody';
 
 const crlf = (s: string) => s.replace(/\n/g, '\r\n');
 
@@ -135,5 +135,79 @@ describe('degrading rather than throwing', () => {
 
   it('returns an empty string for an empty body', () => {
     expect(plainBodyOf('Content-Type: text/plain\n\n')).toBe('');
+  });
+});
+
+describe('attachmentsOf', () => {
+  const RAW = [
+    'From: ada@example.com',
+    'To: me@example.com',
+    'Subject: Menu',
+    'MIME-Version: 1.0',
+    'Content-Type: multipart/mixed; boundary="b1"',
+    '',
+    '--b1',
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Menu attached.',
+    '',
+    '--b1',
+    'Content-Type: application/pdf; name="menu.pdf"',
+    'Content-Disposition: attachment; filename="menu.pdf"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    'JVBERi0xLjQK',
+    '',
+    '--b1--',
+    '',
+  ].join('\n');
+
+  it('finds a file on an ordinary email', () => {
+    const [file] = attachmentsOf(RAW);
+    expect(file).toMatchObject({ name: 'menu.pdf', mimeType: 'application/pdf', data: 'JVBERi0xLjQK' });
+    expect(file.size).toBe(9);
+  });
+
+  it('leaves the body out of it', () => {
+    expect(attachmentsOf(RAW)).toHaveLength(1);
+    expect(plainBodyOf(RAW)).toBe('Menu attached.');
+  });
+
+  it('finds nothing on a single-part message', () => {
+    expect(attachmentsOf(['Subject: Hi', 'Content-Type: text/plain', '', 'Hello.'].join('\n'))).toEqual([]);
+  });
+
+  it('skips a part it cannot decode rather than handing over half a file', () => {
+    const raw = RAW.replace('Content-Transfer-Encoding: base64', 'Content-Transfer-Encoding: 7bit');
+    expect(attachmentsOf(raw)).toEqual([]);
+  });
+
+  it('descends into a nested multipart', () => {
+    const nested = [
+      'Content-Type: multipart/mixed; boundary="outer"',
+      '',
+      '--outer',
+      'Content-Type: multipart/alternative; boundary="inner"',
+      '',
+      '--inner',
+      'Content-Type: text/plain',
+      '',
+      'Hi.',
+      '--inner--',
+      '',
+      '--outer',
+      'Content-Type: image/png; name="shot.png"',
+      'Content-Disposition: inline; filename="shot.png"',
+      'Content-Transfer-Encoding: base64',
+      'Content-ID: <shot@example.com>',
+      '',
+      'AQID',
+      '',
+      '--outer--',
+      '',
+    ].join('\n');
+
+    const [image] = attachmentsOf(nested);
+    expect(image).toMatchObject({ name: 'shot.png', mimeType: 'image/png', inline: true, contentId: 'shot@example.com' });
   });
 });

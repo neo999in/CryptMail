@@ -160,6 +160,7 @@ export const demoCore: CryptCore = {
       to: request.to,
       subject: request.subject,
       body: request.body,
+      attachments: request.attachments,
     });
     const signer = fingerprintOf(request.autocryptKey ?? '') ?? 'UNKNOWN';
     const payload = encodeUtf8Base64(`${DEMO_ARMOR_TAG}${signer}:${encodeUtf8Base64(inner)}`);
@@ -189,12 +190,13 @@ export const demoCore: CryptCore = {
     const rest = decoded.slice(tag.length);
     const sep = rest.indexOf(':');
     const signerFingerprint = rest.slice(0, sep);
-    const { subject, body } = parseProtectedInner(decodeUtf8Base64(rest.slice(sep + 1)));
+    const { subject, body, attachments } = parseProtectedInner(decodeUtf8Base64(rest.slice(sep + 1)));
 
     const autocrypt = parseRfc822(rfc822).headers['autocrypt'];
     return {
       subject,
       body,
+      attachments,
       signature: 'valid',
       signerFingerprint: signerFingerprint === 'UNKNOWN' ? undefined : signerFingerprint,
       autocryptKey: autocrypt ? unflattenAutocrypt(autocrypt) : undefined,

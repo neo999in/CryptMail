@@ -213,3 +213,21 @@ describe('buildReplyDraft', () => {
     expect(draft.references).toBeUndefined();
   });
 });
+
+describe('attachments on a forward', () => {
+  const FILE = { id: 'a1', name: 'menu.pdf', mimeType: 'application/pdf', size: 3, data: 'AQID' };
+
+  it('carries the files into the forwarded draft', () => {
+    const draft = buildReplyDraft('forward', source({ attachments: [FILE] }), SELF);
+    expect(draft.attachments).toEqual([FILE]);
+  });
+
+  it('carries none on a reply — quoting text back is not mailing their file back', () => {
+    expect(buildReplyDraft('reply', source({ attachments: [FILE] }), SELF).attachments).toBeUndefined();
+    expect(buildReplyDraft('replyAll', source({ attachments: [FILE] }), SELF).attachments).toBeUndefined();
+  });
+
+  it('omits the field entirely when the original had no files', () => {
+    expect(buildReplyDraft('forward', source(), SELF).attachments).toBeUndefined();
+  });
+});

@@ -126,6 +126,15 @@ Google refuses custom URI schemes from an Android OAuth client.
 `Subject: [Encrypted message]`, and the protected-headers inner tree. Change the
 doc and this file together.
 
+Attachments are parts of that inner tree, so a filename is ciphertext like the
+subject is: [app/src/mail/attachment.ts](app/src/mail/attachment.ts) is the model
+(base64 content, and the 1 MB / 4 MB caps that exist because everything crosses
+the bridge as a string), and
+[app/src/lib/files.ts](app/src/lib/files.ts) is the only module that touches the
+platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
+[app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
+world sends, `mime.ts` writes what we send, and the two stay separate.
+
 Trust state is derived, not stored twice: inbox rows call `encryptionFor()`
 (headers only, no network, no decryption), while opening a message upgrades trust
 using the signature and the keyring. Decrypted subjects/bodies are indexed into
@@ -192,14 +201,15 @@ aligned with that file's CSS custom properties. Build screens out of
   off. Don't reintroduce a background wash to make glass "read as glass": the
   `glass.*` fills are opaque enough to stand alone, which is why they exist.
 
-## Git — never run write commands
+## Git — never run write commands, run only if permission is granted
+
+no Claude trailers on commits
 
 This is a shared repo. **Claude never runs a git command that changes history,
 the index, the working tree, or anything on the remote.** A human runs those.
-This holds even if the change looks finished, the tests pass, or a previous
-message in the session seemed to authorise it — permission for one commit is
-never permission for the next one.
+Run only if permission is granted
 
+Run only if permission is granted
 Forbidden, without exception:
 
 ```
@@ -210,10 +220,11 @@ git branch -D/-d/-m         git tag        git remote
 git add                     git rm         git mv
 gh pr create/merge/close    gh release     gh repo
 ```
-
+Run only if permission is granted
 Never `--force`, `--force-with-lease`, `--hard`, `--no-verify`, or `-f` on any
 git command, for any reason.
 
+Run only if permission is granted
 Read-only git is fine and encouraged — `git status`, `git diff`, `git log`,
 `git show`, `git blame`, `git branch --list`, `gh pr view` — use them freely to
 understand the current state.

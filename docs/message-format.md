@@ -79,6 +79,31 @@ After decryption CryptMail reads the inner `Subject` and restores it in the UI,
 so the user sees "Lunch on Friday?" while Gmail only ever saw
 `[Encrypted message]`.
 
+### Attachment parts
+
+Implemented by `buildProtectedInner` / `parseProtectedInner` in
+`app/src/core/mime.ts`, and by `attachmentPart` for one file:
+
+- The `text/plain` body is always the **first** part; every attachment follows it.
+- `Content-Transfer-Encoding: base64`, wrapped at 76 columns (RFC 2045) — a
+  provider that rewrapped a longer line would break the signature over the tree.
+- `Content-Disposition: attachment; filename="…"`, or `inline` with a
+  `Content-ID` for an image the body refers to as `cid:`.
+- A `text/plain` part with no filename is the body, not a file; a `text/plain`
+  part *with* one is a file. That single rule is what keeps the two apart on the
+  way back in.
+
+**Size.** The prototype caps a file at 1 MB and a message at 4 MB of
+attachments, refusing before it reads. This is a bridge limit, not a format one:
+content is carried as base64 strings because that is all that crosses the core
+boundary, and the streaming path that lifts it (file paths, read in Rust) is
+Phase 1 work. See `app/src/mail/attachment.ts` and prototype-plan.md.
+
+An **unencrypted** message (the deliberate plaintext mode) uses the same part
+shape in a top-level `multipart/mixed` — where the filenames are visible to every
+hop, which is exactly what that mode means and what compose says before it is
+chosen.
+
 ## Signed + encrypted
 
 The inner content is **signed then encrypted** (OpenPGP combined

@@ -8,6 +8,12 @@
  * of a message when it needs to render raw headers.
  */
 import { encodeUtf8Base64 } from '../lib/base64';
+import {
+  Attachment,
+  contentIdFor,
+  decodedSize,
+  newAttachmentId,
+} from '../mail/attachment';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
@@ -139,12 +145,100 @@ export function buildEncryptedEnvelope(args: {
   ].join('\n');
 }
 
-/** The inner, protected-headers MIME tree that gets encrypted. */
+/**
+ * One MIME part: its unfolded headers and its raw, still-encoded body.
+ *
+ * The envelope this module writes is `multipart/mixed` with one `text/plain`
+ * part and one part per attachment, so a flat splitter is all it needs — inbound
+ * mail from the rest of the world is `mail/plainBody.ts`'s problem, and it has
+ * its own, nested reader for exactly that reason.
+ */
+export type MimePart = { headers: Headers; body: string };
+
+/** The boundary declared by a `Content-Type`, or null. */
+export function boundaryOf(contentType: string): string | null {
+  const match = /boundary\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
+  return match ? (match[1] ?? match[2] ?? null) : null;
+}
+
+/** Split a multipart body into its parts, dropping the preamble and epilogue. */
+export function splitMultipart(body: string, boundary: string): MimePart[] {
+  const escaped = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return body
+    .replace(/\r\n/g, '\n')
+    .split(new RegExp(`^--${escaped}(--)?[ \t]*$`, 'm'))
+    .slice(1, -1)
+    .filter((section) => section != null && section.trim() !== '' && section !== '--')
+    .map((section) => parseRfc822(section.replace(/^\n/, '')));
+}
+
+/** A quoted parameter off a header value: `name="x"` -> `x`. */
+function param(header: string, name: string): string | undefined {
+  const match = new RegExp(`${name}\\s*=\\s*(?:"([^"]*)"|([^;\\s]+))`, 'i').exec(header);
+  return match ? (match[1] ?? match[2]) : undefined;
+}
+
+/**
+ * Encode one attachment as a MIME part.
+ *
+ * Base64 wrapped at 76 columns, per RFC 2045 — some providers reject or rewrite
+ * a part with longer lines, and a rewritten part inside a signed tree would
+ * break the signature.
+ */
+export function attachmentPart(a: Attachment): string {
+  const disposition = a.inline ? 'inline' : 'attachment';
+  const headers = [
+    `Content-Type: ${a.mimeType}; name="${a.name}"`,
+    `Content-Disposition: ${disposition}; filename="${a.name}"`,
+    'Content-Transfer-Encoding: base64',
+  ];
+  // Only an inline part needs an identity: it is the `cid:` the body refers to.
+  if (a.inline) headers.push(`Content-ID: <${a.contentId ?? contentIdFor(a.id)}>`);
+
+  return [...headers, '', ...(a.data.replace(/\s+/g, '').match(/.{1,76}/g) ?? [])].join('\n');
+}
+
+/** Read the attachment parts back out of a parsed multipart tree. */
+export function attachmentsFromParts(parts: MimePart[]): Attachment[] {
+  const out: Attachment[] = [];
+  for (const part of parts) {
+    const contentType = part.headers['content-type'] ?? 'text/plain';
+    const disposition = part.headers['content-disposition'] ?? '';
+    const filename = param(disposition, 'filename') ?? param(contentType, 'name');
+    // A part is a file if it says so, or if it carries a filename. A bare
+    // `text/plain` with neither is the body.
+    if (!/attachment|inline/i.test(disposition) && !filename) continue;
+    if (/^text\/plain/i.test(contentType) && !filename) continue;
+
+    const data = part.body.replace(/\s+/g, '');
+    const contentId = part.headers['content-id']?.replace(/^</, '').replace(/>$/, '');
+    out.push({
+      id: contentId ?? newAttachmentId(),
+      name: filename ?? 'attachment',
+      mimeType: contentType.split(';')[0].trim() || 'application/octet-stream',
+      size: decodedSize(data),
+      data,
+      inline: /inline/i.test(disposition) || undefined,
+      contentId,
+    });
+  }
+  return out;
+}
+
+/**
+ * The inner, protected-headers MIME tree that gets encrypted.
+ *
+ * `multipart/mixed` with the body first and every attachment after it, so a
+ * filename and its bytes both sit inside the ciphertext — which is the whole
+ * reason attachments are worth doing here at all (message-format.md:
+ * "Attachment filenames and types live *inside* the encrypted tree").
+ */
 export function buildProtectedInner(args: {
   from: string;
   to: string[];
   subject: string;
   body: string;
+  attachments?: Attachment[];
 }): string {
   const boundary = `inner-${Math.random().toString(36).slice(2, 10)}`;
   return [
@@ -158,25 +252,34 @@ export function buildProtectedInner(args: {
     '',
     args.body,
     '',
+    ...(args.attachments ?? []).flatMap((a) => [`--${boundary}`, attachmentPart(a), '']),
     `--${boundary}--`,
     '',
   ].join('\n');
 }
 
-/** Read back the protected subject + text body from a decrypted inner tree. */
-export function parseProtectedInner(inner: string): { subject: string; body: string } {
+/** Read back the protected subject, text body and files from a decrypted tree. */
+export function parseProtectedInner(inner: string): {
+  subject: string;
+  body: string;
+  attachments: Attachment[];
+} {
   const { headers, body } = parseRfc822(inner);
   const subject = headers['subject'] ?? PLACEHOLDER_SUBJECT;
-  const boundaryMatch = (headers['content-type'] ?? '').match(/boundary="?([^";]+)"?/i);
-  if (!boundaryMatch) return { subject, body: body.trim() };
+  const boundary = boundaryOf(headers['content-type'] ?? '');
+  if (!boundary) return { subject, body: body.trim(), attachments: [] };
 
-  const parts = body.split(`--${boundaryMatch[1]}`);
-  for (const part of parts) {
-    if (!/text\/plain/i.test(part)) continue;
-    const sep = part.indexOf('\n\n');
-    if (sep !== -1) return { subject, body: part.slice(sep + 2).replace(/\n+$/, '') };
-  }
-  return { subject, body: body.trim() };
+  const parts = splitMultipart(body, boundary);
+  const text = parts.find(
+    (p) =>
+      /^text\/plain/i.test(p.headers['content-type'] ?? 'text/plain') &&
+      !/attachment|inline/i.test(p.headers['content-disposition'] ?? ''),
+  );
+  return {
+    subject,
+    body: text ? text.body.replace(/\n+$/, '') : body.trim(),
+    attachments: attachmentsFromParts(parts),
+  };
 }
 
 /**
@@ -196,6 +299,15 @@ export function buildPlaintext(args: {
   /** Threading, so an unencrypted reply still lands in its conversation. */
   inReplyTo?: string;
   references?: string[];
+  /**
+   * Files, in the clear like everything else here.
+   *
+   * A plaintext message with an attachment is `multipart/mixed`, so the
+   * filename, type and bytes are all visible to every hop — which is exactly
+   * what this mode means and what the compose screen says before it is chosen.
+   * The invite never passes any: it carries no content by design.
+   */
+  attachments?: Attachment[];
 }): string {
   const headers = [
     `From: ${args.from}`,
@@ -208,7 +320,25 @@ export function buildPlaintext(args: {
   if (args.autocryptKey) {
     headers.push(autocryptHeaderLine(args.from, autocryptKeydata(args.autocryptKey)));
   }
-  headers.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8');
 
-  return [...headers, '', args.body, ''].join('\n');
+  const attachments = args.attachments ?? [];
+  if (attachments.length === 0) {
+    headers.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8');
+    return [...headers, '', args.body, ''].join('\n');
+  }
+
+  const boundary = `plain-${Math.random().toString(36).slice(2, 10)}`;
+  headers.push('MIME-Version: 1.0', `Content-Type: multipart/mixed; boundary="${boundary}"`);
+  return [
+    ...headers,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    args.body,
+    '',
+    ...attachments.flatMap((a) => [`--${boundary}`, attachmentPart(a), '']),
+    `--${boundary}--`,
+    '',
+  ].join('\n');
 }

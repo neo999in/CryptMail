@@ -53,6 +53,14 @@ export function DraftsScreen({ navigation }: Props) {
             <Text numberOfLines={2} style={s.preview}>
               {previewOf(d)}
             </Text>
+            {d.attachments?.length ? (
+              <View style={s.attached}>
+                <Icon name="paperclip" size={12} color={color.inkFaint} />
+                <Text style={s.attachedText}>
+                  {d.attachments.length === 1 ? d.attachments[0].name : `${d.attachments.length} files`}
+                </Text>
+              </View>
+            ) : null}
           </Pressable>
           <Pressable
             accessibilityLabel="Discard draft"
@@ -98,6 +106,8 @@ const s = StyleSheet.create({
   time: { ...type.meta, color: color.inkFaint, fontSize: 11 },
   recipients: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5 },
   preview: { ...type.small, color: color.inkFaint, marginTop: 2 },
+  attached: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 6 },
+  attachedText: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
 
   discard: {
     alignItems: 'center',
