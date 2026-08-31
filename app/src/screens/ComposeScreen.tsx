@@ -246,40 +246,56 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      // Check recipient state first: a held message (queued for a key) goes
-      // through sendEncrypted directly — there is no undo for a message that
-      // will not leave until a key is found.
       const states = await discoverRecipients(to);
-      const hasMissing = states.some((r) => r.status === 'missing');
-      const hasChanged = states.some((r) => r.status === 'changed');
-
-      if (hasChanged) {
-        // A changed key blocks outright — same as before.
-        const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
-        await deleteDraft(draftId);
-        if (outcome.status === 'queued') setQueued(outcome.pending);
-        else navigation.goBack();
-        return;
+      const changed = states.filter((r) => r.status === 'changed');
+      if (changed.length > 0) {
+        throw new Error(
+          `The key for ${changed.map((r) => r.email).join(', ')} changed fingerprint. Compare the new safety number before sending.`,
+        );
       }
 
-      if (hasMissing) {
-        // Missing-key messages are held in the outbox with an invite; no undo
-        // window because the message stays local until a key arrives.
-        const outcome = await sendEncrypted({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
-        await deleteDraft(draftId);
-        if (outcome.status === 'queued') setQueued(outcome.pending);
-        else navigation.goBack();
-        return;
-      }
-
-      // Happy path: schedule the send with a short delay for the undo window.
+      // Schedule send with the 5s undo window.
       const sendAt = new Date(Date.now() + UNDO_DELAY_MS).toISOString();
       await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt });
       await deleteDraft(draftId);
       navigation.goBack();
 
-      // Capture what we need for the undo closure — the screen is about to
-      // unmount, so no setState is possible after this.
+        onAction: () => {
+          void (async () => {
+            await cancelScheduled(undoData.id);
+            await saveDraft({
+              id: undoData.id,
+              to: undoData.to,
+              subject: undoData.subject,
+              body: undoData.body,
+              inReplyTo: undoData.inReplyTo,
+              references: undoData.references,
+              updatedAt: new Date().toISOString(),
+            });
+          })();
+      });
+    } catch (e) {
+      closingRef.current = false;
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /**
+   * The unencrypted send. Reached only from the mode the user chose up front —
+   * never from `send`, and never from a failure of it (rule 1).
+   */
+  const sendUnencrypted = async () => {
+    setSending(true);
+    setError(null);
+    closingRef.current = true;
+    try {
+      const sendAt = new Date(Date.now() + UNDO_DELAY_MS).toISOString();
+      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt });
+      await deleteDraft(draftId);
+      navigation.goBack();
+
       const undoData = { id: draftId, to: [...to], subject, body, inReplyTo, references };
       showToast({
         message: 'Sending message…',
@@ -302,51 +318,8 @@ export function ComposeScreen({ route, navigation }: Props) {
       });
     } catch (e) {
       closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSending(false);
     }
-  };
-
-  /**
-   * The unencrypted send. Reached only from the mode the user chose up front —
-   * never from `send`, and never from a failure of it (rule 1).
-   */
-  const sendUnencrypted = async () => {
-    setSending(true);
-    setError(null);
-    closingRef.current = true;
-    try {
-      await sendPlain({ to, subject: subject.trim() || '(no subject)', body, inReplyTo, references });
-      await deleteDraft(draftId);
-      navigation.goBack();
-    } catch (e) {
-      closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const schedule = async (sendAt: Date) => {
-    setError(null);
-    closingRef.current = true;
-    try {
-      await scheduleSend({ id: draftId, to, subject: subject.trim() || '(no subject)', body, inReplyTo, references, sendAt: sendAt.toISOString() });
-      await deleteDraft(draftId);
-      navigation.goBack();
-    } catch (e) {
-      closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={s.screen}
-      keyboardVerticalOffset={90}
-    >
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {/*
           Above everything, because it decides what the rest of the screen means.

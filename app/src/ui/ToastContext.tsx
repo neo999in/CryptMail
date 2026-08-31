@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { IconName } from './Icon';
 import { Toast } from './Toast';
 
@@ -73,18 +74,26 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastContext.Provider value={{ showToast, dismissToast }}>
-      {children}
-      {activeToast && (
-        <Toast
-          message={activeToast.message}
-          actionLabel={activeToast.actionLabel}
-          onAction={handleAction}
-          onDismiss={dismissToast}
-          durationMs={activeToast.durationMs}
-          startedAt={activeToast.startedAt}
-        />
-      )}
+      <View style={styles.wrapper}>
+        {children}
+        {activeToast && (
+          <Toast
+            message={activeToast.message}
+            actionLabel={activeToast.actionLabel}
+            onAction={handleAction}
+            onDismiss={dismissToast}
+            durationMs={activeToast.durationMs}
+            startedAt={activeToast.startedAt}
+          />
+        )}
+      </View>
     </ToastContext.Provider>
   );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+  },
+});
 
