@@ -47,14 +47,18 @@ describe('attachmentRefusal', () => {
     expect(attachmentRefusal({ name: 'a.pdf', size: 500_000 }, [])).toBeNull();
   });
 
-  it('allows the everyday large file a provider would carry', () => {
-    // The cap is Gmail's own 25 MB, so an 8 MB deck is ordinary, not an edge case.
-    expect(attachmentRefusal({ name: 'deck.pdf', size: 8 * 1024 * 1024 }, [])).toBeNull();
+  it('allows the everyday attachment — a photo, a deck, a PDF', () => {
+    expect(attachmentRefusal({ name: 'deck.pdf', size: 4 * 1024 * 1024 }, [])).toBeNull();
+  });
+
+  it('refuses what the wire cannot take, whatever a provider advertises', () => {
+    // Base64 (+33%) then armor (+33%) roughly doubles a file, so a 10 MB
+    // attachment is a ~18 MB message; the cap is on what arrives, not on disk.
+    expect(attachmentRefusal({ name: 'video.mp4', size: 10 * 1024 * 1024 }, [])).not.toBeNull();
   });
 
   it('refuses a file over the per-file cap, and says how big it was', () => {
     const refusal = attachmentRefusal({ name: 'video.mp4', size: MAX_ATTACHMENT_BYTES + 1 }, []);
-    expect(refusal).toContain('25.0 MB');
     expect(refusal).toContain('video.mp4');
     expect(refusal).toContain(formatBytes(MAX_ATTACHMENT_BYTES));
   });

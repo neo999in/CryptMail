@@ -364,9 +364,9 @@ neither ever landing as `verified`.
 sealed inside the encrypted tree along with their names.
 
 **Built.** [`mail/attachment.ts`](../app/src/mail/attachment.ts) is the model:
-base64 content, a decoded size, and a 25 MB cap — the ceiling mail providers
-themselves enforce — with `attachmentRefusal` as the single place that says why
-a file cannot be attached. [`core/mime.ts`](../app/src/core/mime.ts) builds the parts:
+base64 content, a decoded size, and a **5 MB** cap with `attachmentRefusal` as
+the single place that says why a file cannot be attached. That number is
+measured, not chosen: see "still open" below. [`core/mime.ts`](../app/src/core/mime.ts) builds the parts:
 `buildProtectedInner` emits the `text/plain` body followed by one base64 part
 per file inside the existing `multipart/mixed`, so filename and type sit *inside*
 the ciphertext exactly as [message-format.md](message-format.md) specifies —
@@ -393,12 +393,20 @@ platform (`expo-document-picker`, `expo-file-system`, the share sheet on
 Android, an anchor download on web). 33 tests across the model, the MIME
 round-trip, the inbound reader and the send path.
 
-**Still open.** Everything is held in memory as base64 and crosses the bridge as
-one string, so a 25 MB file is a ~33 MB string copied several times between disk
-and the wire — survivable, and the operation most likely to be killed on a
-low-memory device. The fix is file paths and a chunked read in Rust (Phase 1,
-[prototype-plan.md](prototype-plan.md)), after which no cap needs to exist here
-at all. A second, separate limit stays until then: an autosaved draft is sealed
+**Still open — the size ceiling.** Two limits bind. *Arithmetic:* base64 (+33%)
+then armor (+33%) roughly doubles a file, and a provider's 25 MB applies to the
+encoded message, so ~14 MB of raw file is the most that can ever arrive; no
+optimisation moves it. *Cost:* everything is held in memory as base64 and
+crosses the bridge as one string, on the JS thread. Measured through the demo
+core on desktop V8 — 1 MB: 0.3 s send / 1.0 s open · 5 MB: 3.6 s / 4.1 s ·
+10 MB: 3.5 s / 7.6 s · 25 MB: 21 s / 45 s with peak memory in gigabytes. Hermes
+on a mid-range phone is 2–5× slower with a heap in the low hundreds of MB, so
+the last row is a process kill rather than a slow send. Hence 5 MB, which covers
+photos, decks and PDFs. Raising it needs chunked base64 helpers
+([`lib/base64.ts`](../app/src/lib/base64.ts) builds a multi-million-element
+`number[]`), Gmail's resumable upload endpoint, and then the streaming path
+(file paths, chunked read in Rust — Phase 1,
+[prototype-plan.md](prototype-plan.md)); after that ~10 MB is honest. A second, separate limit stays until then: an autosaved draft is sealed
 JSON in AsyncStorage and cannot hold tens of megabytes, so files past
 `MAX_STORED_ATTACHMENT_BYTES` live only in the compose session and the screen
 names them rather than losing them quietly (`splitForStorage`). Inline `cid:` images are
@@ -414,7 +422,7 @@ now against the demo core, with the crypto swapped in later.
 
 | Feature | Impact | Effort | Notes |
 |---|---|---|---|
-| ~~**Attachments** — send, receive, inline images, preview~~ | — | — | ✅ **Built** (0.18 below), against the demo core and the real one alike. Files up to 25 MB, the provider's own ceiling. What is still open is streaming over the bridge as file paths rather than base64 strings, and holding a large file in a saved draft. |
+| ~~**Attachments** — send, receive, inline images, preview~~ | — | — | ✅ **Built** (0.18 below), against the demo core and the real one alike. Files up to 5 MB — a measured limit, not an arbitrary one. What is still open is the chunked-base64 and streaming work that would raise it, and holding a large file in a saved draft. |
 | **Encrypted local store (SQLCipher)** | L | S–M | Superseded for now: stores are sealed individually (⚫ Debt 1). SQLCipher remains the [data-model.md](data-model.md) target for query performance, not for the encryption property. |
 | **Encrypted search index** | M | M | Today's index is plaintext decrypted content on disk, which fights any no-plaintext-cache mode. Encrypting it lets search and that mode coexist. |
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |

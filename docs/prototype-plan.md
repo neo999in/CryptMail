@@ -152,7 +152,7 @@ works.
 | **rPGP API churn / missing PGP-MIME helpers** | rPGP does crypto, not MIME — you assemble the envelope yourself in M5. Budget real time for it; it's fiddly, not hard |
 | **Rust ⇄ Android NDK cross-compilation** | Historically the biggest time sink. Use `cargo-ndk`; pin NDK version. Solve it in M0 while the surface is trivial |
 | **Gmail restricted scopes** | `gmail.readonly` is restricted. Testing mode caps you at 100 users — fine for the prototype, but verification + CASA gates public launch. Start that clock early |
-| **Large attachments over the bridge** | Attachments ship as base64 strings, capped at the provider's own 25 MB and refused before they are read (`mail/attachment.ts`); a 25 MB file is a ~33 MB string copied several times. Autosaved drafts hold far less and name what they could not keep. Real fix (file paths, streaming in Rust) is Phase 1 |
+| **Large attachments over the bridge** | Attachments ship as base64 strings, capped at a measured 5 MB and refused before they are read (`mail/attachment.ts`): 25 MB measures 21 s to seal / 45 s to open with peak memory in gigabytes, and armor+base64 mean a provider's 25 MB message limit allows ~14 MB of file at best. Autosaved drafts hold far less and name what they could not keep. Real fix (chunked base64, resumable upload, then file paths + streaming in Rust) is Phase 1 |
 | **Protected-headers interop** | Non-CryptMail PGP clients vary in support. Prototype only needs CryptMail↔CryptMail; note deviations, don't chase them |
 
 ---

@@ -128,9 +128,9 @@ doc and this file together.
 
 Attachments are parts of that inner tree, so a filename is ciphertext like the
 subject is: [app/src/mail/attachment.ts](app/src/mail/attachment.ts) is the model
-(base64 content, and a 25 MB cap — the provider's own — plus the much smaller
-budget an autosaved draft can hold, since everything crosses the bridge and
-lands in storage as a string), and
+(base64 content, and a measured 5 MB cap plus the much smaller budget an
+autosaved draft can hold, since everything crosses the bridge and lands in
+storage as a string), and
 [app/src/lib/files.ts](app/src/lib/files.ts) is the only module that touches the
 platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
 [app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
