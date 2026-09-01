@@ -101,7 +101,7 @@ function harness(over: Partial<State> = {}) {
   const client: MailClient = {
     kind: 'gmail',
     address: 'me@example.com',
-    listInbox: async () => [],
+    list: async () => ({ messages: [] }),
     getRaw: async () => '',
     send: async () => {},
     updateFlags: async () => {},

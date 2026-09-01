@@ -106,7 +106,7 @@ function harness(over: Partial<State> = {}) {
   const client: MailClient = {
     kind: 'gmail',
     address: SESSION.email,
-    listInbox: async () => [],
+    list: async () => ({ messages: [] }),
     getRaw: async () => '',
     send: async (rfc822) => {
       wire.push(rfc822);

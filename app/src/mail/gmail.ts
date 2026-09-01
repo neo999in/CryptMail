@@ -6,7 +6,7 @@
 import { base64ToBytes, bytesToUtf8, encodeUtf8Base64, fromBase64Url, toBase64Url } from '../lib/base64';
 import { parseAddress } from '../lib/format';
 import { AuthError } from '../auth/types';
-import { MailClient, MailError, MailSummary } from './types';
+import { MailClient, MailError, Mailbox, MailSummary } from './types';
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -39,9 +39,12 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
     kind: 'gmail',
     address,
 
-    async listInbox(limit = 20) {
-      const list = await call<{ messages?: { id: string; threadId: string }[] }>(
-        `/messages?maxResults=${limit}&labelIds=INBOX`,
+    async list(box, { limit = 20, pageToken } = {}) {
+      const list = await call<{
+        messages?: { id: string; threadId: string }[];
+        nextPageToken?: string;
+      }>(
+        `/messages?maxResults=${limit}${selector(box)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
       );
       const ids = list.messages ?? [];
       // Metadata format is enough for the list; raw is fetched lazily on open.
@@ -61,7 +64,9 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
           ),
         ),
       );
-      return details.map(toSummary);
+      // Each id costs its own metadata GET, so a page is `limit + 1` requests —
+      // which is what keeps the page small rather than fetching the mailbox.
+      return { messages: details.map(toSummary), nextPageToken: list.nextPageToken };
     },
 
     async getRaw(id) {
@@ -94,6 +99,21 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
       });
     },
   };
+}
+
+/**
+ * The query for one mailbox.
+ *
+ * Inbox and Sent are labels; **archive is not**. Gmail has no archived label —
+ * archiving removes `INBOX` and leaves the message in All Mail — so it is asked
+ * for by exclusion. Drafts and sent mail are excluded explicitly because they are
+ * also "not in the inbox" and would otherwise appear here; spam and trash need no
+ * exclusion, since `messages.list` omits both unless `includeSpamTrash` is set.
+ */
+function selector(box: Mailbox): string {
+  if (box === 'sent') return '&labelIds=SENT';
+  if (box === 'archive') return `&q=${encodeURIComponent('-in:inbox -in:sent -in:draft')}`;
+  return '&labelIds=INBOX';
 }
 
 type GmailMessage = {
@@ -133,6 +153,7 @@ function toSummary(message: GmailMessage): MailSummary {
     authenticationResults: header('Authentication-Results') || undefined,
     listUnsubscribe: header('List-Unsubscribe') || undefined,
     returnPath: header('Return-Path') || undefined,
+    labels: message.labelIds,
   };
 }
 

@@ -6,7 +6,7 @@ import { core, PLACEHOLDER_SUBJECT } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
 import { attachmentsOf, htmlOf, plainBodyOf } from '../mail/plainBody';
-import { MailSummary } from '../mail/types';
+import { MailClient, Mailbox, MailSummary } from '../mail/types';
 import { indexContent } from '../search/search';
 import { extractLinks, learn, unlearn } from '../spam/spam';
 import type { SpamMark } from '../spam/spam';
@@ -16,7 +16,15 @@ import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
 import { Ctx, MailboxService, message } from './contracts';
 import { trustForOpened } from './derive';
-import { InboxItem, OpenedMessage } from './types';
+import { BoxState, InboxItem, OpenedMessage, SecondaryBox, State } from './types';
+
+/**
+ * Messages fetched per mailbox, per page.
+ *
+ * Deliberately modest: every id in a page costs the connector its own metadata
+ * request, so this is the fan-out of one "load older" tap, not a display cap.
+ */
+const PAGE_SIZE = 20;
 
 export function createMailbox(ctx: Ctx): MailboxService {
   const { store, mail } = ctx;
@@ -43,6 +51,32 @@ export function createMailbox(ctx: Ctx): MailboxService {
     messages.map((m) => ({ ...m, account }));
 
   /**
+   * How far back each mailbox has been paged, by account.
+   *
+   * A missing entry means "not paged yet"; `null` means that account has handed
+   * over its oldest message and has nothing further to give. Kept here rather
+   * than in the store because it is provider bookkeeping, not something a screen
+   * renders — screens read `canLoadMore`, which is derived from it below.
+   */
+  const cursors = new Map<string, string | null>();
+
+  /** One cursor per mailbox *per account* — Sent pages independently of Inbox. */
+  const cursorKey = (box: Mailbox, account: AccountId) => `${box}@${account}`;
+
+  const exhausted = (box: Mailbox, account: AccountId) => cursors.get(cursorKey(box, account)) === null;
+
+  /** True while any *listed* mailbox still has older mail to fetch. */
+  function moreAvailable(box: Mailbox): boolean {
+    const { unified, activeAccount } = store.get();
+    if (!activeAccount) return false;
+    // Only the inbox merges. Sent and Archive are the active account's own, so a
+    // second mailbox's sent mail is never silently mixed into what you sent from
+    // this one.
+    const listed = unified && box === 'inbox' ? [...mail.clients.keys()] : [activeAccount];
+    return listed.some((account) => !exhausted(box, account));
+  }
+
+  /**
    * The rows to show: one mailbox, or all of them merged.
    *
    * A merged list is newest-first across accounts and tolerant of one provider
@@ -50,25 +84,70 @@ export function createMailbox(ctx: Ctx): MailboxService {
    * account's inbox sitting beside it, so a failed client contributes nothing
    * and the rest still render. The active account is the exception: if *it*
    * fails the error is worth showing, and it is re-thrown.
+   *
+   * `mode: 'more'` asks each mailbox for the page behind the one it last
+   * returned; `'refresh'` forgets every cursor and starts from the newest again.
    */
-  async function collect(): Promise<InboxItem[]> {
+  async function collect(box: Mailbox, mode: 'refresh' | 'more'): Promise<InboxItem[]> {
     const { unified, activeAccount } = store.get();
-    if (!unified || !activeAccount) {
-      if (!mail.current || !activeAccount) return [];
-      return tag(await mail.current.listInbox(20), activeAccount);
+    if (!activeAccount) return [];
+    if (mode === 'refresh') {
+      for (const key of [...cursors.keys()]) if (key.startsWith(`${box}@`)) cursors.delete(key);
+    }
+
+    async function page(account: AccountId, client: MailClient): Promise<InboxItem[]> {
+      // An account that has already reached its oldest message is skipped rather
+      // than re-fetching its newest page, which is what a `undefined` token means
+      // to the provider.
+      if (mode === 'more' && exhausted(box, account)) return [];
+      const pageToken = mode === 'more' ? (cursors.get(cursorKey(box, account)) ?? undefined) : undefined;
+      const result = await client.list(box, { limit: PAGE_SIZE, pageToken });
+      cursors.set(cursorKey(box, account), result.nextPageToken ?? null);
+      return tag(result.messages, account);
+    }
+
+    if (!unified || box !== 'inbox') {
+      if (!mail.current) return [];
+      return page(activeAccount, mail.current);
     }
 
     const lists = await Promise.all(
       [...mail.clients.entries()].map(async ([account, client]) => {
         try {
-          return tag(await client.listInbox(20), account);
+          return await page(account, client);
         } catch (e) {
           if (account === activeAccount) throw e;
           return [];
         }
       }),
     );
-    return lists.flat().sort((a, b) => b.date.localeCompare(a.date));
+    return lists.flat();
+  }
+
+  const byDateDesc = (a: InboxItem, b: InboxItem) => b.date.localeCompare(a.date);
+
+  /**
+   * One box updated, the others untouched.
+   *
+   * `store.patch` is a shallow merge, so `boxes` has to be rebuilt whole or the
+   * sibling box would be dropped.
+   */
+  function patchBox(box: SecondaryBox, change: Partial<BoxState>): State['boxes'] {
+    const boxes = store.get().boxes;
+    return { ...boxes, [box]: { ...boxes[box], ...change } };
+  }
+
+  /**
+   * Newest first, and never the same message twice.
+   *
+   * Paging a live mailbox can hand back a row that is already on screen — mail
+   * arriving between two pages shifts everything down by one — so an older page
+   * is merged by id rather than appended.
+   */
+  function merge(existing: InboxItem[], older: InboxItem[]): InboxItem[] {
+    const byId = new Map(existing.map((m) => [m.id, m]));
+    for (const item of older) if (!byId.has(item.id)) byId.set(item.id, item);
+    return [...byId.values()].sort(byDateDesc);
   }
 
   /**
@@ -89,8 +168,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
       if (!mail.current) return;
       store.patch({ loadingInbox: true, error: null });
       try {
-        const messages = await collect();
-        store.patch({ messages, loadingInbox: false });
+        const messages = await collect('inbox', 'refresh');
+        store.patch({ messages, loadingInbox: false, canLoadMore: moreAvailable('inbox') });
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
@@ -100,6 +179,86 @@ export function createMailbox(ctx: Ctx): MailboxService {
       } catch (e) {
         if (ctx.services.session.handleAuthLoss(e)) return;
         store.patch({ loadingInbox: false, error: message(e) });
+      }
+    },
+
+    /**
+     * Fetch the page of older mail behind what is on screen and append it.
+     *
+     * Additive, unlike a sync: a refresh replaces the list from the newest
+     * message down, so anything already paged in would be dropped if this went
+     * through the same path. Held sends and key harvesting stay on the refresh
+     * path — this is a read of old mail, not a reason to touch the network again.
+     */
+    async loadMoreInbox() {
+      if (!mail.current) return;
+      const { loadingInbox, loadingMore, canLoadMore } = store.get();
+      if (loadingInbox || loadingMore || !canLoadMore) return;
+      store.patch({ loadingMore: true, error: null });
+      try {
+        const older = await collect('inbox', 'more');
+        store.patch({
+          messages: merge(store.get().messages, older),
+          loadingMore: false,
+          canLoadMore: moreAvailable('inbox'),
+        });
+        await harvestFrom(older);
+      } catch (e) {
+        store.patch({ loadingMore: false });
+        if (ctx.services.session.handleAuthLoss(e)) return;
+        store.patch({ error: message(e) });
+      }
+    },
+
+    /**
+     * Load the newest page of Sent or Archive.
+     *
+     * These are their own lists rather than a filter over `messages`: the inbox
+     * holds inbox mail, and a screen that showed sent mail by filtering it would
+     * only ever show what happened to have been synced. Each keeps its own
+     * cursor, so paging one does not disturb the other.
+     *
+     * The active account only, even when the inbox is merged — see
+     * `moreAvailable`. No Autocrypt harvest either: our own sent mail carries our
+     * own key, and archived mail was harvested when it arrived.
+     */
+    async loadBox(box) {
+      if (!mail.current) return;
+      store.patch({ boxes: patchBox(box, { loading: true, error: null }) });
+      try {
+        const items = await collect(box, 'refresh');
+        store.patch({
+          boxes: patchBox(box, {
+            items: items.sort(byDateDesc),
+            loading: false,
+            canLoadMore: moreAvailable(box),
+          }),
+        });
+      } catch (e) {
+        store.patch({ boxes: patchBox(box, { loading: false }) });
+        if (ctx.services.session.handleAuthLoss(e)) return;
+        store.patch({ boxes: patchBox(box, { error: message(e) }) });
+      }
+    },
+
+    async loadMoreBox(box) {
+      if (!mail.current) return;
+      const state = store.get().boxes[box];
+      if (state.loading || state.loadingMore || !state.canLoadMore) return;
+      store.patch({ boxes: patchBox(box, { loadingMore: true, error: null }) });
+      try {
+        const older = await collect(box, 'more');
+        store.patch({
+          boxes: patchBox(box, {
+            items: merge(store.get().boxes[box].items, older),
+            loadingMore: false,
+            canLoadMore: moreAvailable(box),
+          }),
+        });
+      } catch (e) {
+        store.patch({ boxes: patchBox(box, { loadingMore: false }) });
+        if (ctx.services.session.handleAuthLoss(e)) return;
+        store.patch({ boxes: patchBox(box, { error: message(e) }) });
       }
     },
 

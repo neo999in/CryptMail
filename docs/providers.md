@@ -44,6 +44,10 @@ but needs a server.
   - **IMAP/SMTP with XOAUTH2:** use the OAuth token as the IMAP/SMTP credential.
     Simpler to share code with the generic path; no Pub/Sub setup.
 - **Sending:** `users.messages.send` with a base64url raw MIME (our ciphertext).
+- **Which endpoints to adopt, and which to refuse:**
+  [gmail-api-adoption.md](gmail-api-adoption.md) — batching, `history.list` and
+  aliases are the ones worth building; the `CATEGORY_*` tabs, server drafts and
+  server-side filters are refused there with reasons.
 - **App verification:** Gmail scopes are "restricted"; Google requires OAuth app
   verification + an annual third-party security assessment (CASA) for production.
   Budget for this.

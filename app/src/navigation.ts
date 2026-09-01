@@ -25,6 +25,8 @@ export type RootStackParamList = {
     /** Files carried in from a forward. Base64 already in memory, never re-read. */
     attachments?: Attachment[];
   };
+  Sent: undefined;
+  Archive: undefined;
   Drafts: undefined;
   Scheduled: undefined;
   Keys: undefined;

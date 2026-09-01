@@ -49,6 +49,35 @@ export type MailSummary = {
   authenticationResults?: string;
   listUnsubscribe?: string;
   returnPath?: string;
+  /**
+   * The provider's own labels, verbatim (`CATEGORY_PROMOTIONS`, `IMPORTANT`, …).
+   *
+   * Cleartext metadata the provider assigned, so it costs nothing to carry — it
+   * arrives on the same `format=metadata` response the headers do. Read by the
+   * categoriser for **plaintext mail only**: a label is Google's reading of
+   * content it could see, and an encrypted message gives it nothing to read.
+   */
+  labels?: string[];
+};
+
+/**
+ * A list of mail the provider can serve.
+ *
+ * `archive` is not a folder anywhere — it is everything the account keeps that is
+ * not in the inbox, not sent, and not a draft. Gmail models it as a query rather
+ * than a label, which is why connectors translate this rather than passing it on.
+ */
+export type Mailbox = 'inbox' | 'sent' | 'archive';
+
+/**
+ * One page of rows, plus the cursor that reaches the page behind it.
+ *
+ * `nextPageToken` absent means the mailbox has no older mail — that is the only
+ * thing that ends paging, so a connector must not omit a cursor it still has.
+ */
+export type MailPage = {
+  messages: MailSummary[];
+  nextPageToken?: string;
 };
 
 /** A change to a message's flags. `archived: true` removes it from the inbox. */
@@ -57,7 +86,13 @@ export type FlagPatch = { unread?: boolean; starred?: boolean; archived?: boolea
 export interface MailClient {
   readonly kind: 'gmail';
   readonly address: string;
-  listInbox(limit?: number): Promise<MailSummary[]>;
+  /**
+   * One page of a mailbox, newest first. `pageToken` continues a previous page.
+   *
+   * Paged rather than capped: a mailbox is older than any one page, and without a
+   * cursor the app could only ever show its newest `limit` messages.
+   */
+  list(box: Mailbox, options?: { limit?: number; pageToken?: string }): Promise<MailPage>;
   /** Full RFC 5322 source — what the crypto core needs. */
   getRaw(id: string): Promise<string>;
   send(rfc822: string): Promise<void>;

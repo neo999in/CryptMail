@@ -17,7 +17,16 @@
  */
 import { directory } from '../keys';
 import { emptySpamState } from '../store/spamModelStore';
-import { State } from './types';
+import { BoxState, State } from './types';
+
+/** A mailbox screen that has not been opened yet. */
+const emptyBox = (): BoxState => ({
+  items: [],
+  loading: false,
+  loadingMore: false,
+  canLoadMore: false,
+  error: null,
+});
 
 export type Store = {
   /** The current state — never a render-time snapshot. */
@@ -49,6 +58,12 @@ export function initialState(): State {
     spam: emptySpamState(),
     messages: [],
     loadingInbox: false,
+    loadingMore: false,
+    canLoadMore: false,
+    boxes: {
+      sent: emptyBox(),
+      archive: emptyBox(),
+    },
     error: null,
   };
 }

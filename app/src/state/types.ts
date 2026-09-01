@@ -8,7 +8,7 @@ import { Session } from '../auth';
 import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
 import { Attachment } from '../mail/attachment';
-import { MailSummary } from '../mail/types';
+import { Mailbox, MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import type { LinkPair } from '../spam/spam';
@@ -168,6 +168,30 @@ export type State = {
   spam: SpamState;
   messages: InboxItem[];
   loadingInbox: boolean;
+  /** A page of *older* mail is in flight. Separate from a sync, which replaces the list. */
+  loadingMore: boolean;
+  /** At least one listed mailbox has mail older than the last page it handed over. */
+  canLoadMore: boolean;
+  /**
+   * Sent and Archive, each fetched and paged on its own.
+   *
+   * Not a filter over `messages`: that list holds inbox mail, so filtering it
+   * would show only the sent mail that happened to be in the inbox — which is
+   * none. These are the active account's, even when the inbox is merged.
+   */
+  boxes: Record<SecondaryBox, BoxState>;
+  error: string | null;
+};
+
+/** The mailboxes that have their own screen rather than being the inbox. */
+export type SecondaryBox = Exclude<Mailbox, 'inbox'>;
+
+/** One such list, with the same loading vocabulary the inbox uses. */
+export type BoxState = {
+  items: InboxItem[];
+  loading: boolean;
+  loadingMore: boolean;
+  canLoadMore: boolean;
   error: string | null;
 };
 
@@ -183,6 +207,12 @@ export type Actions = {
   /** Show every account's mail in one list, or just the active one's. */
   setUnified(on: boolean): Promise<void>;
   refreshInbox(): Promise<void>;
+  /** Append the next page of older mail. No-op once every mailbox is exhausted. */
+  loadMoreInbox(): Promise<void>;
+  /** Load Sent or Archive from its newest page. */
+  loadBox(box: SecondaryBox): Promise<void>;
+  /** Append the next page of older mail to Sent or Archive. */
+  loadMoreBox(box: SecondaryBox): Promise<void>;
   openMessage(summary: MailSummary): Promise<OpenedMessage>;
   encryptionFor(summary: MailSummary): EncryptionState;
   /** Local state only: pure, synchronous, no network. The input to rule 1. */

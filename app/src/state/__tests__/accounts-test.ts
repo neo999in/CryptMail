@@ -133,8 +133,9 @@ function mockMailboxFor(address: string): MailClient {
   return {
     kind: 'gmail',
     address,
-    async listInbox(limit = 20) {
-      return rows.slice(0, limit);
+    async list(box, { limit = 20 } = {}) {
+      // One page holds every row this fake has, so it hands back no cursor.
+      return { messages: box === 'inbox' ? rows.slice(0, limit) : [] };
     },
     async getRaw(id) {
       const row = rows.find((r) => r.id === id);

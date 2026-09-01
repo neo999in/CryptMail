@@ -67,7 +67,13 @@ export function createAccounts(ctx: Ctx): AccountsService {
       const session = sessions.get(id);
       if (!session) throw new Error('That account is not connected.');
 
-      store.patch({ switchingAccount: true, error: null, loadingInbox: false });
+      store.patch({
+        switchingAccount: true,
+        error: null,
+        loadingInbox: false,
+        loadingMore: false,
+        canLoadMore: false,
+      });
       try {
         await persist({ ...(await loadAccounts()), active: id });
         await ctx.services.session.attach(session);

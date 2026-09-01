@@ -46,6 +46,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 export function MessageScreen({ route, navigation }: Props) {
   const {
     messages,
+    boxes,
     openMessage,
     keyring,
     identity,
@@ -70,7 +71,17 @@ export function MessageScreen({ route, navigation }: Props) {
   const [saving, setSaving] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const summary = messages.find((m) => m.id === route.params.id);
+  // The row can come from any list that shows mail, not just the inbox: opening
+  // a message from Sent or Archive lands here with an id the inbox has never
+  // seen.
+  const summary = useMemo(() => {
+    const id = route.params.id;
+    return (
+      messages.find((m) => m.id === id) ??
+      boxes.sent.items.find((m) => m.id === id) ??
+      boxes.archive.items.find((m) => m.id === id)
+    );
+  }, [boxes, messages, route.params.id]);
 
   /**
    * The filter's verdict for this message.

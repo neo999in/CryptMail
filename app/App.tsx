@@ -22,6 +22,7 @@ import { ComposeScreen } from './src/screens/ComposeScreen';
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { ConversationScreen } from './src/screens/ConversationScreen';
 import { DraftsScreen } from './src/screens/DraftsScreen';
+import { ArchiveScreen, SentScreen } from './src/screens/MailboxScreen';
 import { InboxScreen } from './src/screens/InboxScreen';
 import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
@@ -91,7 +92,7 @@ function InboxDrawer() {
   );
 }
 
-/** The eight-screen UI — the only one. */
+/** The ten-screen UI — the only one. */
 function FullStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
@@ -104,6 +105,8 @@ function FullStack() {
         options={{ title: 'New message', presentation: 'modal' }}
         initialParams={{}}
       />
+      <Stack.Screen name="Sent" component={SentScreen} options={{ title: 'Sent' }} />
+      <Stack.Screen name="Archive" component={ArchiveScreen} options={{ title: 'Archive' }} />
       <Stack.Screen name="Drafts" component={DraftsScreen} options={{ title: 'Drafts' }} />
       <Stack.Screen name="Scheduled" component={ScheduledScreen} options={{ title: 'Scheduled' }} />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />

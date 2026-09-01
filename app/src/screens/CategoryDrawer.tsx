@@ -9,8 +9,9 @@
  * still only a reading convenience, and it is the "All accounts" toggle at the
  * top of the panel.
  *
- * The panel on the right lists destinations that exist. The reference also shows
- * Archive, Snoozed and Deleted; CryptMail has no backing for those, so they are
+ * The panel on the right lists destinations that exist. Sent and Archive are
+ * fetched from the provider (`screens/MailboxScreen.tsx`); the reference also
+ * shows Snoozed and Deleted, and CryptMail has no backing for those, so they are
  * not drawn as rows that do nothing — see docs/design/ui-rework.md.
  *
  * Counts come from `unreadCountsByCategory`, which honours the encryption
@@ -88,7 +89,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     navigation.closeDrawer();
   };
 
-  const push = (screen: 'Drafts' | 'Scheduled' | 'Settings') => {
+  const push = (screen: 'Sent' | 'Archive' | 'Drafts' | 'Scheduled' | 'Settings') => {
     navigation.closeDrawer();
     stack.navigate(screen);
   };
@@ -111,6 +112,8 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
   };
 
   const destinations: Destination[] = [
+    { icon: 'send', label: 'Sent', go: () => push('Sent') },
+    { icon: 'archive', label: 'Archive', go: () => push('Archive') },
     { icon: 'edit', label: 'Drafts', go: () => push('Drafts') },
     { icon: 'clock', label: 'Scheduled', go: () => push('Scheduled') },
   ];

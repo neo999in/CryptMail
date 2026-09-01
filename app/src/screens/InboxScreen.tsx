@@ -3,7 +3,15 @@ import { CompositeScreenProps, useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MotiView } from 'moti';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  SectionList,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
@@ -22,6 +30,7 @@ import { Aurora } from '../ui/aurora';
 import { useAccent, useAppearance } from '../ui/appearance';
 import { INBOX_TABS, InboxTab, showsUnderTab } from '../ui/focusedSplit';
 import { useCategoryFilter } from '../ui/inboxFilter';
+import { lockFor } from '../ui/lock';
 import {
   Avatar,
   EmptyState,
@@ -66,8 +75,11 @@ export function InboxScreen({ navigation }: Props) {
     switchingAccount,
     messages,
     loadingInbox,
+    loadingMore,
+    canLoadMore,
     error,
     refreshInbox,
+    loadMoreInbox,
     encryptionFor,
     searchIndex,
     spam,
@@ -112,9 +124,9 @@ export function InboxScreen({ navigation }: Props) {
         const encrypted = encryption.kind === 'encrypted';
         if (filter === 'encrypted' && !encrypted) return false;
         if (filter === 'attention' && !needsAttention(encryption)) return false;
-        // The drawer's category filter and the tabs both read only on-device
-        // content, exactly like search: categorizeMessage classifies unopened
-        // encrypted mail as 'primary' rather than reading its ciphertext
+        // The drawer's category filter and the tabs sort plaintext mail only:
+        // categorizeMessage leaves every encrypted message in 'primary', opened
+        // or not, so encrypted mail is never filed away from the main list
         // (categorizer/categorizer.ts).
         const messageCategory = categorizeMessage(summary, encrypted, searchIndex, spamContext);
         // A chosen category is the more specific request, so it wins over the
@@ -301,6 +313,22 @@ export function InboxScreen({ navigation }: Props) {
           renderSectionHeader={({ section }) => <Text style={s.sectionHead}>{section.title}</Text>}
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+          // Filters and search run over rows already on the device, so paging
+          // while one is up would fetch mail the list is about to hide. The
+          // footer button stays, which is how older mail is reached from there.
+          onEndReached={filtering ? undefined : () => void loadMoreInbox()}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={s.footer}>
+                <ActivityIndicator color={accent} />
+              </View>
+            ) : canLoadMore && messages.length > 0 ? (
+              <View style={s.footer}>
+                <SecondaryButton title="Load older mail" icon="refresh" onPress={() => void loadMoreInbox()} />
+              </View>
+            ) : null
+          }
           keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={accent} />
@@ -536,22 +564,9 @@ const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDat
  * decision the user has to make. `label` is what a screen reader announces on
  * the row, so the state is never colour-only.
  */
-function lockFor(encryption: EncryptionState): { icon: 'lock' | 'alert' | 'mail'; tint: string; label: string } {
-  if (encryption.kind === 'plain') return { icon: 'mail', tint: color.inkFaint, label: 'Not encrypted' };
-  if (encryption.own) return { icon: 'lock', tint: color.mint, label: 'Encrypted, from you' };
-  switch (encryption.trust) {
-    case 'verified':
-      return { icon: 'lock', tint: color.mint, label: 'Encrypted, verified key' };
-    case 'seen':
-      return { icon: 'lock', tint: color.mint, label: 'Encrypted, key not verified' };
-    case 'changed':
-      return { icon: 'alert', tint: color.coral, label: 'Encrypted, key changed' };
-    default:
-      return { icon: 'alert', tint: color.coral, label: 'Encrypted, no key on file' };
-  }
-}
-
 const s = StyleSheet.create({
+  footer: { alignItems: 'center', paddingHorizontal: space.lg, paddingVertical: space.lg },
+
   screen: { backgroundColor: 'transparent', flex: 1 },
 
   topbar: { backgroundColor: color.surface, overflow: 'hidden', position: 'relative' },

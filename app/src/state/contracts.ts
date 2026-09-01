@@ -20,7 +20,7 @@ import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
 import { RecipientState } from './recipients';
 import { Store } from './store';
-import { OpenedMessage, PlainSendInput, SendInput, SendOutcome } from './types';
+import { OpenedMessage, PlainSendInput, SecondaryBox, SendInput, SendOutcome } from './types';
 
 /**
  * The provider for the signed-in account.
@@ -53,6 +53,9 @@ export type SessionService = {
 
 export type MailboxService = {
   refreshInbox(): Promise<void>;
+  loadMoreInbox(): Promise<void>;
+  loadBox(box: SecondaryBox): Promise<void>;
+  loadMoreBox(box: SecondaryBox): Promise<void>;
   openMessage(summary: MailSummary): Promise<OpenedMessage>;
   setFlags(id: string, change: FlagPatch): Promise<void>;
   toggleStar(id: string): Promise<void>;

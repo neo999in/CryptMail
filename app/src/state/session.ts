@@ -204,6 +204,8 @@ export function createSession(ctx: Ctx): SessionService {
         messages: [],
         verifyLink: null,
         loadingInbox: false,
+        loadingMore: false,
+        canLoadMore: false,
         error: message(e),
       });
       return true;

@@ -119,14 +119,15 @@ becomes the two-column drawer of shot 3:
   "exactly one account is active" rule is unchanged, and the rail is just a
   faster way to exercise it. The unified-inbox toggle becomes the "All Accounts"
   title row at the top of the panel.
-- **Right panel**: Inbox (with the unread count badge in the accent), Drafts,
-  Scheduled, Junk. The reference also lists Archive, Sent, Snoozed and Deleted;
-  **none of those has a destination in CryptMail today** — there is no Sent
-  screen and no archive/trash plumbing — so they are not drawn as dead rows.
-  The panel lists what exists, and the categories (Primary, Purchases, Bills,
+- **Right panel**: Inbox (with the unread count badge in the accent), Sent,
+  Archive, Drafts, Scheduled, Junk. Sent and Archive are real destinations as of
+  this change — `screens/MailboxScreen.tsx`, fetched from the provider and paged
+  on their own cursors. The reference also lists Snoozed and Deleted; **neither
+  has a destination in CryptMail today**, so they are not drawn as dead rows —
+  the panel lists what exists. The categories (Primary, Purchases, Bills,
   Promotions) stay below under a "Categories" heading, which is what this
-  drawer is currently for. Adding the real folders is Gmail-API work, out of
-  scope here and filed as 0.19 in [features.md](../features.md).
+  drawer is otherwise for. Snooze and trash remain 0.19 in
+  [features.md](../features.md).
 - A Settings row pinned to the bottom.
 
 ### 5. Settings and Display & Appearance (new screens)
