@@ -1419,9 +1419,11 @@ markNotSpam: (id) => applyMark(id, 'ham'),
 1. The message is looked up in current state (`store.get()`, not a render
    snapshot). **If it is not in the mailbox, nothing happens.**
 2. `isEncrypted(summary)` is computed from the placeholder-subject test, and
-   `spamInputFor` builds the training input — **the same gate scoring uses**, so an
-   unopened encrypted message trains on its cleartext headers and nothing else
-   (§13.4).
+   `spamInputFor` builds the training input, so an unopened encrypted message
+   trains on its cleartext headers and nothing else (§13.4). Note the asymmetry
+   this leaves: encrypted mail is never *scored* (§13.4), but the user may still
+   mark one, and that mark trains the model. Deliberate — the user chose to file
+   it, and what they teach the filter carries over to plaintext mail.
 3. `if (previous === mark) return;` — the duplicate guard.
 4. The previous mark, if any, is untrained; the new one is trained.
 5. `store.patch({ spam })` updates state **synchronously**, so the UI re-renders
@@ -1669,21 +1671,35 @@ const readable = encrypted
 | Encrypted, opened on this device | the decrypted subject and body from `searchIndex` |
 | Encrypted, never opened | **nothing** — `undefined` for both |
 
-An unopened encrypted message therefore scores on **cleartext headers alone**. In
-the demo mailbox that is a single `MESSAGE_ID_MISMATCH` at 0.4, far below both
-thresholds, so it stays in Primary (§15).
+That is what `spamInputFor` *would* pass on. But the gate above it is blunter:
+
+> **Encrypted mail is not classified at all.** `verdictFor` returns `UNSCORED` —
+> no content rules, no header rules, no Bayes — and `categorizeMessage` leaves the
+> message in Primary.
+
+Cleartext headers are readable on an encrypted message, and the engine could act
+on them; earlier versions did, filing a DMARC-failing lookalike as spam whether or
+not the body had been opened. That is no longer done. A verdict is a statement
+about a message, and this app does not reach statements about mail it was trusted
+to keep sealed — the cost of being wrong is a message the user needed, hidden by
+the client that was supposed to be the one thing on their side. Encrypted mail
+stays visible, in Primary, and the user decides.
 
 Two things follow, and both are deliberate:
 
-- **The ciphertext placeholder subject and the provider's snippet of an encrypted
-  message are never inspected as text.** They are ciphertext artefacts, not content.
-- **Scoring and training read the same function.** `verdictFor` calls
-  `spamInputFor`, and so does `applyMark`. If the body is not readable for scoring,
-  it is not readable for learning either — the two cannot drift apart.
+- **The ciphertext placeholder subject and the provider's snippet are never
+  inspected as text.** They are ciphertext artefacts, not content. Neither is the
+  *decrypted* text: opening a message to read it is not permission to file it.
+- **The user's own mark still counts.** A `spam` mark short-circuits to an
+  override (§11.2), so "mark as spam" works on encrypted mail. A human filing a
+  message is not the app classifying it — that distinction is the whole rule.
 
-**Cleartext headers are fair game.** The provider already has them; they are how
-the message was routed. Reading them locally reveals nothing new to anyone and is
-where the strongest phishing evidence lives.
+**Where headers are still fair game: plaintext mail.** The provider already has
+them; they are how the message was routed. Reading them locally reveals nothing
+new to anyone and is where the strongest phishing evidence lives. `spamInputFor`
+keeps its encryption boundary unchanged because **training** still uses it — a
+user who marks an opened encrypted message learns from its decrypted content and
+nothing else.
 
 ### 13.5 Defensive parsing
 

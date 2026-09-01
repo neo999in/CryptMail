@@ -85,6 +85,35 @@ const includesAny = (haystack: string, needles: string[]): boolean =>
   needles.some((needle) => haystack.includes(needle));
 
 /**
+ * Gmail's own tab labels. `CATEGORY_PERSONAL` is the Primary tab.
+ *
+ * Only `CATEGORY_PROMOTIONS` maps onto a bucket of ours; the rest matter because
+ * their *presence* is Google saying it classified the message and did not find it
+ * promotional. Gmail has no Bills or Purchases tab, so those stay ours — that is
+ * an axis the provider does not classify on, not a disagreement with it.
+ */
+const PROVIDER_TABS = [
+  'CATEGORY_PERSONAL',
+  'CATEGORY_SOCIAL',
+  'CATEGORY_PROMOTIONS',
+  'CATEGORY_UPDATES',
+  'CATEGORY_FORUMS',
+];
+
+/**
+ * What the provider's labels say about a message being promotional.
+ *
+ * `unknown` is the honest answer for a connector that supplies no labels at all,
+ * and for mail that predates the tabs — it is not "no", and it must fall through
+ * to our own keywords rather than silently filing everything as Primary.
+ */
+function providerPromotions(labels: string[] | undefined): 'yes' | 'no' | 'unknown' {
+  if (!labels) return 'unknown';
+  if (labels.includes('CATEGORY_PROMOTIONS')) return 'yes';
+  return labels.some((label) => PROVIDER_TABS.includes(label)) ? 'no' : 'unknown';
+}
+
+/**
  * Categorize a chunk of already-readable text (subject + body/snippet).
  *
  * Spam is checked first so a flagged message never masquerades as a bill or an
@@ -96,12 +125,25 @@ const includesAny = (haystack: string, needles: string[]): boolean =>
  * argument, as every existing caller does, the text is scored on its content
  * alone: still a real classification, just working from less evidence.
  */
-export function categorize(text: string, verdict?: SpamVerdict | null): Category {
+export function categorize(text: string, verdict?: SpamVerdict | null, labels?: string[]): Category {
   if (checkIsSpam(text, verdict)) return 'spam';
 
   const t = text.toLowerCase();
+  // Bills and purchases first, and independent of the provider: Gmail has no tab
+  // for either, so its labels carry no opinion to defer to. Bills beat purchases
+  // for the same reason as before — a bill that is also an order is a bill.
   if (includesAny(t, BILL_KEYWORDS)) return 'bills';
   if (includesAny(t, PURCHASE_KEYWORDS)) return 'purchases';
+
+  // Promotions is the one axis Gmail does classify, and it does it better than a
+  // keyword list — it has the sending domain's reputation and bulk-send patterns,
+  // which no client can see. So its answer wins in both directions: a labelled
+  // promo is one even with no keyword in it, and a message Google tabbed as
+  // Personal or Updates is not reclassified because it happens to say "deal".
+  const promotional = providerPromotions(labels);
+  if (promotional === 'yes') return 'promotions';
+  if (promotional === 'no') return 'primary';
+
   if (includesAny(t, PROMOTION_KEYWORDS)) return 'promotions';
   return 'primary';
 }
@@ -175,16 +217,22 @@ function linksFromText(text: string | undefined): SpamInput['links'] {
 }
 
 /**
- * Categorize an inbox row, honouring the encryption boundary.
+ * Categorize an inbox row.
  *
- * Plaintext mail is read from its header subject + provider snippet. Encrypted
- * mail is read only from content decrypted on this device (`index`); with no such
- * content — an unopened message — there is nothing to inspect, so it stays in
- * `primary` rather than having its ciphertext placeholder classified.
+ * **Encrypted mail is never categorised.** Not from its ciphertext, and not from
+ * the plaintext this device happens to hold after opening it: a bucket is a
+ * statement about a message's contents, and mail the user chose to encrypt is
+ * not sorted on its contents here. It stays in `primary` and stays visible.
  *
- * The boundary is why the spam engine is handed a *constructed* input rather than
- * a raw message: headers are cleartext and always readable, but the subject and
- * body passed in are only ever text this device already holds in the clear.
+ * The one thing that still moves it is the user's own `spam` mark — a human
+ * filing a message is not the app classifying it, and the mark has to be honoured
+ * or the "mark as spam" action would silently do nothing on exactly the mail this
+ * product exists for.
+ *
+ * Plaintext mail is read from its header subject + provider snippet, scored by
+ * the spam engine, and filed with the provider's own tab labels where it has
+ * them (`summary.labels`). Those labels exist only because the provider could
+ * read the message, which is exactly why they are never consulted above.
  */
 export function categorizeMessage(
   summary: MailSummary,
@@ -193,17 +241,28 @@ export function categorizeMessage(
   context: SpamContext = {},
 ): Category {
   const verdict = verdictFor(summary, encrypted, index, context);
-  if (encrypted) {
-    const content = index[summary.id];
-    // Nothing decrypted here. Header evidence is still readable and still counts —
-    // a message that fails DMARC while claiming to be a bank is suspicious whether
-    // or not its body has been opened — but there is no text to keyword-match, so
-    // the non-spam categories cannot apply.
-    if (!content) return verdict.classification !== 'legitimate' ? 'spam' : 'primary';
-    return categorize(`${content.subject} ${content.body}`, verdict);
-  }
-  return categorize(`${summary.subject} ${summary.snippet}`, verdict);
+  // `verdictFor` returns the unscored verdict for encrypted mail unless the user
+  // marked it, so this is the mark and nothing else.
+  if (encrypted) return verdict.classification === 'spam' ? 'spam' : 'primary';
+  return categorize(`${summary.subject} ${summary.snippet}`, verdict, summary.labels);
 }
+
+/**
+ * A verdict for a message that was never scored.
+ *
+ * Not "we looked and found nothing" — nothing was looked at. It is the same shape
+ * a rule that threw returns, for the same reason: an empty symbol list is the
+ * honest report when no rule ran, and the message stays visible.
+ */
+const UNSCORED: SpamVerdict = {
+  classification: 'legitimate',
+  score: 0,
+  phishingScore: 0,
+  symbols: [],
+  bayesApplied: false,
+  bayesProbability: null,
+  overridden: false,
+};
 
 /**
  * The full verdict for one inbox row.
@@ -211,6 +270,13 @@ export function categorizeMessage(
  * Exported because the message view shows *why* something was flagged, and
  * recomputing it there from a different input would risk the banner disagreeing
  * with the bucket.
+ *
+ * Encrypted mail is not scored at all — no content rules, no header rules, no
+ * Bayes. Header evidence *is* readable on an encrypted message and the engine
+ * could act on it, but a phishing banner is a verdict about a message, and this
+ * app does not reach verdicts about mail it was trusted to keep sealed. An
+ * explicit user mark still short-circuits to an override, which is the user's own
+ * decision rather than the engine's.
  */
 export function verdictFor(
   summary: MailSummary,
@@ -218,6 +284,8 @@ export function verdictFor(
   index: SearchIndex,
   context: SpamContext = {},
 ): SpamVerdict {
+  const mark = context.marks?.[summary.id] ?? null;
+  if (encrypted && mark === null) return UNSCORED;
   return classifyMessage(spamInputFor(summary, encrypted, index, context), {
     model: context.model,
     mark: context.marks?.[summary.id] ?? null,

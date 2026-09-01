@@ -46,10 +46,11 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
 | Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
 | Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
+| Sent + Archive screens | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
 | Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
-| Category drawer (Primary/Bills/…) | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 16 |
+| Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions from Gmail's `CATEGORY_*` labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 23 |
 | Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
-| Spam & phishing detection | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
+| Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
 
 416 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
@@ -386,18 +387,25 @@ dynamic type, RTL and localisation.
 **Done when.** The inbox and message screens are fully navigable by screen
 reader, every trust state has a text equivalent, and a light palette exists.
 
-### 0.19 Archive, snooze and trash folders · Impact M · Effort M
+### 0.19 Snooze and trash folders · Impact M · Effort M
 
-**What.** Real Archive, Snoozed and Deleted destinations, backed by Gmail label
-and thread operations, listed in the navigation drawer.
+**What.** Snoozed and Deleted destinations, backed by Gmail label and thread
+operations, listed in the navigation drawer.
 
-**Why.** The drawer's shape is Outlook's, and those three are the entries a
-person reaches for out of habit. Today CryptMail has Inbox, Drafts, Scheduled
-and Junk and nothing behind the other three, so the drawer deliberately omits
-them — a row that does nothing costs more trust than a missing row.
+**Why.** The drawer's shape is Outlook's, and those are entries a person reaches
+for out of habit. A row that does nothing costs more trust than a missing row, so
+the drawer lists only what exists.
 
-**Done when.** Archiving and deleting a thread reach the provider and survive a
-refresh, and the drawer lists them with the rest.
+**Status.** **Sent and Archive are done** —
+[`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one screen
+parameterised by box, each list fetched from the provider and paged on its own
+cursor. Archive is a query rather than a label (Gmail has no archived label:
+archiving removes `INBOX`), which is why the connector translates it. What is
+left here is snooze, which needs local scheduling like the outbox, and trash,
+which needs `messages.trash` and a delete affordance.
+
+**Done when.** Snoozing returns a thread at the chosen time and deleting reaches
+the provider and survives a refresh, with both listed in the drawer.
 
 ### 0.17 Client-side key sharing · Impact M · Effort M — ✎ designed
 
@@ -532,8 +540,10 @@ If the goal is *a client someone would actually use*, without pretending the
 crypto is finished:
 
 1. **0.1 Filters & rules** — the flagship "we had to build this client-side
-   because encryption" feature, and the category drawer is already the shipped
-   proof that classification has to run after local decrypt.
+   because encryption" feature. Note the scope it inherits: encrypted mail is
+   never categorised or scored (SPAM_PHISHING_DETECTION.md §13.4), so rules act
+   on plaintext mail, and any rule offered for encrypted mail has to work from
+   what the user states — a sender, an address — rather than from content.
 2. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
 3. **0.5 Contacts + trust dashboard** — makes the security model visible where
    recipients are chosen.

@@ -131,9 +131,12 @@ describe('categorizeMessage', () => {
     expect(categorizeMessage(plain, false, emptyIndex)).toBe('promotions');
   });
 
-  test('an opened encrypted message is categorized from its decrypted content', () => {
+  test('an opened encrypted message is still not categorized from its content', () => {
+    // The plaintext is right here in the index and it reads exactly like a bill.
+    // Encrypted mail is not sorted on its contents anyway — decrypting something
+    // to read it is not permission to file it.
     const index: SearchIndex = { m1: { subject: 'Your invoice', body: 'amount due $40' } };
-    expect(categorizeMessage(summary(), true, index)).toBe('bills');
+    expect(categorizeMessage(summary(), true, index)).toBe('primary');
   });
 
   test('an unopened encrypted message stays in primary — its ciphertext is never read', () => {
@@ -147,22 +150,65 @@ describe('categorizeMessage', () => {
     expect(categorizeMessage(summary({ subject: 'invoice past due' }), true, emptyIndex)).toBe('primary');
   });
 
+  test("Gmail's Promotions label files a message with no promotional wording", () => {
+    // The value of deferring: reputation and bulk-send patterns are visible to
+    // the provider and to no client, so this is a promo our keywords would miss.
+    const plain = summary({ subject: 'Your weekly digest', snippet: 'Here is what happened.' });
+    expect(categorizeMessage({ ...plain, labels: ['INBOX', 'CATEGORY_PROMOTIONS'] }, false, emptyIndex))
+      .toBe('promotions');
+  });
+
+  test('a message Gmail tabbed elsewhere is not re-filed as a promo by keywords', () => {
+    // "deal" in a mail from a colleague. Google classified it and said Personal;
+    // our keyword list does not get to overrule that.
+    const plain = summary({ subject: 'the deal is closed', snippet: 'Great news on the sale.' });
+    expect(categorizeMessage({ ...plain, labels: ['INBOX', 'CATEGORY_PERSONAL'] }, false, emptyIndex))
+      .toBe('primary');
+  });
+
+  test('bills and purchases stay ours — Gmail has no tab for either', () => {
+    const bill = summary({ subject: 'Your December statement', snippet: 'Balance due soon' });
+    expect(categorizeMessage({ ...bill, labels: ['INBOX', 'CATEGORY_UPDATES'] }, false, emptyIndex))
+      .toBe('bills');
+  });
+
+  test('no labels at all falls through to our keywords', () => {
+    // A connector that supplies none, or mail predating the tabs. Absence is not
+    // a verdict of "not promotional".
+    const plain = summary({ subject: 'Weekend', snippet: 'Grab this coupon before the deal ends' });
+    expect(categorizeMessage(plain, false, emptyIndex)).toBe('promotions');
+  });
+
+  test('the provider label never reaches encrypted mail', () => {
+    // Google labelled it, because Google labels everything. It saw ciphertext.
+    const encrypted = summary({ labels: ['INBOX', 'CATEGORY_PROMOTIONS'] });
+    expect(categorizeMessage(encrypted, true, emptyIndex)).toBe('primary');
+  });
+
   test('an explicit mark wins over the score, either way', () => {
     const plain = summary({ id: 'm1', subject: 'Your December statement', snippet: 'Balance due soon' });
     expect(categorizeMessage(plain, false, emptyIndex, { marks: { m1: 'spam' } })).toBe('spam');
     expect(categorizeMessage(plain, false, emptyIndex, { marks: { m1: 'ham' } })).toBe('bills');
   });
 
-  test('header evidence still files unopened encrypted mail as spam', () => {
-    // Headers are cleartext, so a message failing DMARC while claiming a brand it
-    // does not own is suspicious whether or not its body has been read. Nothing
-    // about its ciphertext is inspected to reach that.
+  test('header evidence does not file encrypted mail as spam', () => {
+    // The headers here are damning — failed DMARC, a lookalike domain, an
+    // off-domain reply-to — and the engine would call it phishing on plaintext.
+    // Encrypted mail is not scored at all, so it stays visible in primary.
     const encrypted = summary({
       from: { address: 'security@paypa1-verify.example', name: 'PayPal Service' },
       replyTo: 'paypal.recovery@gmail.com',
       authenticationResults: 'mx.google.com; spf=fail; dkim=none; dmarc=fail header.from=paypa1-verify.example',
     });
-    expect(categorizeMessage(encrypted, true, emptyIndex)).toBe('spam');
+    expect(categorizeMessage(encrypted, true, emptyIndex)).toBe('primary');
+  });
+
+  test("a user's own spam mark still files an encrypted message", () => {
+    // The one thing that moves encrypted mail: the human said so. Without this,
+    // "mark as spam" would appear to do nothing on encrypted mail.
+    const encrypted = summary({ id: 'm1' });
+    expect(categorizeMessage(encrypted, true, emptyIndex, { marks: { m1: 'spam' } })).toBe('spam');
+    expect(categorizeMessage(encrypted, true, emptyIndex, { marks: { m1: 'ham' } })).toBe('primary');
   });
 });
 
