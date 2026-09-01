@@ -17,6 +17,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
 import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, tint, type } from '../theme';
@@ -466,12 +467,26 @@ export function EmptyState({
 /* ------------------------------------------------------------ segmented ---- */
 
 /**
- * A pill segmented control - the `Focused | Other` tabs, and `Theme | Density`.
+ * A segmented control with a sliding thumb — the inbox's `Primary | Encrypted`,
+ * and `Theme | Density`.
  *
- * The selected thumb is a neutral grey, not the accent: in the reference these
- * tabs sit next to accented unread counts and date stamps, and an accented
- * thumb makes the bar compete with the mail underneath it.
+ * nativecn's animated tab bar: a track holding a filled pill that *travels* to
+ * the selected tab rather than cutting to it, with the unselected labels
+ * receding as it goes.
+ *
+ * The thumb is a neutral grey, not the accent. These tabs sit directly above a
+ * list of accented date stamps and unread counts, and an accent-filled thumb
+ * makes the bar compete with the mail underneath it — `color.segment` and
+ * `color.segmentActive` exist for exactly this pair.
+ *
+ * Tab widths are **measured**, not divided evenly: "Encrypted" is half again as
+ * wide as "Primary", and a thumb sized from `width / count` would sit visibly
+ * wrong under both. The row the tabs live in is padding-free for the same
+ * reason — an absolutely-positioned thumb and a measured child have to agree on
+ * where x = 0 is, and padding on a shared parent is what makes them disagree.
  */
+const TAB_IDLE_OPACITY = 0.82;
+
 export function Segmented<T extends string>({
   options,
   value,
@@ -483,26 +498,90 @@ export function Segmented<T extends string>({
   onChange: (key: T) => void;
   style?: StyleProp<ViewStyle>;
 }) {
-  const accent = useAccent();
+  const reducedMotion = useReducedMotion();
+  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
+
+  const index = Math.max(0, options.findIndex((o) => o.key === value));
+  const progress = useRef(new Animated.Value(index)).current;
+
+  useEffect(() => {
+    // Reduced motion still moves the thumb — it just arrives immediately.
+    // Leaving it behind would be a lie about which tab is selected.
+    if (reducedMotion) {
+      progress.setValue(index);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: index,
+      duration: motion.base,
+      easing: Easing.out(Easing.cubic),
+      // Layout props (width) cannot cross to the native driver, and a view may
+      // not mix drivers, so translateX rides along on the JS one.
+      useNativeDriver: false,
+    }).start();
+  }, [index, progress, reducedMotion]);
+
+  const measured = options.length > 0 && options.every((o) => layouts[o.key]);
+  const spread = measured && options.length > 1;
+  const inputRange = options.map((_, i) => i);
+
+  /** Interpolate across every tab's measured value, or hold the one we have. */
+  const across = (pick: (key: T) => number) =>
+    spread
+      ? progress.interpolate({ inputRange, outputRange: options.map((o) => pick(o.key)) })
+      : measured
+        ? pick(options[index]?.key ?? options[0].key)
+        : 0;
+
   return (
-    <View accessibilityRole="tablist" style={[s.segment, style]}>
-      {options.map((option) => {
-        const active = option.key === value;
-        return (
-          <Pressable
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            key={option.key}
-            onPress={() => onChange(option.key)}
-            style={s.segmentItem}
-          >
-            <Text style={[s.segmentText, active && { color: color.ink, fontFamily: font.sansBold }]}>
-              {option.label}
-            </Text>
-            <View style={[s.segmentUnderline, { backgroundColor: active ? accent : 'transparent' }]} />
-          </Pressable>
-        );
-      })}
+    <View style={[s.segment, style]}>
+      <View accessibilityRole="tablist" style={s.segmentTrack}>
+        {/* Drawn before the tabs so it sits behind their labels. */}
+        <Animated.View
+          style={[
+            s.segmentThumb,
+            {
+              opacity: measured ? 1 : 0,
+              transform: [{ translateX: across((key) => layouts[key]?.x ?? 0) }],
+              width: across((key) => layouts[key]?.width ?? 0),
+            },
+          ]}
+        />
+
+        {options.map((option, i) => {
+          const active = option.key === value;
+          // Own index reads 1; every other tab's index pushes it back down.
+          const fade = spread
+            ? progress.interpolate({
+                inputRange,
+                outputRange: options.map((_, j) => (j === i ? 1 : TAB_IDLE_OPACITY)),
+              })
+            : active
+              ? 1
+              : TAB_IDLE_OPACITY;
+          return (
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              key={option.key}
+              onLayout={(e) => {
+                const { x, width } = e.nativeEvent.layout;
+                setLayouts((prev) =>
+                  prev[option.key]?.x === x && prev[option.key]?.width === width
+                    ? prev
+                    : { ...prev, [option.key]: { x, width } },
+                );
+              }}
+              onPress={() => onChange(option.key)}
+              style={s.segmentItem}
+            >
+              <Animated.Text style={[s.segmentText, active && { color: color.ink }, { opacity: fade }]}>
+                {option.label}
+              </Animated.Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -767,12 +846,29 @@ const s = StyleSheet.create({
 
   skeleton: { backgroundColor: color.surfaceRaised },
 
-  // Underline tabs, not a filled pill track: a row of text with a 2px accent
-  // rule under the active one. No background at all until it is selected.
-  segment: { borderBottomColor: color.border, borderBottomWidth: 1, flexDirection: 'row', gap: space.lg },
-  segmentItem: { alignItems: 'center', gap: 9, paddingBottom: 10, paddingTop: 4 },
-  segmentText: { ...type.tab, color: color.inkDim },
-  segmentUnderline: { borderRadius: 2, height: 2, width: '100%' },
+  // A filled track with a pill thumb that slides between the tabs. The outer
+  // view carries the fill and the inset; `segmentTrack` is deliberately
+  // padding-free so the thumb's `left: 0` and a tab's measured `x` share an
+  // origin.
+  segment: {
+    alignSelf: 'flex-start',
+    backgroundColor: color.segment,
+    borderRadius: radius.pill,
+    padding: 3,
+  },
+  segmentTrack: { flexDirection: 'row', position: 'relative' },
+  segmentThumb: {
+    backgroundColor: color.segmentActive,
+    borderRadius: radius.pill,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    top: 0,
+  },
+  segmentItem: { paddingHorizontal: 16, paddingVertical: 7 },
+  // Both labels stay light: the pill is what says which is selected, so the
+  // type does not also have to shout it.
+  segmentText: { ...type.tab, color: color.body },
 
   sheet: {
     backgroundColor: color.surface,

@@ -74,6 +74,8 @@ palette change.
 | `color.cardPress` `#141414` | that card, pressed |
 | `color.surface` `#1F1F1F` | chrome that lifts off black — top bars, drawer panel, sheets |
 | `color.surfaceRaised` `#2A2A2A` | a control resting on `surface` — the Filter pill, a field |
+| `color.segment` `rgba(255,255,255,.07)` | a segmented control's track — translucent, so the aurora runs under it |
+| `color.segmentActive` `rgba(255,255,255,.20)` | the thumb sliding inside that track, and a press wash |
 
 The card does its work with `color.border` (a hairline), not with a fill —
 `card` is only barely lighter than `ground`. That restraint is the whole look.
@@ -139,7 +141,7 @@ twice, it belongs here instead.
 | `GroupHeading` | the label above a `Group` | uppercase, drawn in the accent |
 | `SettingsRow` | a settings destination | icon · label · optional value line · optional trailing |
 | `PressableRow` | any list item | whole-surface press wash, no scale |
-| `Segmented` | tabs — `Focused \| Other`, `Theme \| Density` | **underline tabs**: text with a 2px accent rule under the active one |
+| `Segmented` | tabs — `Primary \| Encrypted`, `Theme \| Density` | a filled track with a **neutral** pill thumb that *slides* to the active tab; widths measured, never divided evenly |
 | `PrimaryButton` | the one real action on a screen | solid **neutral** (`color.ink` on `color.ground` text) |
 | `SecondaryButton` | everything else | outlined card; `tone="danger"` gives coral *text*, not a coral fill |
 | `IconButton` | header and toolbar controls | square ghost tile, flush until pressed |
@@ -240,13 +242,19 @@ own.
 ## 6. Where the accent is allowed
 
 The accent is for **selection and one primary action** — not for every control.
-Legitimate uses: the active tab's underline, a selected drawer row, an unread
-count, a date stamp, a `GroupHeading`, a selected `Radio`, an `Input` caret.
+Legitimate uses: a selected drawer row, an unread count, a date stamp, a
+`GroupHeading`, a selected `Radio`, an `Input` caret.
 
 Not the accent: ordinary buttons (`PrimaryButton` is neutral by design),
 top bars, row backgrounds, or anything expressing trust. If a screen looks
 washed in accent, that is the bug — a hairline border is doing the work a fill
 used to.
+
+**`Segmented`'s thumb is neutral too** (`color.segmentActive`), and that is a
+deliberate exception rather than an oversight: the inbox tabs sit directly above
+a list of accented date stamps and unread counts, and an accent-filled thumb
+makes the bar compete with the mail under it. Selection reads there from the
+fill, the weight and the icon — it does not need the colour as well.
 
 ---
 
@@ -254,6 +262,15 @@ used to.
 
 Keep motion short and consistent: `motion.fast` (120ms) and `motion.base`
 (180ms). Anything longer reads as lag, not polish.
+
+There are two classes of motion here, and they answer to different rules:
+
+- **A discrete transition** the user asked for — the tab indicator sliding, a
+  press scale. It runs once, so it needs only to honour `useReducedMotion()`,
+  and honouring it means *arriving instantly*, not staying put: an indicator
+  left behind is a lie about which tab is selected.
+- **A continuous animation** nobody asked for — the aurora band. It keeps the
+  display pipeline awake, so it answers to all four gates below.
 
 [app/src/ui/aurora/](app/src/ui/aurora/) is the one animated decorative
 surface, and it is allowed **only because of the terms it meets**. All of them
@@ -307,7 +324,7 @@ uses. That keeps the call site a one-liner.
 Logic modules get a sibling `__tests__/<name>-test.ts`; that is the jest
 `testMatch`, so a test placed anywhere else silently never runs. Screens are
 not unit-tested by convention — extract the logic instead, the way
-`ui/focusedSplit.ts` and `ui/aurora/palette.ts` are extracted and tested.
+`ui/inboxTabs.ts` and `ui/aurora/palette.ts` are extracted and tested.
 
 ---
 

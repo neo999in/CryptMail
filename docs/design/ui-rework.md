@@ -88,12 +88,18 @@ lines) is the biggest change. Target, matching shot 2:
 - **Top bar**: flat grey, avatar-button on the left (opens the drawer), title,
   search icon on the right. The current header's account subtitle moves into the
   drawer, where the reference puts it.
-- **Segmented control**: `Focused | Other` on the left as a pill segment,
-  `Filter` pill on the right. This replaces the current `All / Encrypted /
-  Attention` filter pills — those three move *into* the Filter sheet, which is
-  the reference's own pattern, so nothing is lost. Focused/Other is fed by the
-  existing categorizer: Focused = primary + bills, Other = promotions +
-  purchases. Spam stays out of both, reachable from the drawer as Junk.
+- **Segmented control**: two tabs on the left, `Filter` pill on the right. This
+  replaces the current `All / Encrypted / Attention` filter pills — those move
+  *into* the Filter sheet, which is the reference's own pattern, so nothing is
+  lost. Spam stays out of the tabs entirely, reachable from the drawer as Junk.
+
+  This shipped as `Focused | Other`, fed by the categorizer (Focused = primary
+  + bills, Other = promotions + purchases) — a partition, as in the reference.
+  It is now **`Primary | Encrypted`**: Primary is the whole non-junk list and
+  Encrypted narrows it to mail that arrived protected, so the pair is a *lens*
+  rather than a partition and a protected message appears under both. Encrypted
+  left the Filter sheet in the same change, so it is offered in one place only.
+  See [app/src/ui/inboxTabs.ts](../../app/src/ui/inboxTabs.ts).
 - **Rows**: circular tinted avatar with an initial, sender on line one with the
   date right-aligned in the accent, subject semibold on line two, snippet dim on
   line three; encryption badge stays but shrinks to a small lock glyph beside
@@ -193,8 +199,8 @@ fallback. `Icon` gains the glyphs the drawer and settings need (`archive` and
 
 Per step, from `app/`: `npx tsc --noEmit` and `npm test -- --ci` (CI runs
 exactly this). New logic modules get sibling `__tests__/<name>-test.ts` files —
-`prefsStore`, and the Focused/Other split as a pure function
-(`app/src/ui/__tests__/focusedSplit-test.ts`) so the tab logic is testable
+`prefsStore`, and the inbox tab split as a pure function
+(`app/src/ui/__tests__/inboxTabs-test.ts`) so the tab logic is testable
 without a screen. Screens stay untested, per the existing convention. Visual
 checks go through `npm run web`.
 

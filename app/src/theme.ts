@@ -4,8 +4,8 @@
  * The look is the one described in [docs/design/ui-rework.md](../../docs/design/ui-rework.md):
  * bordered cards floating on a true-black ground rather than filled bars, an
  * accent used sparingly (selection and one primary action, not every control),
- * underline tabs instead of a filled pill segment, and Manrope as the whole UI
- * voice. This borrows the restraint of shadcn/nativecn-style component
+ * a segmented control whose thumb is neutral rather than accented, and Manrope
+ * as the whole UI voice. This borrows the restraint of shadcn/nativecn-style component
  * libraries — a hairline border doing the work a fill used to — rather than
  * the flat, fully-tinted bars of a stock mail client. `docs/design/system-design.html`
  * is an even earlier look and is kept only as history.
@@ -166,10 +166,17 @@ export const color = {
   borderStrong: 'rgba(255,255,255,0.16)',
   /** A control resting on `surface`: the Filter pill, a settings search field. */
   surfaceRaised: '#2A2A2A',
-  /** The track of a segmented control. */
-  segment: '#262626',
-  /** The selected thumb inside that track. */
-  segmentActive: '#4D4D4D',
+  /**
+   * The track of a segmented control, and the thumb sliding inside it.
+   *
+   * Both are translucent white rather than opaque greys. The inbox tabs sit on
+   * the aurora band, and an opaque track punches a grey hole in it; a wash lets
+   * the band run underneath and still reads as a control. It also makes them
+   * usable as a press wash on any surface, which is what the drawer's add
+   * button and the Filter pill already wanted.
+   */
+  segment: 'rgba(255,255,255,0.07)',
+  segmentActive: 'rgba(255,255,255,0.20)',
 
   /** Hairline between rows and under bars. */
   line: '#262626',
@@ -326,7 +333,7 @@ export const type = {
   /** The right-aligned date stamp; drawn in the accent. */
   date: { fontFamily: font.sansMedium, fontSize: 13 },
 
-  /** An underline tab's label. */
+  /** A segmented-control tab's label. */
   tab: { fontFamily: font.sansSemibold, fontSize: 14.5 },
   /** A settings row's label, and a drawer destination. */
   settingsRow: { fontFamily: font.sans, fontSize: 16 },

@@ -28,7 +28,7 @@ import { InboxDrawerParamList, RootStackParamList } from '../navigation';
 import { Icon } from '../ui/Icon';
 import { Aurora } from '../ui/aurora';
 import { useAccent, useAppearance } from '../ui/appearance';
-import { INBOX_TABS, InboxTab, showsUnderTab } from '../ui/focusedSplit';
+import { INBOX_TABS, InboxTab, showsUnderTab } from '../ui/inboxTabs';
 import { useCategoryFilter } from '../ui/inboxFilter';
 import { lockFor } from '../ui/lock';
 import {
@@ -51,18 +51,22 @@ type Props = CompositeScreenProps<
 >;
 
 /**
- * Filters that matter for this product: everything, protected, or needs a
- * decision.
+ * Filters that matter for this product: everything, or needs a decision.
  *
  * These used to be pills across the top bar. They now live behind the Filter
  * control, which is where the reference puts a filter and where they stop
- * competing with the Focused/Other tabs for the same strip of screen.
+ * competing with the tabs for the same strip of screen.
+ *
+ * "Encrypted" used to be the middle option here. It is a *tab* now, and it is
+ * not in both places: two controls that narrow to the same set read as one
+ * setting the app half-ignores, and they can be pointed at each other — an
+ * Encrypted filter under a Primary tab, or the reverse — with nothing on screen
+ * explaining which won.
  */
-type Filter = 'all' | 'encrypted' | 'attention';
+type Filter = 'all' | 'attention';
 
 const FILTERS: { key: Filter; label: string; hint: string }[] = [
   { key: 'all', label: 'All mail', hint: 'Everything in this mailbox' },
-  { key: 'encrypted', label: 'Encrypted', hint: 'Only mail that arrived protected' },
   { key: 'attention', label: 'Needs attention', hint: 'A key changed, or a sender has no key on file' },
 ];
 
@@ -96,7 +100,7 @@ export function InboxScreen({ navigation }: Props) {
   const [topbarHeight, setTopbarHeight] = useState(0);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
-  const [tab, setTab] = useState<InboxTab>('focused');
+  const [tab, setTab] = useState<InboxTab>('primary');
   const [filter, setFilter] = useState<Filter>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [fabPressed, setFabPressed] = useState(false);
@@ -122,19 +126,20 @@ export function InboxScreen({ navigation }: Props) {
       .map((summary) => ({ summary, encryption: encryptionFor(summary) }))
       .filter(({ summary, encryption }) => {
         const encrypted = encryption.kind === 'encrypted';
-        if (filter === 'encrypted' && !encrypted) return false;
         if (filter === 'attention' && !needsAttention(encryption)) return false;
-        // The drawer's category filter and the tabs sort plaintext mail only:
+        // The drawer's category filter sorts plaintext mail only:
         // categorizeMessage leaves every encrypted message in 'primary', opened
         // or not, so encrypted mail is never filed away from the main list
         // (categorizer/categorizer.ts).
         const messageCategory = categorizeMessage(summary, encrypted, searchIndex, spamContext);
         // A chosen category is the more specific request, so it wins over the
-        // tab — otherwise picking Promotions from the drawer while Focused is
-        // selected would show an empty list and look broken.
+        // tab — otherwise picking Promotions from the drawer while Primary is
+        // selected would show an empty list and look broken. The Encrypted tab
+        // still applies on top of it, since it narrows rather than re-files.
         if (category !== null) {
           if (messageCategory !== category) return false;
-        } else if (!showsUnderTab(messageCategory, tab)) {
+          if (tab === 'encrypted' && !encrypted) return false;
+        } else if (!showsUnderTab(messageCategory, encrypted, tab)) {
           return false;
         }
         // Encrypted mail is matched on its decrypted content once opened (search/search.ts).
@@ -353,9 +358,13 @@ export function InboxScreen({ navigation }: Props) {
               />
             ) : (
               <EmptyState
-                icon="inbox"
-                title={tab === 'focused' ? 'Nothing in Focused' : 'Nothing in Other'}
-                hint="Pull down to check for new mail."
+                icon={tab === 'encrypted' ? 'lock' : 'inbox'}
+                title={tab === 'encrypted' ? 'No encrypted mail yet' : 'Nothing in Primary'}
+                hint={
+                  tab === 'encrypted'
+                    ? 'Mail that arrives protected shows here. Invite someone to exchange keys and it will.'
+                    : 'Pull down to check for new mail.'
+                }
               />
             )
           }
