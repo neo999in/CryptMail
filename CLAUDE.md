@@ -206,6 +206,11 @@ on the Rust core.
 
 ## UI conventions
 
+**[Design.md](Design.md) is the full pattern reference — read it before any UI
+change.** It carries the token map, the primitive catalogue, the recurring
+compositions and the traps. What follows here is the short list of rules that
+bite; Design.md is where the detail lives.
+
 [app/src/theme.ts](app/src/theme.ts) holds the design tokens.
 [docs/design/ui-rework.md](docs/design/ui-rework.md) is the reference for the
 current look; `docs/design/system-design.html` is the **previous** one and is
