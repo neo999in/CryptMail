@@ -1,6 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,6 +10,7 @@ import { ContactKey } from '../store/keyring';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
+import { confirmDialog } from '../ui/dialog';
 import {
   Avatar,
   Badge,
@@ -161,7 +162,7 @@ export function KeysScreen({ navigation }: Props) {
     try {
       const key = await importKey(paste);
       setPaste('');
-      Alert.alert('Key imported', `${key.email}\n${groupFingerprint(key.fingerprint).join(' ')}`);
+      confirmDialog('Key imported', `${key.email}\n${groupFingerprint(key.fingerprint).join(' ')}`, [{ label: 'OK' }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -379,9 +380,9 @@ export function KeysScreen({ navigation }: Props) {
             onConfirm={() => void confirmVerify(contact)}
             onCancel={() => setVerifying(null)}
             onForget={() =>
-              Alert.alert('Forget key?', `Remove ${contact.email}'s key from this device?`, [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Forget', style: 'destructive', onPress: () => void forgetKey(contact.email) },
+              confirmDialog('Forget key?', `Remove ${contact.email}'s key from this device?`, [
+                { label: 'Cancel' },
+                { label: 'Forget', tone: 'destructive', onPress: () => void forgetKey(contact.email) },
               ])
             }
           />

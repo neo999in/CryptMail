@@ -1,7 +1,6 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   Platform,
@@ -30,6 +29,7 @@ import {
 import { RootStackParamList } from '../navigation';
 import { RecipientState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, type } from '../theme';
+import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
 import { Badge, Field, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
@@ -201,14 +201,14 @@ export function ComposeScreen({ route, navigation }: Props) {
       setMode('encrypted');
       return;
     }
-    Alert.alert(
+    confirmDialog(
       'Write this one unencrypted?',
       'It will leave as an ordinary email. Your provider, theirs, and anyone who ' +
         'handles it in between can read the subject and every word of it.\n\n' +
         'Your public key still goes with it, so they can answer you encrypted.',
       [
-        { text: 'Keep it encrypted', style: 'cancel' },
-        { text: 'Write unencrypted', style: 'destructive', onPress: () => setMode('plain') },
+        { label: 'Keep it encrypted' },
+        { label: 'Write unencrypted', tone: 'destructive', onPress: () => setMode('plain') },
       ],
     );
   };

@@ -35,6 +35,7 @@ import { AppProvider, useApp } from './src/state/AppState';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider } from './src/ui/appearance';
+import { DialogHost } from './src/ui/dialog';
 import { CategoryFilterProvider } from './src/ui/inboxFilter';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -175,7 +176,10 @@ export default function App() {
           <AppProvider>
             <AppBackground>
               {fontsLoaded ? (
-                <Root />
+                <>
+                  <Root />
+                  <DialogHost />
+                </>
               ) : (
                 <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
                   <ActivityIndicator color={defaultAccent} />

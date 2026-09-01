@@ -29,13 +29,18 @@ from [system-design.html](system-design.html). It becomes an Outlook-shaped one:
   itself (the modal sheet scrim). New tokens: `surface`, `surfaceRaised`,
   `segment`, `segmentActive`, `rowPress`.
 - **Accent.** `color.brass` stops being the accent. The accent becomes a
-  *runtime* value — six choices matching the reference swatches (blue, purple,
-  pink, orange, red, green), blue default — exposed as `useAccent()` from a new
-  `app/src/ui/appearance.tsx`. `theme.ts` keeps the six constants and the
-  default; components read the live one from the hook. Anything that is
-  semantically a state, not a brand (mint = verified, coral = blocked/warn),
-  stays a fixed token and does **not** follow the accent — trust colour must not
-  be user-configurable.
+  *runtime* value, exposed as `useAccent()` from a new
+  `app/src/ui/appearance.tsx`; components read the live one from the hook rather
+  than baking a constant into a module-scope `StyleSheet`.
+  It is not chosen on its own. This shipped first as six standalone swatches
+  (blue, purple, pink, orange, red, green) beside a separate aurora-band picker,
+  and the pair read as one setting that half the app ignored — nothing explained
+  why the band stayed cyan when the accent went red. **One** preference now
+  decides both: an `AURORA_PALETTES` id, whose `accent` is what `useAccent()`
+  returns. `theme.ts` holds the palettes; the six standalone accents are gone.
+  Anything that is semantically a state, not a brand (mint = verified, coral =
+  blocked/warn), stays a fixed token and does **not** follow it — trust colour
+  must not be user-configurable.
 - **Type.** Manrope becomes the whole UI voice at Outlook's weights and sizes
   (sender 15/semibold, subject 15/semibold, snippet 14/regular, date 13). Space
   Grotesk drops out of rows and headers. JetBrains Mono is kept for exactly what
@@ -58,15 +63,16 @@ property of the device, like `accountsStore`), sealed through `secureJson` like
 every other store, key `cryptmail.prefs.v1`. Shape:
 
 ```ts
-type Prefs = { theme: 'light' | 'dark' | 'system'; accent: AccentName; density: Density };
+type Prefs = { theme: 'light' | 'dark' | 'system'; density: Density; auroraPalette: string };
 ```
 
 Loaded once at boot alongside the other stores and exposed through a small
 provider, `app/src/ui/appearance.tsx`, wrapping the navigation container. It is
 UI-only, so it stays out of `state/` — `AppState` is the seam to the *five
 subsystems*, and appearance is none of them. Tests:
-`app/src/store/__tests__/prefsStore-test.ts` (defaults, round-trip, unknown
-accent falls back to blue).
+`app/src/store/__tests__/prefsStore-test.ts` (defaults, round-trip, an unknown
+palette id falls back to borealis, and an `accent` written by an older build is
+dropped rather than carried).
 
 `theme` is stored and honoured for `dark`/`system`; **`light` ships as a stored
 preference that currently resolves to dark**, with the picker showing it
@@ -136,7 +142,7 @@ sheet's scattered entries landed.
 
 `app/src/screens/AppearanceScreen.tsx` — shot 4: `Theme | Density` segment, a
 live preview card built from the same row primitives so it cannot drift from the
-real inbox, Light/Dark/System radios, the six accent swatches, and no image
+real inbox, Light/Dark/System radios, the colour palettes, and no image
 strip. Both screens are stack pushes; `navigation.ts` gains `Settings` and
 `Appearance`.
 
@@ -163,8 +169,21 @@ fallback. `Icon` gains the glyphs the drawer and settings need (`archive` and
 - **No header image.** The mountain photo in shot 1 lights every pixel behind
   the top bar; CLAUDE.md's AMOLED true-black rule is a considered decision and
   this rework does not undo it. The Images strip is omitted from Appearance.
-- **Trust colour is not themeable.** The accent swatches change the brand
-  accent only. Verified/blocked keep mint and coral at every accent.
+
+  The inbox top bar is the one place light is drawn, and it is drawn rather
+  than photographed: `ui/aurora` shades an aurora band inside the bar's own
+  bounds, in `reacticx-aurora`'s own colour combination — cyan, violet and
+  green ribbons over a near-black sky, chosen by `palette` id rather than
+  from the accent, which makes it the one surface here that does not follow
+  `useAccent()`. It paints over the bar's `color.surface` fill rather than
+  lighting it, so the bar reads darker than the rest of the chrome. The rule
+  it does not break is the one that mattered — the ground below the bar is
+  still `#000000` with no wash over it, so the panel is off
+  wherever there is mail. It is bounded, it stops when the screen is not
+  focused, and it freezes under the OS reduced-motion setting. A full-screen
+  glow would still be a regression; this is not one.
+- **Trust colour is not themeable.** The colour palettes change the band and
+  the brand accent only. Verified/blocked keep mint and coral at every one.
 - **No folders that do not exist.** See step 4.
 - **Crypto banners stay.** The demo-core warning and the encryption badges
   survive every restyle; they get quieter typography, never less presence.

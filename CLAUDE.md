@@ -219,6 +219,12 @@ kept only as history — don't port from it. Build screens out of
   so a baked-in accent silently stops following the user's choice.
   `defaultAccent` exists for genuinely fixed cases (a default argument), not as
   a shortcut past the hook.
+  There is **one** colour preference, `auroraPalette` — an `AURORA_PALETTES` id
+  that sets the aurora band *and* the accent (`useAccent()` returns that
+  palette's `accent`). The six standalone accent swatches are gone: two colour
+  controls on one screen read as one setting that half the app ignored, since
+  nothing explained why the band stayed cyan when the accent went red. Don't
+  add a second one back.
 - **Trust colour is not themeable.** `color.mint` (verified/protected) and
   `color.coral` (blocked, key changed) are fixed at every accent, and every
   trust state carries a text or `accessibilityLabel` equivalent — never colour
@@ -231,8 +237,26 @@ kept only as history — don't port from it. Build screens out of
   and warn on every render.
 - The ground is **true black** and carries no ambient light — the aurora glows
   and film grain were removed for AMOLED, where `#000000` means the pixel is
-  off. Bars and the drawer lift off it with a flat `color.surface` fill, not a
-  glow and not a photo: don't reintroduce a background wash or a header image.
+  off. The drawer and every bar but one lift off it with a flat `color.surface`
+  fill, not a glow and not a photo: don't reintroduce a background wash or a
+  header image.
+  The exception is [app/src/ui/aurora/](app/src/ui/aurora/), an aurora band
+  drawn **inside the inbox top bar's own bounds**, so the ground under the mail
+  list is untouched. Its terms are what make it allowed, and all of them have to
+  hold for any further use of it: it is sized from a measured height and never
+  `absoluteFill`; it is `pointerEvents="none"`; and it animates only when
+  `useShouldAnimate()` says so — screen focused (`active`, from
+  `useIsFocused()`), app in the foreground, reduced motion off, battery saver
+  off. Those last two are separate settings and neither implies the other, which
+  is why both are checked. An animated band keeps the display pipeline awake on
+  a screen that would otherwise be idle, and that — not the shader's
+  arithmetic — is what it costs; anything that animates here answers to the same
+  four gates.
+  Its colours are `reacticx-aurora`'s own combination, and every sky in that set
+  bottoms out at `#000000` so the band still meets the ground cleanly — a
+  palette added to `AURORA_PALETTES` must keep that. Note that the band paints
+  over the bar's `color.surface` fill rather than lighting it, so the inbox bar
+  reads darker than the rest of the chrome.
 - Blur is now for the modal `Sheet` alone. `frost()` in primitives stays as its
   web fallback, since `expo-blur` does not blur on web.
 - Density (`compact | cosy | roomy`) scales padding and row height **only**.

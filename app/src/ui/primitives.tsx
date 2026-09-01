@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
-import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, type } from '../theme';
+import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, tint, type } from '../theme';
 import { useAccent } from './appearance';
 import { Icon, IconName } from './Icon';
 
@@ -259,7 +259,6 @@ export function PrimaryButton({
   busy?: boolean;
 }) {
   const press = usePressScale();
-  const accent = useAccent();
   const off = disabled || busy;
   return (
     <Animated.View style={press.style}>
@@ -270,13 +269,13 @@ export function PrimaryButton({
         onPress={onPress}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
-        style={[s.primaryBtn, { backgroundColor: accent }, disabled && s.primaryBtnOff, !off && shadow.raised]}
+        style={[s.primaryBtn, disabled && s.primaryBtnOff, !off && shadow.raised]}
       >
         {busy ? (
-          <ActivityIndicator size="small" color={ON_ACCENT} />
+          <ActivityIndicator size="small" color={color.ground} />
         ) : (
           <>
-            {icon ? <Icon name={icon} size={16} color={disabled ? color.inkFaint : ON_ACCENT} /> : null}
+            {icon ? <Icon name={icon} size={16} color={disabled ? color.inkFaint : color.ground} /> : null}
             <Text style={[s.primaryBtnText, disabled && { color: color.inkFaint }]}>{title}</Text>
           </>
         )}
@@ -484,6 +483,7 @@ export function Segmented<T extends string>({
   onChange: (key: T) => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  const accent = useAccent();
   return (
     <View accessibilityRole="tablist" style={[s.segment, style]}>
       {options.map((option) => {
@@ -494,9 +494,12 @@ export function Segmented<T extends string>({
             accessibilityState={{ selected: active }}
             key={option.key}
             onPress={() => onChange(option.key)}
-            style={[s.segmentItem, active && s.segmentItemActive]}
+            style={s.segmentItem}
           >
-            <Text style={[s.segmentText, active && s.segmentTextActive]}>{option.label}</Text>
+            <Text style={[s.segmentText, active && { color: color.ink, fontFamily: font.sansBold }]}>
+              {option.label}
+            </Text>
+            <View style={[s.segmentUnderline, { backgroundColor: active ? accent : 'transparent' }]} />
           </Pressable>
         );
       })}
@@ -588,6 +591,27 @@ export function GroupHeading({ children }: { children: React.ReactNode }) {
   return <Text style={[s.groupHeading, { color: accent }]}>{children}</Text>;
 }
 
+/**
+ * A bordered card holding a run of rows — a settings group, a filter list.
+ *
+ * This is the one shape that replaces Outlook'''s continuous full-bleed list:
+ * a card with air around it and a hairline *inside* it between rows, rather
+ * than a flat list where the only edge is the screen itself.
+ */
+export function Group({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  const items = React.Children.toArray(children);
+  return (
+    <View style={[s.group, style]}>
+      {items.map((child, i) => (
+        <React.Fragment key={i}>
+          {child}
+          {i < items.length - 1 ? <View style={s.groupDivider} /> : null}
+        </React.Fragment>
+      ))}
+    </View>
+  );
+}
+
 /* --------------------------------------------------------------- choice ---- */
 
 /** A labelled radio, drawn in the accent when selected. */
@@ -620,31 +644,6 @@ export function Radio({
       <View style={[s.radioRing, { borderColor: ring }]}>
         {selected ? <View style={[s.radioDot, { backgroundColor: ring }]} /> : null}
       </View>
-    </Pressable>
-  );
-}
-
-/** A colour swatch in the accent picker. Checked when it is the current accent. */
-export function Swatch({
-  tint,
-  label,
-  selected,
-  onPress,
-}: {
-  tint: string;
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      style={[s.swatch, { backgroundColor: tint }]}
-    >
-      {selected ? <Icon name="check" size={20} color={ON_ACCENT} strokeWidth={2.6} /> : null}
     </Pressable>
   );
 }
@@ -708,20 +707,29 @@ const s = StyleSheet.create({
   avatar: { alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: ON_ACCENT, fontFamily: font.sansBold },
 
+  // A solid neutral button — near-white on true black — rather than an
+  // accent-filled one. The accent is reserved for selection and the one or
+  // two places per screen that are genuinely "the" action (compose, send);
+  // every other button reads as UI chrome, not brand.
   primaryBtn: {
     alignItems: 'center',
+    backgroundColor: color.ink,
     borderRadius: radius.sm,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     paddingVertical: 13,
   },
-  primaryBtnOff: { backgroundColor: color.surfaceRaised },
-  primaryBtnText: { color: ON_ACCENT, fontFamily: font.sansBold, fontSize: 14.5 },
+  primaryBtnOff: { backgroundColor: color.card, borderColor: color.border, borderWidth: 1 },
+  primaryBtnText: { color: color.ground, fontFamily: font.sansBold, fontSize: 14.5 },
+  // Outline, not filled — a hairline border on the card fill rather than a
+  // solid grey block.
   secondaryBtn: {
     alignItems: 'center',
-    backgroundColor: color.surfaceRaised,
-    borderRadius: radius.pill,
+    backgroundColor: color.card,
+    borderColor: color.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
     flexDirection: 'row',
     gap: 7,
     justifyContent: 'center',
@@ -731,9 +739,12 @@ const s = StyleSheet.create({
   secondaryBtnDanger: { backgroundColor: color.coralBg, borderColor: color.coralLine },
   secondaryBtnText: { ...type.strong, color: color.ink, fontSize: 13 },
 
+  // Square-ish ghost tile rather than a filled circle — ghost icon buttons in
+  // this family of components sit flush until pressed, they don't sit inside
+  // their own filled pill.
   iconBtn: {
     alignItems: 'center',
-    borderRadius: radius.pill,
+    borderRadius: radius.sm,
     justifyContent: 'center',
   },
 
@@ -756,17 +767,12 @@ const s = StyleSheet.create({
 
   skeleton: { backgroundColor: color.surfaceRaised },
 
-  segment: { backgroundColor: color.segment, borderRadius: radius.pill, flexDirection: 'row', padding: 3 },
-  segmentItem: {
-    alignItems: 'center',
-    borderRadius: radius.pill,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-  },
-  segmentItemActive: { backgroundColor: color.segmentActive },
-  segmentText: { color: color.inkDim, fontFamily: font.sansMedium, fontSize: 15 },
-  segmentTextActive: { color: color.ink, fontFamily: font.sansSemibold },
+  // Underline tabs, not a filled pill track: a row of text with a 2px accent
+  // rule under the active one. No background at all until it is selected.
+  segment: { borderBottomColor: color.border, borderBottomWidth: 1, flexDirection: 'row', gap: space.lg },
+  segmentItem: { alignItems: 'center', gap: 9, paddingBottom: 10, paddingTop: 4 },
+  segmentText: { ...type.tab, color: color.inkDim },
+  segmentUnderline: { borderRadius: 2, height: 2, width: '100%' },
 
   sheet: {
     backgroundColor: color.surface,
@@ -797,14 +803,31 @@ const s = StyleSheet.create({
   },
   settingsLabel: { ...type.settingsRow, color: color.ink },
   settingsValue: { ...type.settingsValue, color: color.inkDim, marginTop: 2 },
-  groupHeading: { ...type.section, paddingBottom: space.sm, paddingHorizontal: space.lg, paddingTop: space.lg },
+  groupHeading: {
+    ...type.section,
+    paddingBottom: space.sm,
+    paddingHorizontal: space.lg + 2,
+    paddingTop: space.lg,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    fontSize: 12.5,
+  },
+
+  group: {
+    backgroundColor: color.card,
+    borderColor: color.border,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    marginHorizontal: space.lg,
+    overflow: 'hidden',
+  },
+  groupDivider: { backgroundColor: color.border, height: 1, marginLeft: 54 },
 
   radio: { alignItems: 'center', gap: space.sm },
   radioLabel: { ...type.settingsRow, color: color.ink },
   radioRing: { alignItems: 'center', borderRadius: 12, borderWidth: 2, height: 24, justifyContent: 'center', width: 24 },
   radioDot: { borderRadius: 6, height: 12, width: 12 },
 
-  swatch: { alignItems: 'center', borderRadius: 26, height: 52, justifyContent: 'center', width: 52 },
 
   empty: { alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: 56 },
   emptyGlyph: {

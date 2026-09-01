@@ -83,6 +83,8 @@ async function chooseSecretStore(): Promise<{ store: SecretStore; level: Protect
   };
 }
 
+let storageReady: Promise<{ protection: ProtectionLevel; upgraded: string[] }> | null = null;
+
 /**
  * Prepare local encryption and upgrade anything still written in the clear.
  *
@@ -90,8 +92,21 @@ async function chooseSecretStore(): Promise<{ store: SecretStore; level: Protect
  * that predates encryption: without it a keyring written months ago would stay
  * plaintext on disk until something happened to rewrite it, which for a keyring
  * might be never.
+ *
+ * Memoised, and deliberately so: `AppState`'s boot sequence is not the only
+ * caller any more — `ui/appearance.tsx` reads a store too, and mounts as a
+ * sibling of `AppState`'s provider rather than inside it, so nothing
+ * guarantees one runs before the other. Every caller awaiting the same
+ * promise is what makes "call this first" true regardless of mount order,
+ * the way `initLocalCrypto`'s own module-level `dek` already does one layer
+ * down.
  */
-export async function initStorage(): Promise<{ protection: ProtectionLevel; upgraded: string[] }> {
+export function initStorage(): Promise<{ protection: ProtectionLevel; upgraded: string[] }> {
+  if (!storageReady) storageReady = doInitStorage();
+  return storageReady;
+}
+
+async function doInitStorage(): Promise<{ protection: ProtectionLevel; upgraded: string[] }> {
   const { store, level } = await chooseSecretStore();
   await initLocalCrypto(store, level);
   const upgraded = await resealPlaintext(SEALED_STORE_KEYS);

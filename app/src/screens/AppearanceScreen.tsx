@@ -1,8 +1,15 @@
 /**
  * Display & Appearance.
  *
- * Two tabs: Theme (a preview, the light/dark/system choice, and the accent
- * swatches) and Density. The reference also offers a header image; that is
+ * Two tabs: Theme (a preview, the light/dark/system choice, and the colour) and
+ * Density.
+ *
+ * Colour is **one** control. It used to be two — six accent swatches and, below
+ * them, the five aurora palettes — and nothing on the screen explained why the
+ * band stayed cyan when the accent went red. A palette now sets the band and
+ * the accent together, so there is one choice and it is whole.
+ *
+ * The reference also offers a header image; that is
  * deliberately absent — a photo behind the top bar lights every pixel of it, and
  * the true-black ground is a considered decision this rework does not undo. See
  * docs/design/ui-rework.md.
@@ -13,15 +20,26 @@
  */
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList } from '../navigation';
 import { LIGHT_THEME_AVAILABLE, ThemeChoice } from '../store/prefsStore';
-import { accents, ACCENT_NAMES, color, Density, DENSITIES, font, ON_ACCENT, radius, rowPadding, space, type } from '../theme';
+import {
+  AURORA_PALETTES,
+  AuroraPalette,
+  color,
+  Density,
+  DENSITIES,
+  font,
+  radius,
+  rowPadding,
+  space,
+  type,
+} from '../theme';
 import { useAppearance } from '../ui/appearance';
 import { Icon } from '../ui/Icon';
-import { GroupHeading, IconButton, Radio, Segmented, Swatch } from '../ui/primitives';
+import { Group, GroupHeading, IconButton, Radio, Segmented } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Appearance'>;
 
@@ -52,7 +70,15 @@ const DENSITY_HINT: Record<Density, string> = {
 };
 
 export function AppearanceScreen({ navigation }: Props) {
-  const { accent, accentColor, density, theme, setAccent, setDensity, setTheme } = useAppearance();
+  const {
+    accentColor,
+    auroraColors,
+    density,
+    theme,
+    setAuroraPalette,
+    setDensity,
+    setTheme,
+  } = useAppearance();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('theme');
 
@@ -71,22 +97,24 @@ export function AppearanceScreen({ navigation }: Props) {
 
         {tab === 'theme' ? (
           <>
-            <View style={s.radios}>
-              {(Object.keys(THEME_LABEL) as ThemeChoice[]).map((choice) => (
-                <Radio
-                  key={choice}
-                  label={THEME_LABEL[choice]}
-                  selected={theme === choice}
-                  disabled={choice === 'light' && !LIGHT_THEME_AVAILABLE}
-                  hint={
-                    choice === 'light' && !LIGHT_THEME_AVAILABLE
-                      ? 'A light palette is not built yet'
-                      : undefined
-                  }
-                  onPress={() => setTheme(choice)}
-                />
-              ))}
-            </View>
+            <Group style={s.radiosGroup}>
+              <View style={s.radios}>
+                {(Object.keys(THEME_LABEL) as ThemeChoice[]).map((choice) => (
+                  <Radio
+                    key={choice}
+                    label={THEME_LABEL[choice]}
+                    selected={theme === choice}
+                    disabled={choice === 'light' && !LIGHT_THEME_AVAILABLE}
+                    hint={
+                      choice === 'light' && !LIGHT_THEME_AVAILABLE
+                        ? 'A light palette is not built yet'
+                        : undefined
+                    }
+                    onPress={() => setTheme(choice)}
+                  />
+                ))}
+              </View>
+            </Group>
             {/* Said plainly rather than left as a greyed-out control the user has
                 to guess at. `system` is honoured as a preference and stored, but
                 it resolves to dark until the palette exists — see prefsStore. */}
@@ -96,42 +124,82 @@ export function AppearanceScreen({ navigation }: Props) {
               </Text>
             ) : null}
 
-            <GroupHeading>Colours</GroupHeading>
-            <View style={s.swatches}>
-              {ACCENT_NAMES.map((name) => (
-                <Swatch
-                  key={name}
-                  label={name}
-                  onPress={() => setAccent(name)}
-                  selected={accent === name}
-                  tint={accents[name]}
+            <GroupHeading>Colour</GroupHeading>
+            <Group style={s.auroraGroup}>
+              {AURORA_PALETTES.map((palette) => (
+                <AuroraRow
+                  key={palette.id}
+                  palette={palette}
+                  selected={auroraColors.id === palette.id}
+                  onPress={() => setAuroraPalette(palette.id)}
                 />
               ))}
-            </View>
-            {/* The one thing the accent must never reach. */}
+            </Group>
+            {/* The one thing the colour must never reach. */}
             <Text style={s.note}>
-              The accent colours menus and controls. Encryption state keeps its own colours at every accent, so a
-              verified message never changes colour with a theme.
+              One choice colours the light behind the inbox title and the app's own accent. Encryption state keeps its
+              own colours whichever you pick, so a verified message never changes colour with a theme.
             </Text>
           </>
         ) : (
           <>
             <GroupHeading>Density</GroupHeading>
-            {DENSITIES.map((option) => (
-              <View key={option} style={s.densityRow}>
-                <Radio
-                  label={CAPITALISED_DENSITY[option]}
-                  selected={density === option}
-                  onPress={() => setDensity(option)}
-                />
-                <Text style={s.densityHint}>{DENSITY_HINT[option]}</Text>
-              </View>
-            ))}
+            <Group>
+              {DENSITIES.map((option) => (
+                <View key={option} style={s.densityRow}>
+                  <Radio
+                    label={CAPITALISED_DENSITY[option]}
+                    selected={density === option}
+                    onPress={() => setDensity(option)}
+                  />
+                  <Text style={s.densityHint}>{DENSITY_HINT[option]}</Text>
+                </View>
+              ))}
+            </Group>
             <Text style={s.note}>Density changes the space around a message, never the size of its text.</Text>
           </>
         )}
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * One aurora palette: its three ribbon hues as dots, then its name.
+ *
+ * The selection is drawn in the palette's *own* tint rather than the app accent
+ * — this row is the one control on the screen that is not about the accent, and
+ * showing the accent on it is exactly the confusion to avoid. The name carries
+ * the state too, so the choice is never colour alone.
+ */
+function AuroraRow({
+  palette,
+  selected,
+  onPress,
+}: {
+  palette: AuroraPalette;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={palette.name}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        s.auroraRow,
+        selected && { borderColor: palette.accent },
+        pressed && { backgroundColor: color.rowPress },
+      ]}
+    >
+      <View style={s.auroraDots}>
+        {palette.auroraColors.map((hex) => (
+          <View key={hex} style={[s.auroraDot, { backgroundColor: hex }]} />
+        ))}
+      </View>
+      <Text style={[s.auroraName, selected && { color: palette.accent }]}>{palette.name}</Text>
+    </Pressable>
   );
 }
 
@@ -143,28 +211,38 @@ export function AppearanceScreen({ navigation }: Props) {
  * way it changes the app.
  */
 function Preview({ accent, density }: { accent: string; density: Density }) {
-  const pad = Math.round(rowPadding(density) * 0.6);
+  const pad = Math.max(6, Math.round(rowPadding(density) * 0.5));
   return (
     <View accessibilityLabel="Preview of the inbox" style={s.preview}>
-      <View style={[s.previewBar, { backgroundColor: accent }]}>
+      <View style={s.previewBar}>
         <View style={s.previewAvatar} />
-        <View style={[s.previewPill, { width: 66 }]} />
-        <View style={{ flex: 1 }} />
-        <View style={[s.previewPill, { width: 34 }]} />
+        <View style={{ flex: 1, gap: 5 }}>
+          <View style={[s.previewPill, { backgroundColor: color.surfaceRaised, width: 60 }]} />
+        </View>
+        <View style={[s.previewChip, { borderColor: color.border }]} />
+      </View>
+      <View style={s.previewTabs}>
+        <View style={[s.previewTab, { width: 44 }]}>
+          <View style={[s.previewPill, { backgroundColor: color.ink, width: 44 }]} />
+          <View style={[s.previewUnderline, { backgroundColor: accent }]} />
+        </View>
+        <View style={[s.previewTab, { width: 34 }]}>
+          <View style={[s.previewPill, { backgroundColor: color.inkFaint, width: 34 }]} />
+        </View>
       </View>
       {[0, 1].map((row) => (
         <View key={row} style={[s.previewRow, { paddingVertical: pad }]}>
           <View style={s.previewRowAvatar} />
           <View style={{ flex: 1, gap: 5 }}>
             <View style={[s.previewLine, { width: '55%' }]} />
-            <View style={[s.previewLine, { width: '78%' }]} />
-            <View style={[s.previewLine, { backgroundColor: color.lineSoft, width: '64%' }]} />
+            <View style={[s.previewLine, { backgroundColor: color.inkFaint, width: '78%' }]} />
           </View>
           <View style={[s.previewDate, { backgroundColor: accent }]} />
         </View>
       ))}
-      <View style={[s.previewFab, { backgroundColor: accent }]}>
-        <Icon name="edit" size={13} color={ON_ACCENT} strokeWidth={2.2} />
+      <View style={[s.previewFab, { backgroundColor: color.ink }]}>
+        <Icon name="edit" size={10} color={color.ground} strokeWidth={2.4} />
+        <View style={[s.previewPill, { backgroundColor: color.ground, width: 26, height: 5 }]} />
       </View>
     </View>
   );
@@ -180,23 +258,45 @@ const s = StyleSheet.create({
 
   preview: {
     alignSelf: 'center',
-    borderColor: color.line,
-    borderRadius: radius.sm,
+    backgroundColor: color.ground2,
+    borderColor: color.border,
+    borderRadius: radius.lg,
     borderWidth: 1,
+    marginHorizontal: space.lg,
     marginTop: space.xl,
     overflow: 'hidden',
     width: 260,
   },
-  previewBar: { alignItems: 'center', flexDirection: 'row', gap: 8, padding: 12 },
-  previewAvatar: { backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 9, height: 18, width: 18 },
-  previewPill: { backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 4, height: 8 },
+  previewBar: {
+    alignItems: 'center',
+    backgroundColor: color.surface,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+  },
+  previewAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 9, height: 18, width: 18 },
+  previewPill: { borderRadius: 4, height: 8 },
+  previewChip: { borderRadius: 8, borderWidth: 1, height: 16, width: 16 },
+  previewTabs: {
+    borderBottomColor: color.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  previewTab: { alignItems: 'center', gap: 5, paddingBottom: 7 },
+  previewUnderline: { borderRadius: 1, height: 2, width: '100%' },
   previewRow: {
     alignItems: 'center',
-    borderTopColor: color.line,
-    borderTopWidth: 1,
+    borderColor: color.border,
+    borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: 12,
+    marginHorizontal: 10,
+    marginTop: 8,
+    paddingHorizontal: 10,
   },
   previewRowAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 13, height: 26, width: 26 },
   previewLine: { backgroundColor: color.surfaceRaised, borderRadius: 3, height: 6 },
@@ -204,22 +304,32 @@ const s = StyleSheet.create({
   previewFab: {
     alignItems: 'center',
     alignSelf: 'flex-end',
-    borderRadius: 13,
-    height: 26,
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 5,
+    height: 24,
     justifyContent: 'center',
     margin: 10,
-    width: 26,
+    paddingHorizontal: 9,
   },
 
-  radios: { flexDirection: 'row', gap: space.xl, justifyContent: 'center', paddingTop: space.xl },
+  radiosGroup: { paddingVertical: space.md },
+  radios: { flexDirection: 'row', gap: space.xl, justifyContent: 'center' },
 
-  swatches: {
+  auroraGroup: { gap: space.sm, padding: space.md },
+  auroraRow: {
+    alignItems: 'center',
+    borderColor: color.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.lg,
-    paddingHorizontal: space.lg,
-    paddingTop: space.sm,
+    justifyContent: 'space-between',
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
   },
+  auroraDots: { flexDirection: 'row', gap: space.xs },
+  auroraDot: { borderRadius: 999, height: 18, width: 18 },
+  auroraName: { ...type.settingsValue, color: color.ink },
 
   densityRow: { paddingHorizontal: space.lg, paddingVertical: space.md },
   densityHint: { ...type.settingsValue, color: color.inkFaint, marginTop: 4, textAlign: 'center' },

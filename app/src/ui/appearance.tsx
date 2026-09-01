@@ -1,5 +1,5 @@
 /**
- * The live appearance preferences — accent, density, theme.
+ * The live appearance preferences — colour, density, theme.
  *
  * Deliberately here and not in `state/`. `AppState` is the seam to the five
  * subsystems (core, mail, auth, keys, store); appearance is none of them, it
@@ -15,6 +15,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { initStorage } from '../store';
 import {
   DEFAULT_PREFS,
   loadPrefs,
@@ -23,20 +24,22 @@ import {
   savePrefs,
   ThemeChoice,
 } from '../store/prefsStore';
-import { AccentName, accentColor, Density, rowPadding } from '../theme';
+import { AuroraPalette, auroraPalette, Density, rowPadding } from '../theme';
 
 type Appearance = Prefs & {
   /** The stored `theme` as it actually renders. Dark, for now. */
   resolvedTheme: 'dark';
-  /** The accent as a colour, ready to drop into a style. */
+  /** The chosen palette's accent, ready to drop into a style. */
   accentColor: string;
   /** Row padding for the current density, so screens don't re-derive it. */
   rowPadding: number;
+  /** The chosen aurora palette, resolved from the stored id. */
+  auroraColors: AuroraPalette;
   /** True until the stored prefs have been read; screens render defaults. */
   loading: boolean;
   setTheme: (theme: ThemeChoice) => void;
-  setAccent: (accent: AccentName) => void;
   setDensity: (density: Density) => void;
+  setAuroraPalette: (id: string) => void;
 };
 
 const AppearanceContext = createContext<Appearance | null>(null);
@@ -47,7 +50,12 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     let live = true;
-    loadPrefs()
+    // This provider mounts as a sibling of `AppState`'s, not inside it, so
+    // nothing else guarantees storage is ready before this effect fires —
+    // `initStorage()` is memoised, so this either does the one real init or
+    // joins the promise `AppState`'s own boot is already awaiting.
+    initStorage()
+      .then(() => loadPrefs())
       .then((stored) => {
         if (live) setPrefs(stored);
       })
@@ -76,12 +84,13 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     () => ({
       ...prefs,
       resolvedTheme: resolveTheme(prefs.theme),
-      accentColor: accentColor(prefs.accent),
+      accentColor: auroraPalette(prefs.auroraPalette).accent,
       rowPadding: rowPadding(prefs.density),
+      auroraColors: auroraPalette(prefs.auroraPalette),
       loading,
       setTheme: (theme) => update({ theme }),
-      setAccent: (accent) => update({ accent }),
       setDensity: (density) => update({ density }),
+      setAuroraPalette: (auroraPalette) => update({ auroraPalette }),
     }),
     [loading, prefs, update],
   );
@@ -95,7 +104,20 @@ export function useAppearance(): Appearance {
   return ctx;
 }
 
-/** The accent colour alone — the common case by a wide margin. */
+/**
+ * The accent colour alone — the common case by a wide margin.
+ *
+ * It is the chosen aurora palette's own accent. One palette colours the band
+ * and the UI, so this and `useAuroraPalette()` can never disagree.
+ */
 export function useAccent(): string {
   return useAppearance().accentColor;
+}
+
+/**
+ * The whole chosen palette — the band's ribbons and sky, not just its accent.
+ * Only the aurora itself needs this; everything else wants `useAccent()`.
+ */
+export function useAuroraPalette(): AuroraPalette {
+  return useAppearance().auroraColors;
 }

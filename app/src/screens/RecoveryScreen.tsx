@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { RecoveryBackup } from '../core';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
+import { confirmDialog } from '../ui/dialog';
 import {
   Banner,
   Callout,
@@ -85,7 +86,7 @@ export function RecoveryScreen() {
       const restored = await restoreFromRecovery(blobInput.trim(), codeInput);
       setBlobInput('');
       setCodeInput('');
-      Alert.alert('Identity restored', `This device now uses the key for ${restored.email}.`);
+      confirmDialog('Identity restored', `This device now uses the key for ${restored.email}.`, [{ label: 'OK' }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -100,12 +101,12 @@ export function RecoveryScreen() {
     }
     // Replacing a key the device is already using is not obviously reversible
     // from the user's side, so it is worth one deliberate confirmation.
-    Alert.alert(
+    confirmDialog(
       'Replace this device’s key?',
       `This device already holds a key for ${identity.email}. Restoring replaces it — anything encrypted only to the current key will stop being readable here.`,
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Replace', style: 'destructive', onPress: () => void doRestore() },
+        { label: 'Cancel' },
+        { label: 'Replace', tone: 'destructive', onPress: () => void doRestore() },
       ],
     );
   };

@@ -97,3 +97,7 @@ target/
 
 # UI reference screenshots — local-only, see docs/design/ui-rework.md
 Ui rework/
+
+# aurora reference source (reacticx-aurora, aurora-curtain) — local-only,
+# consulted while building app/src/ui/aurora/
+/aurora/

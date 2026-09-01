@@ -93,14 +93,15 @@ const s = StyleSheet.create({
 
   row: {
     alignItems: 'stretch',
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    borderColor: glass.hairline,
-    borderRadius: radius.lg,
+    backgroundColor: color.card,
+    borderColor: color.border,
+    borderRadius: radius.xl,
     borderWidth: 1,
     flexDirection: 'row',
+    overflow: 'hidden',
   },
   main: { flex: 1, gap: 3, minWidth: 0, paddingHorizontal: 13, paddingVertical: 13 },
-  mainPressed: { backgroundColor: color.rowPress },
+  mainPressed: { backgroundColor: color.cardPress },
   top: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   title: { ...type.strong, color: color.ink, flex: 1 },
   time: { ...type.meta, color: color.inkFaint, fontSize: 11 },
@@ -111,7 +112,7 @@ const s = StyleSheet.create({
 
   discard: {
     alignItems: 'center',
-    borderLeftColor: glass.hairline,
+    borderLeftColor: color.border,
     borderLeftWidth: 1,
     justifyContent: 'center',
     width: 46,

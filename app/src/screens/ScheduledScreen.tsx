@@ -178,9 +178,9 @@ const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
   card: {
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    borderColor: glass.hairline,
-    borderRadius: radius.lg,
+    backgroundColor: color.card,
+    borderColor: color.border,
+    borderRadius: radius.xl,
     borderWidth: 1,
     gap: 4,
     paddingHorizontal: 13,
@@ -190,7 +190,7 @@ const s = StyleSheet.create({
   title: { ...type.strong, color: color.ink, flex: 1 },
   when: {
     backgroundColor: color.surfaceRaised,
-    borderColor: 'rgba(235,184,99,0.35)',
+    borderColor: color.borderStrong,
     borderRadius: radius.pill,
     borderWidth: 1,
     paddingHorizontal: 8,

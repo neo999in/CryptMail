@@ -1,5 +1,5 @@
 import { DrawerScreenProps } from '@react-navigation/drawer';
-import { CompositeScreenProps } from '@react-navigation/native';
+import { CompositeScreenProps, useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MotiView } from 'moti';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -18,6 +18,7 @@ import { InboxItem } from '../state/types';
 import { color, font, radius, shadow, space, type } from '../theme';
 import { InboxDrawerParamList, RootStackParamList } from '../navigation';
 import { Icon } from '../ui/Icon';
+import { Aurora } from '../ui/aurora';
 import { useAccent, useAppearance } from '../ui/appearance';
 import { INBOX_TABS, InboxTab, showsUnderTab } from '../ui/focusedSplit';
 import { useCategoryFilter } from '../ui/inboxFilter';
@@ -69,13 +70,18 @@ export function InboxScreen({ navigation }: Props) {
     refreshInbox,
     encryptionFor,
     searchIndex,
-    toggleStar,
     spam,
   } = useApp();
   const { category, setCategory } = useCategoryFilter();
-  const { rowPadding } = useAppearance();
+  const { rowPadding, auroraColors } = useAppearance();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  // The bar's own height, measured rather than assumed: it grows with the safe
+  // area, and again when the demo-crypto strip or the account subtitle is up.
+  // The aurora is sized from it so the band always ends exactly where the bar
+  // does and the true-black ground below is never lit.
+  const [topbarHeight, setTopbarHeight] = useState(0);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [tab, setTab] = useState<InboxTab>('focused');
@@ -158,7 +164,6 @@ export function InboxScreen({ navigation }: Props) {
         count={item.thread.count}
         index={index}
         padding={rowPadding}
-        onToggleStar={() => void toggleStar(item.thread.latest.id)}
         onPress={() =>
           item.thread.count > 1
             ? navigation.navigate('Conversation', { threadId: item.thread.id })
@@ -169,7 +174,7 @@ export function InboxScreen({ navigation }: Props) {
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, navigation, rowPadding, toggleStar, unified],
+    [accounts, navigation, rowPadding, unified],
   );
 
   const closeSearch = () => {
@@ -179,7 +184,18 @@ export function InboxScreen({ navigation }: Props) {
 
   return (
     <View style={s.screen}>
-      <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
+      <View
+        onLayout={(e) => setTopbarHeight(e.nativeEvent.layout.height)}
+        style={[s.topbar, { paddingTop: insets.top + 6 }]}
+      >
+        {/* Behind the bar's contents, never over them: the avatar, the tabs and
+            the icon buttons all have to keep their touches, and the aurora is
+            `pointerEvents="none"` for that reason. `isFocused` stops it while
+            another screen is up, so an open thread costs nothing. */}
+        <View pointerEvents="none" style={s.auroraLayer}>
+          <Aurora active={isFocused} height={topbarHeight} palette={auroraColors} />
+        </View>
+
         {searching ? (
           <View style={s.header}>
             <IconButton icon="back" label="Close search" onPress={closeSearch} />
@@ -318,11 +334,15 @@ export function InboxScreen({ navigation }: Props) {
         />
       )}
 
+      {/* An extended, labelled compose control -- neutral ink like every other
+          primary button, not a plain accent-filled circle -- so the one truly
+          floating element on the screen reads as "the" action rather than as
+          a brand mark. */}
       <MotiView
         from={{ opacity: 0, scale: 0.6 }}
-        animate={{ opacity: 1, scale: fabPressed ? 0.92 : 1 }}
+        animate={{ opacity: 1, scale: fabPressed ? 0.94 : 1 }}
         transition={{ type: 'spring', damping: 15, stiffness: 220, mass: 0.7 }}
-        style={[s.fab, shadow.floating, { backgroundColor: accent, bottom: insets.bottom + 22 }]}
+        style={[s.fab, shadow.floating, { bottom: insets.bottom + 22 }]}
       >
         <Pressable
           accessibilityLabel="Compose"
@@ -332,7 +352,8 @@ export function InboxScreen({ navigation }: Props) {
           onPressOut={() => setFabPressed(false)}
           style={s.fabPress}
         >
-          <Icon name="edit" size={23} color={color.ground} strokeWidth={2} />
+          <Icon name="edit" size={17} color={color.ground} strokeWidth={2.2} />
+          <Text style={s.fabLabel}>Compose</Text>
         </Pressable>
       </MotiView>
 
@@ -380,7 +401,6 @@ function MailRow({
   index,
   padding,
   onPress,
-  onToggleStar,
 }: {
   summary: MailSummary;
   encryption: EncryptionState;
@@ -398,7 +418,6 @@ function MailRow({
   /** Vertical padding for the current density. */
   padding: number;
   onPress: () => void;
-  onToggleStar: () => void;
 }) {
   const accent = useAccent();
   const name = displayName(summary.from.address, summary.from.name);
@@ -458,22 +477,6 @@ function MailRow({
               </Text>
             ) : null}
           </View>
-        </Pressable>
-        {/* Sibling of the row's Pressable, not nested — nested <button>s are
-            invalid on web and would let a star tap bubble into opening the row. */}
-        <Pressable
-          accessibilityLabel={summary.starred ? 'Unstar' : 'Star'}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={onToggleStar}
-          style={({ pressed }) => [s.star, pressed && { opacity: 0.6 }]}
-        >
-          <Icon
-            name="star"
-            size={18}
-            color={summary.starred ? accent : color.inkFaint}
-            fill={summary.starred ? accent : 'none'}
-          />
         </Pressable>
         {summary.unread ? <View style={[s.unreadDot, { backgroundColor: accent }]} /> : null}
       </View>
@@ -551,7 +554,8 @@ function lockFor(encryption: EncryptionState): { icon: 'lock' | 'alert' | 'mail'
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  topbar: { backgroundColor: color.surface },
+  topbar: { backgroundColor: color.surface, overflow: 'hidden', position: 'relative' },
+  auroraLayer: { bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -585,16 +589,20 @@ const s = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.sm,
   },
+  // An outline chip — a hairline border on the card fill — rather than a
+  // filled segment-coloured pill.
   filterPill: {
     alignItems: 'center',
-    backgroundColor: color.segment,
+    backgroundColor: color.card,
+    borderColor: color.border,
     borderRadius: radius.pill,
+    borderWidth: 1,
     flexDirection: 'row',
     gap: 7,
-    paddingHorizontal: 22,
-    paddingVertical: 11,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
   },
-  filterText: { color: color.ink, fontFamily: font.sansMedium, fontSize: 15 },
+  filterText: { color: color.ink, fontFamily: font.sansMedium, fontSize: 14 },
   filterDot: { borderRadius: 3, height: 6, width: 6 },
 
   filterRow: { alignItems: 'center', flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg, paddingVertical: 13 },
@@ -620,16 +628,26 @@ const s = StyleSheet.create({
 
   sectionHead: {
     ...type.settingsValue,
-    color: color.inkDim,
+    color: color.inkFaint,
+    fontFamily: font.sansSemibold,
+    letterSpacing: 0.4,
     paddingBottom: space.sm,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.lg + 2,
     paddingTop: space.lg,
+    textTransform: 'uppercase',
   },
 
-  row: { borderBottomColor: color.line, borderBottomWidth: 1 },
+  /**
+   * A flat, full-bleed band rather than a floating card. The bordered card and
+   * its side margins are gone: at an inbox's row count the borders stacked into
+   * a ladder that competed with the text, and the gutters cost the subject the
+   * width it actually needed. Rows are now separated by the ground showing
+   * through a hairline gap, which is the same trick with none of the ink.
+   */
+  row: { backgroundColor: color.card, marginBottom: 2 },
   rowTap: { alignItems: 'flex-start', flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg },
-  rowPressed: { backgroundColor: color.rowPress },
-  rowMain: { flex: 1, gap: 2, paddingRight: 22 },
+  rowPressed: { backgroundColor: color.cardPress },
+  rowMain: { flex: 1, gap: 2 },
   rowTop: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
 
   from: { ...type.row, color: color.inkDim, flex: 1 },
@@ -644,8 +662,7 @@ const s = StyleSheet.create({
   threadChip: { backgroundColor: color.surfaceRaised, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 1 },
   threadChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },
 
-  star: { padding: 6, position: 'absolute', right: space.sm, top: 10 },
-  unreadDot: { borderRadius: 4, height: 8, left: 5, position: 'absolute', top: 26, width: 8 },
+  unreadDot: { borderRadius: 4, height: 8, left: 4, position: 'absolute', top: 26, width: 8 },
 
   skelRow: {
     alignItems: 'center',
@@ -656,13 +673,17 @@ const s = StyleSheet.create({
   },
 
   fab: {
-    alignItems: 'center',
-    borderRadius: 28,
-    height: 56,
-    justifyContent: 'center',
+    backgroundColor: color.ink,
+    borderRadius: radius.pill,
     position: 'absolute',
     right: 20,
-    width: 56,
   },
-  fabPress: { alignItems: 'center', height: '100%', justifyContent: 'center', width: '100%' },
+  fabPress: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 9,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+  },
+  fabLabel: { color: color.ground, fontFamily: font.sansBold, fontSize: 15 },
 });

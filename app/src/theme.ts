@@ -2,48 +2,128 @@
  * Design tokens.
  *
  * The look is the one described in [docs/design/ui-rework.md](../../docs/design/ui-rework.md):
- * flat dark bars on a true-black ground, rows separated by a hairline rather
- * than floated on glass, one configurable accent, and Manrope as the whole UI
- * voice. `docs/design/system-design.html` is the *previous* look and is kept
- * only as history — it is no longer the reference.
+ * bordered cards floating on a true-black ground rather than filled bars, an
+ * accent used sparingly (selection and one primary action, not every control),
+ * underline tabs instead of a filled pill segment, and Manrope as the whole UI
+ * voice. This borrows the restraint of shadcn/nativecn-style component
+ * libraries — a hairline border doing the work a fill used to — rather than
+ * the flat, fully-tinted bars of a stock mail client. `docs/design/system-design.html`
+ * is an even earlier look and is kept only as history.
  *
- * The one thing carried forward from that file unchanged is the ground: true
- * black, and no ambient wash over it. See `ui/AppBackground.tsx` for why.
+ * The one thing carried forward unchanged throughout: the ground is true
+ * black, with no ambient wash over it. See `ui/AppBackground.tsx` for why.
  */
 import { TextStyle, ViewStyle } from 'react-native';
 
 /* --------------------------------------------------------------- accent ---- */
 
 /**
- * The six accents offered in Display & Appearance, matching the reference
- * swatches. This is the *brand* accent only — the colour of a selected tab, an
- * unread count, the FAB, a date stamp.
+ * The accent — the colour of a selected tab, an unread count, the FAB, a date
+ * stamp — is **not** chosen on its own. It comes from the chosen aurora
+ * palette's `accent`, below.
  *
- * Trust colour is deliberately **not** in here. `mint` (verified) and `coral`
- * (blocked, key changed) are fixed at every accent, because what a signature
- * proved is not a matter of taste and a user must not be able to recolour it
- * into something it isn't.
+ * There used to be six standalone accent swatches here and a separate aurora
+ * picker beside them. Two colour controls on one screen read as one setting
+ * that half the app ignored: nothing explained why the band stayed cyan when
+ * the accent went red. One palette now colours both, so the choice is whole.
+ *
+ * Trust colour is deliberately **not** part of it. `mint` (verified) and
+ * `coral` (blocked, key changed) are fixed at every palette, because what a
+ * signature proved is not a matter of taste and a user must not be able to
+ * recolour it into something it isn't.
  */
-export const accents = {
-  blue: '#3B93F7',
-  purple: '#A855F7',
-  pink: '#EC4899',
-  orange: '#F97316',
-  red: '#EF4444',
-  green: '#34D399',
-} as const;
-
-export type AccentName = keyof typeof accents;
-
-export const ACCENT_NAMES = Object.keys(accents) as AccentName[];
-
-export const DEFAULT_ACCENT: AccentName = 'blue';
 
 /** Ink that stays legible on top of a filled accent — every accent is mid-tone. */
 export const ON_ACCENT = '#0B0F14';
 
-export function accentColor(name: AccentName): string {
-  return accents[name] ?? accents[DEFAULT_ACCENT];
+/* -------------------------------------------------------- aurora bands ---- */
+
+/**
+ * The aurora palettes offered in Display & Appearance, ported as-is from the
+ * `reacticx-aurora` component — three ribbon hues over a near-black sky that
+ * falls to true black.
+ *
+ * These are **not** the accent, and picking one does not change it: the band is
+ * the one surface in the app that carries its own colour. They live here rather
+ * than in `ui/aurora/` because `store/prefsStore` has to validate a stored id
+ * and nothing in `store/` may import from `ui/` — the same reason `accents` and
+ * `DENSITIES` are here.
+ *
+ * Every sky bottoms out at `#000000`, so whichever is chosen the band still
+ * meets the app's true-black ground cleanly on an OLED panel. A palette added
+ * here must keep that property.
+ */
+export type AuroraPalette = {
+  id: string;
+  /** As the reference names it, shown beside the swatches. */
+  name: string;
+  /** The three ribbon hues, in the order the shader mixes them. */
+  auroraColors: [string, string, string];
+  /** `[top, bottom]` of the sky the ribbons are laid over. */
+  skyColors: [string, string];
+  /** The palette's own tint, for anything tuned to sit beside the band. */
+  accent: string;
+};
+
+export const AURORA_PALETTES: AuroraPalette[] = [
+  {
+    id: 'borealis',
+    name: 'Borealis Cyan',
+    auroraColors: ['#44DCEA', '#968CFF', '#4ADE80'],
+    skyColors: ['#090B14', '#000000'],
+    accent: '#44DCEA',
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald Forest',
+    auroraColors: ['#10B981', '#34D399', '#059669'],
+    skyColors: ['#04120D', '#000000'],
+    accent: '#10B981',
+  },
+  {
+    id: 'violet',
+    name: 'Cosmic Violet',
+    auroraColors: ['#8B5CF6', '#EC4899', '#3B82F6'],
+    skyColors: ['#0D0B18', '#000000'],
+    accent: '#8B5CF6',
+  },
+  {
+    id: 'solar',
+    name: 'Solar Horizon',
+    auroraColors: ['#F59E0B', '#EF4444', '#F43F5E'],
+    skyColors: ['#140D0B', '#000000'],
+    accent: '#F59E0B',
+  },
+  {
+    id: 'arctic',
+    name: 'Arctic Glow',
+    auroraColors: ['#38BDF8', '#818CF8', '#A78BFA'],
+    skyColors: ['#080C1A', '#000000'],
+    accent: '#38BDF8',
+  },
+];
+
+export const AURORA_PALETTE_IDS = AURORA_PALETTES.map((p) => p.id);
+
+export const DEFAULT_AURORA_PALETTE: AuroraPalette = AURORA_PALETTES[0];
+
+/** Looks a palette up by id, falling back to the default rather than throwing. */
+export function auroraPalette(id?: string): AuroraPalette {
+  return AURORA_PALETTES.find((p) => p.id === id) ?? DEFAULT_AURORA_PALETTE;
+}
+
+/**
+ * A low-opacity wash of a colour, for a selected state that should read as a
+ * tinted card rather than a solid block. `alpha` is 0–1.
+ *
+ * Every accent here is a 6-digit hex, so appending a 2-digit alpha suffix is
+ * exact — no colour math, no rgba() parsing.
+ */
+export function tint(hex: string, alpha: number): string {
+  const a = Math.round(Math.min(1, Math.max(0, alpha)) * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `${hex}${a}`;
 }
 
 /**
@@ -54,7 +134,7 @@ export function accentColor(name: AccentName): string {
  * choice. Reach for it only where the value is genuinely fixed (a default
  * argument, a placeholder) and apply the live accent inline at the call site.
  */
-export const defaultAccent = accents[DEFAULT_ACCENT];
+export const defaultAccent = DEFAULT_AURORA_PALETTE.accent;
 
 /* -------------------------------------------------------------- surfaces ---- */
 
@@ -72,6 +152,18 @@ export const color = {
 
   /** Top bars, the drawer panel, sheets — the flat grey that lifts off black. */
   surface: '#1F1F1F',
+  /**
+   * A card floating directly on the true-black ground — barely lighter than
+   * `ground`, doing its work with `border` rather than a fill. This is the
+   * mail row, the settings group, the rail's active tile: bordered cards with
+   * air between them, not a continuous filled list.
+   */
+  card: '#0D0D0D',
+  cardPress: '#141414',
+  /** The hairline around a card. Quieter than `line`, which still separates
+   *  rows inside a flat list where one survives (the filter sheet, a menu). */
+  border: 'rgba(255,255,255,0.09)',
+  borderStrong: 'rgba(255,255,255,0.16)',
   /** A control resting on `surface`: the Filter pill, a settings search field. */
   surfaceRaised: '#2A2A2A',
   /** The track of a segmented control. */
@@ -142,7 +234,10 @@ export const glass = {
 } as const;
 
 export const radius = {
+  /** Cards: the mail row, a settings group, the rail's active tile. */
+  xl: 18,
   lg: 14,
+  /** Controls: buttons, fields, icon buttons. */
   sm: 9,
   xs: 6,
   pill: 999,
@@ -231,6 +326,8 @@ export const type = {
   /** The right-aligned date stamp; drawn in the accent. */
   date: { fontFamily: font.sansMedium, fontSize: 13 },
 
+  /** An underline tab's label. */
+  tab: { fontFamily: font.sansSemibold, fontSize: 14.5 },
   /** A settings row's label, and a drawer destination. */
   settingsRow: { fontFamily: font.sans, fontSize: 16 },
   /** The value line under it — "Dark / Blue / Roomy". */

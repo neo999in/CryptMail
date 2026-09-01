@@ -1,5 +1,5 @@
 /**
- * Appearance preferences: theme, accent, density.
+ * Appearance preferences: theme, colour, density.
  *
  * Global rather than per-account, like `accountsStore` and for the same kind of
  * reason — how the app looks is a property of this device, not of a mailbox.
@@ -11,7 +11,13 @@
  * here, but the sweep in `store/index.ts` works off a list of keys and a store
  * that opts out of it is a store someone has to remember is different.
  */
-import { AccentName, ACCENT_NAMES, DEFAULT_ACCENT, DEFAULT_DENSITY, Density, DENSITIES } from '../theme';
+import {
+  AURORA_PALETTE_IDS,
+  DEFAULT_AURORA_PALETTE,
+  DEFAULT_DENSITY,
+  Density,
+  DENSITIES,
+} from '../theme';
 import { loadJson, saveJson } from './secureJson';
 
 export const PREFS_STORE_KEY = 'cryptmail.prefs.v1';
@@ -26,14 +32,20 @@ export type ThemeChoice = 'light' | 'dark' | 'system';
 
 export type Prefs = {
   theme: ThemeChoice;
-  accent: AccentName;
   density: Density;
+  /**
+   * An `AURORA_PALETTES` id — the app's whole colour choice. It sets the aurora
+   * band *and* the accent, which is why there is no separate `accent` field:
+   * the two were split and nothing on screen explained why one moved without
+   * the other. A stored `accent` from an older build is simply ignored here.
+   */
+  auroraPalette: string;
 };
 
 export const DEFAULT_PREFS: Prefs = {
   theme: 'dark',
-  accent: DEFAULT_ACCENT,
   density: DEFAULT_DENSITY,
+  auroraPalette: DEFAULT_AURORA_PALETTE.id,
 };
 
 const THEMES: ThemeChoice[] = ['light', 'dark', 'system'];
@@ -61,17 +73,21 @@ export function resolveTheme(_choice: ThemeChoice): 'dark' {
  * Coerce anything read off disk into a valid `Prefs`.
  *
  * A value from a future build, a hand-edited store, or a half-written blob must
- * not be able to hand a screen an accent name that has no colour — the swatch
- * row and every accent read would fall back inconsistently. One place decides.
+ * not be able to hand a screen a palette id with no colours behind it — the
+ * band and every accent read would fall back inconsistently. One place decides.
+ *
+ * Unknown keys are dropped rather than carried, so the `accent` an older build
+ * stored does not survive into a `Prefs` that no longer has the field.
  */
 export function normalisePrefs(value: Partial<Prefs> | null | undefined): Prefs {
   const theme = value?.theme;
-  const accent = value?.accent;
   const density = value?.density;
+  const aurora = value?.auroraPalette;
   return {
     theme: theme && THEMES.includes(theme) ? theme : DEFAULT_PREFS.theme,
-    accent: accent && ACCENT_NAMES.includes(accent) ? accent : DEFAULT_PREFS.accent,
     density: density && DENSITIES.includes(density) ? density : DEFAULT_PREFS.density,
+    auroraPalette:
+      aurora && AURORA_PALETTE_IDS.includes(aurora) ? aurora : DEFAULT_PREFS.auroraPalette,
   };
 }
 

@@ -23,7 +23,7 @@ import { DrawerContentComponentProps, DrawerContentScrollView } from '@react-nav
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useMemo } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Category, CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categorizer/categorizer';
@@ -31,7 +31,8 @@ import { initials } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { AccountRef } from '../store/accountScope';
-import { color, font, radius, space, type } from '../theme';
+import { color, font, radius, space, tint, type } from '../theme';
+import { confirmDialog } from '../ui/dialog';
 import { useAccent } from '../ui/appearance';
 import { Icon, IconName } from '../ui/Icon';
 import { Avatar, PressableRow } from '../ui/primitives';
@@ -99,12 +100,12 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
    * people do constantly and must never do this by accident.
    */
   const confirmRemove = (account: AccountRef) => {
-    Alert.alert(
+    confirmDialog(
       `Remove ${account.email}?`,
       'This deletes its keyring, drafts and locally decrypted mail from this device. Nothing on the server is touched.',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => void removeAccount(account.id) },
+        { label: 'Cancel' },
+        { label: 'Remove', tone: 'destructive', onPress: () => void removeAccount(account.id) },
       ],
     );
   };
@@ -131,13 +132,15 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                 if (!active) void switchAccount(account.id);
                 navigation.closeDrawer();
               }}
+              // A tinted squircle behind the active avatar, not a ring around
+              // it — the same soft-selection language as a chosen drawer row.
               style={({ pressed }) => [
                 s.railItem,
-                { borderColor: active ? accent : 'transparent' },
+                { backgroundColor: active ? tint(accent, 0.18) : 'transparent' },
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Avatar seed={account.email} label={initials(account.email)} size={44} />
+              <Avatar seed={account.email} label={initials(account.email)} size={40} />
             </Pressable>
           );
         })}
@@ -175,35 +178,35 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
             ) : null}
           </Pressable>
 
-          <DrawerItem
-            icon="inbox"
-            label="Inbox"
-            count={total}
-            active={category === null}
-            onPress={() => choose(null)}
-          />
-          {destinations.map((d) => (
-            <DrawerItem key={d.label} icon={d.icon} label={d.label} count={0} active={false} onPress={d.go} />
-          ))}
-          <DrawerItem
-            icon="junk"
-            label="Junk"
-            count={counts.spam}
-            active={category === 'spam'}
-            onPress={() => choose('spam')}
-          />
-
-          <Text style={s.section}>Categories</Text>
-          {CATEGORIES.filter((cat) => cat !== 'spam').map((cat) => (
+          <View style={s.list}>
             <DrawerItem
-              key={cat}
-              icon={CATEGORY_ICON[cat]}
-              label={CATEGORY_LABELS[cat]}
-              count={counts[cat]}
-              active={category === cat}
-              onPress={() => choose(cat)}
+              icon="inbox"
+              label="Inbox"
+              count={total}
+              active={category === null}
+              onPress={() => choose(null)}
             />
-          ))}
+            {destinations.map((d) => (
+              <DrawerItem key={d.label} icon={d.icon} label={d.label} count={0} active={false} onPress={d.go} />
+            ))}
+            {CATEGORIES.filter((cat) => cat !== 'spam').map((cat) => (
+              <DrawerItem
+                key={cat}
+                icon={CATEGORY_ICON[cat]}
+                label={CATEGORY_LABELS[cat]}
+                count={counts[cat]}
+                active={category === cat}
+                onPress={() => choose(cat)}
+              />
+            ))}
+            <DrawerItem
+              icon="junk"
+              label="Junk"
+              count={counts.spam}
+              active={category === 'spam'}
+              onPress={() => choose('spam')}
+            />
+          </View>
         </DrawerContentScrollView>
 
         <View style={[s.footer, { paddingBottom: insets.bottom + space.sm }]}>
@@ -231,24 +234,23 @@ function DrawerItem({
   onPress: () => void;
 }) {
   const accent = useAccent();
-  const tint = active ? accent : color.inkDim;
+  const tone = active ? accent : color.inkDim;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       accessibilityLabel={count > 0 ? `${label}, ${count} unread` : label}
       onPress={onPress}
-      style={({ pressed }) => [s.item, pressed && { backgroundColor: color.rowPress }]}
+      style={({ pressed }) => [s.item, pressed && { opacity: 0.6 }]}
     >
-      <Icon name={icon} size={21} color={tint} />
-      <Text numberOfLines={1} style={[s.itemLabel, active && { color: accent }]}>
+      <Icon name={icon} size={22} color={tone} />
+      <Text
+        numberOfLines={1}
+        style={[s.itemLabel, { color: active ? accent : color.ink }, active && { fontFamily: font.sansSemibold }]}
+      >
         {label}
       </Text>
-      {count > 0 ? (
-        <View style={[s.count, { backgroundColor: accent }]}>
-          <Text style={s.countText}>{count}</Text>
-        </View>
-      ) : null}
+      {count > 0 ? <Text style={[s.count, { color: tone }]}>{count}</Text> : null}
     </Pressable>
   );
 }
@@ -256,45 +258,44 @@ function DrawerItem({
 const s = StyleSheet.create({
   drawer: { backgroundColor: color.surface, flexDirection: 'row', flex: 1 },
 
-  rail: { alignItems: 'center', gap: space.lg, paddingTop: space.lg, width: 72 },
-  railItem: { borderRadius: 26, borderWidth: 2, padding: 2 },
+  rail: { alignItems: 'center', gap: space.md, paddingTop: space.lg, width: 72 },
+  railItem: { borderRadius: radius.lg, padding: 5 },
   railAdd: {
     alignItems: 'center',
-    borderColor: color.line,
-    borderRadius: 24,
+    borderColor: color.border,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    height: 48,
+    height: 50,
     justifyContent: 'center',
-    width: 48,
+    width: 50,
   },
 
   panel: { borderLeftColor: color.line, borderLeftWidth: 1, flex: 1 },
-  content: { paddingBottom: space.lg },
+  content: { gap: space.lg, paddingBottom: space.lg, paddingHorizontal: space.lg, paddingTop: space.sm },
   panelHead: {
     alignItems: 'center',
     borderBottomColor: color.line,
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: space.sm,
+    marginHorizontal: -space.lg,
+    marginTop: -space.sm,
     paddingBottom: space.lg,
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
   },
   panelTitle: { ...type.heading, color: color.ink, flex: 1 },
 
-  section: { ...type.settingsValue, color: color.inkFaint, paddingHorizontal: space.lg, paddingTop: space.lg },
-
+  list: { gap: space.xs },
   item: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: space.lg,
-    paddingHorizontal: space.lg,
-    paddingVertical: 13,
+    paddingHorizontal: space.sm,
+    paddingVertical: 14,
   },
-  itemLabel: { ...type.settingsRow, color: color.ink, flex: 1 },
-
-  count: { borderRadius: radius.xs, minWidth: 26, paddingHorizontal: 6, paddingVertical: 2 },
-  countText: { color: color.ground, fontFamily: font.sansSemibold, fontSize: 13, textAlign: 'center' },
+  itemLabel: { ...type.settingsRow, flex: 1 },
+  count: { ...type.settingsValue, fontFamily: font.sansSemibold },
 
   footer: { borderTopColor: color.line, borderTopWidth: 1, paddingTop: space.sm },
   footerRow: { alignItems: 'center', flexDirection: 'row', gap: space.lg, paddingHorizontal: space.lg, paddingVertical: 12 },
