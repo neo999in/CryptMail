@@ -21,8 +21,9 @@
  * Counts come from `unreadCountsByCategory`, which honours the encryption
  * boundary: unopened encrypted mail is never classified from its ciphertext, so
  * it counts under Primary until the user opens it. The Junk count is the spam
- * engine's verdict plus any message the user marked themselves, which is why the
- * personal model and the marks are passed through.
+ * engine's verdict, plus whatever the provider filed as junk, plus any message the
+ * user marked themselves — which is why the personal model and the marks are
+ * passed through.
  */
 import { DrawerContentComponentProps, DrawerContentScrollView } from '@react-navigation/drawer';
 import { useNavigation } from '@react-navigation/native';
@@ -91,7 +92,10 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     });
   }, [messages, searchIndex, encryptionFor, spam, session?.email]);
 
-  const total = messages.filter((m) => m.unread).length;
+  // Everything except Junk, which is the Inbox destination's own contents:
+  // `messages` carries the provider's junk folder as well as the inbox
+  // (state/types.ts), and those rows are not in the list this badge belongs to.
+  const total = CATEGORIES.reduce((sum, cat) => (cat === 'spam' ? sum : sum + counts[cat]), 0);
 
   const choose = (next: Destination) => {
     setDestination(next);

@@ -17,16 +17,25 @@ and asks these questions **in order**, and stops at the first "yes":
 1. **Is it spam or a phishing attempt?** → put it in **Spam**.
    *(This one isn't word-spotting. It's a separate detector with its own
    explanation — see [the spam section below](#the-spam-check-in-plain-words).)*
-2. **Does it mention money owed?** (words like *invoice*, *bill*, *payment due*)
+2. **Did your email provider already put it in its own Spam folder?** → **Spam**.
+   *(Gmail sees things no app on your phone can — how much mail that sender sends,
+   who complains about it — so when it says junk, that counts. Unless you've said
+   otherwise about that exact message: your word wins.)*
+3. **Does it mention money owed?** (words like *invoice*, *bill*, *payment due*)
    → **Bills**.
-3. **Did you buy something?** (words like *your order*, *receipt*, *shipped*,
+4. **Did you buy something?** (words like *your order*, *receipt*, *shipped*,
    *tracking*) → **Purchases**.
-4. **Is it an ad?** (words like *sale*, *% off*, *coupon*, *unsubscribe*)
+5. **Is it an ad?** (words like *sale*, *% off*, *coupon*, *unsubscribe*)
    → **Promotions**.
-5. **None of the above?** → **Primary** (the default — normal mail from people).
+6. **None of the above?** → **Primary** (the default — normal mail from people).
 
 The **order matters**. An email that's both a bill *and* an ad counts as a
 **Bill**, because that question comes first. That's on purpose.
+
+Your provider's answer comes before the shopping questions for the same reason. A
+junk folder is full of mail written to look like a delivery update — "Refund on
+order 408-…" — and filing that under **Purchases** would put a friendly label in
+front of a warning worth reading.
 
 ### How the "reading" actually works
 
@@ -127,22 +136,21 @@ So the categorizer follows one firm rule:
 
 - **Normal (unencrypted) email** → it reads the subject and preview text and
   sorts it.
-- **Encrypted email you've already opened** → it reads the decrypted words and
-  sorts it.
-- **Encrypted email you haven't opened yet** → it **doesn't peek** at the message.
-  It stays in **Primary**.
+- **Encrypted email** → it doesn't sort it at all, opened or not. It stays in
+  **Primary**, where you can see it.
 
-In short: it never tries to guess a category from scrambled, locked text. And
-when you mark a locked message you haven't opened, the detector only learns from
-the unlocked parts too — never from the scrambled text.
+In short: it never tries to guess a category from scrambled text — and it doesn't
+guess from the unscrambled words either. Opening a message to read it isn't
+permission to file it away. And when you mark a locked message you haven't opened,
+the detector only learns from the unlocked parts: never from the scrambled text.
 
-There's one thing it *can* still see on a locked email: the delivery information
-on the outside of the envelope — who it claims to be from, and whether the mail
-system's stamps checked out. That part was never encrypted. So a locked message
-can still be flagged as spam if the envelope itself is clearly forged, even though
-nobody has read a word of it. This matters more here than in most apps: your
-provider can't scan your encrypted mail either, so if this app didn't look at the
-envelope, nothing would be checking it at all.
+**Your provider doesn't get to hide a locked message either.** Gmail can put an
+encrypted email in its own Spam folder — it looks odd to a mail filter: an
+unreadable body, a placeholder subject, no words to check — and every one of those
+is a side effect of the encryption rather than anything about the message. So that
+verdict isn't followed. The email stays in your inbox, and when you open it the app
+tells you your provider disagreed. Hiding a message you needed, in the one app
+that's supposed to be on your side, is the expensive mistake to make.
 
 ## What goes in, what comes out
 
