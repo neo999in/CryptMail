@@ -246,8 +246,21 @@ kept only as history — don't port from it. Build screens out of
   fill, not a glow and not a photo: don't reintroduce a background wash or a
   header image.
   The exception is [app/src/ui/aurora/](app/src/ui/aurora/), an aurora band
-  drawn **inside the inbox top bar's own bounds**, so the ground under the mail
-  list is untouched. Its terms are what make it allowed, and all of them have to
+  drawn **inside a mail list's top bar own bounds**, so the ground under the
+  list is untouched. That bar is one component,
+  [app/src/ui/mailBar.tsx](app/src/ui/mailBar.tsx), worn by the inbox, Sent,
+  Archive, Drafts and Scheduled alike — each of those is a **destination body on
+  the one home screen** ([app/src/screens/HomeScreen.tsx](app/src/screens/HomeScreen.tsx),
+  [app/src/ui/destination.tsx](app/src/ui/destination.tsx)), not a route: the
+  drawer sets a destination and never pushes, so no mail list arrives with a back
+  arrow, and mail rows come from
+  [app/src/ui/mailList.tsx](app/src/ui/mailList.tsx) rather than per-screen
+  markup. **The bar is mounted once, by the home screen, above whichever body is
+  up** — one per body remounts it on every destination change, which restarts the
+  band from a zero height and reads as a blink. So the state it owns (search, the
+  Primary/Encrypted lens, the filter) lives on the home screen and reaches the
+  bodies as props. Exactly one body and one bar are mounted, so it is still one
+  band. Its terms are what make it allowed, and all of them have to
   hold for any further use of it: it is sized from a measured height and never
   `absoluteFill`; it is `pointerEvents="none"`; and it animates only when
   `useShouldAnimate()` says so — screen focused (`active`, from

@@ -51,6 +51,21 @@ export function messageMatchesQuery(
   return parts.join(' ').toLowerCase().includes(needle);
 }
 
+/**
+ * Does a piece of local, already-plaintext content match the query?
+ *
+ * For the lists that are not provider mail — drafts and the outbox. They hold
+ * what the user typed, so there is no index to consult and no ciphertext to
+ * avoid: the fields are simply searched. Same trimmed, case-insensitive,
+ * substring rule as `messageMatchesQuery`, so one search box behaves the same
+ * whichever destination it is over.
+ */
+export function textMatchesQuery(fields: (string | undefined)[], query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.filter(Boolean).join(' ').toLowerCase().includes(needle);
+}
+
 /** Add or replace the decrypted content for a message id (pure). */
 export function indexContent(index: SearchIndex, id: string, content: DecryptedContent): SearchIndex {
   return { ...index, [id]: content };

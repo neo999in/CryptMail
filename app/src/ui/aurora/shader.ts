@@ -24,8 +24,23 @@ uniform float  speed;
 uniform float  intensity;
 uniform float2 waveDirection;
 
+// Precision-safe hash. The reference used fract(sin(dot(p, k)) * 43758.5),
+// which is the canonical GPU hash and is broken on real hardware here.
+//
+// By the second fbm octave p has been doubled and shifted to roughly 100-200,
+// so dot(p, (127.1, 311.7)) reaches ~87000. sin() of that leaves almost no
+// mantissa left for the fractional part, so the hash collapses into large flat
+// plateaus with hard edges between them - visible as seams across the band.
+// It survives on a desktop GPU (and therefore on the emulator, which uses one)
+// and fails on a phone, which is the worst way for a bug like this to behave.
+//
+// This is Hoskins' hash12: every value is folded into [0,1) by the first fract
+// and stays there, so there is no large argument to lose precision on and no
+// sin() at all. Cheaper too.
 float hash(float2 p) {
-  return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123);
+  float3 p3 = fract(float3(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
 }
 
 float noise(float2 p) {
@@ -110,7 +125,16 @@ half4 main(float2 fragCoord) {
   // Additive luminance bloom
   finalCol += auroraCol * pow(clamp(auroraField, 0.0, 1.0), 2.5) * 0.45;
 
-  return half4(finalCol, 1.0);
+  // Dither, at roughly half a step of an 8-bit channel.
+  //
+  // The band is a wide, very gradual gradient at low alpha, which is the exact
+  // shape that quantises into visible contour bands on a phone panel - the
+  // reference has no dithering because it was tuned on a desktop display. The
+  // noise is broken across 2-pixel cells rather than 1 so it survives being
+  // viewed below native resolution, and is far too small to read as grain.
+  finalCol += (hash(floor(fragCoord * 0.5)) - 0.5) * (1.5 / 255.0);
+
+  return half4(clamp(finalCol, 0.0, 1.0), 1.0);
 }
 `;
 

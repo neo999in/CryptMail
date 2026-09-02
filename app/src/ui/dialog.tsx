@@ -13,7 +13,7 @@
  * exactly like `Alert.alert` itself is a static call with no component of its
  * own to mount — a screen that wants to confirm something should not need a
  * `useState` and a JSX block just to ask. `DialogHost` is UI plumbing, not a
- * domain subsystem, so — like `ui/appearance.tsx` and `ui/inboxFilter.tsx` —
+ * domain subsystem, so — like `ui/appearance.tsx` and `ui/destination.tsx` —
  * it stays out of `state/`.
  */
 import React, { useCallback, useEffect, useState } from 'react';

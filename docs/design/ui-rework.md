@@ -128,7 +128,19 @@ becomes the two-column drawer of shot 3:
 - **Right panel**: Inbox (with the unread count badge in the accent), Sent,
   Archive, Drafts, Scheduled, Junk. Sent and Archive are real destinations as of
   this change — `screens/MailboxScreen.tsx`, fetched from the provider and paged
-  on their own cursors. The reference also lists Snoozed and Deleted; **neither
+  on their own cursors. **None of these rows is a navigation**: every one of them
+  sets a `Destination` (`ui/destination.tsx`) on the single screen behind the
+  drawer (`screens/HomeScreen.tsx`), so choosing Sent is the same gesture as
+  choosing Bills — literally the same aurora bar of `ui/mailBar.tsx`, mounted
+  once by that screen and never remounted as the body under it swaps (a bar per
+  body restarts the band and blinks), same account avatar
+  opening the drawer, same ✕ back to all mail, and for the ones that show mail
+  the same rows, day headings, search, Primary/Encrypted lens and
+  open-into-the-message transition from `ui/mailList.tsx`. Drafts and Scheduled
+  keep their own rows but wear that same bar at the same height, searchable like
+  the rest. Where the rows come
+  from — a provider fetch, a local store, a filter — is not something the top of
+  the app changes shape over. Settings is the one drawer row that still pushes. The reference also lists Snoozed and Deleted; **neither
   has a destination in CryptMail today**, so they are not drawn as dead rows —
   the panel lists what exists. The categories (Primary, Purchases, Bills,
   Promotions) stay below under a "Categories" heading, which is what this

@@ -7,7 +7,7 @@ local decrypt, as the read-side sibling of the search index.
 
 - **Engine:** [`src/categorizer/categorizer.ts`](./categorizer.ts)
 - **Tests:** [`src/categorizer/__tests__/categorizer-test.ts`](./__tests__/categorizer-test.ts)
-- **Consumers:** [`src/screens/InboxScreen.tsx`](../screens/InboxScreen.tsx), [`src/screens/CategoryDrawer.tsx`](../screens/CategoryDrawer.tsx), [`src/screens/MessageScreen.tsx`](../screens/MessageScreen.tsx), [`src/ui/inboxFilter.tsx`](../ui/inboxFilter.tsx)
+- **Consumers:** [`src/screens/InboxScreen.tsx`](../screens/InboxScreen.tsx), [`src/screens/CategoryDrawer.tsx`](../screens/CategoryDrawer.tsx), [`src/screens/MessageScreen.tsx`](../screens/MessageScreen.tsx), [`src/ui/destination.tsx`](../ui/destination.tsx)
 - **Spam engine it delegates to:** [`src/spam/spam.ts`](../spam/spam.ts) (`headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`)
 
 The module is **deliberately pure**: no React, no storage, no network. That is
@@ -238,28 +238,31 @@ Four pieces wire the pure engine into the UI. The active category is **UI
 view-state**, held outside `AppState` on purpose — it never touches mail, keys,
 or the send path; it only decides which already-loaded rows render.
 
-### `inboxFilter.tsx` — shared filter state
+### `destination.tsx` — shared destination state
 
-Exposes a small React context (`CategoryFilterProvider` / `useCategoryFilter`)
+Exposes a small React context (`DestinationProvider` / `useDestination`)
 holding one value:
 
 ```ts
-{ category: Category | null; setCategory: (c: Category | null) => void }
+{ destination: Destination; setDestination: (d: Destination) => void }
 ```
 
-`null` means **"All mail"** (no category filter). Both the drawer and the inbox
-list read and write this shared state.
+`Destination` is `'inbox' | Category | 'sent' | 'archive' | 'drafts' |
+'scheduled'` — every row in the drawer, since none of them is a navigation
+(`screens/HomeScreen.tsx`). `'inbox'` means **"All mail"**, and `categoryOf(d)`
+is the category a destination filters by, or `null`. Both the drawer and the
+home screen's bodies read and write this shared state.
 
 ### `CategoryDrawer.tsx` — the left navigation drawer
 
 - Lists **All mail** plus every `CATEGORIES` entry, with an icon and an unread badge per row.
 - Badges come from `unreadCountsByCategory(items, searchIndex, {model, marks, selfAddress})`, memoised over `messages`, `searchIndex`, `spam` and the session address. It derives each row's `encrypted` flag from `encryptionFor(summary).kind === 'encrypted'`.
 - Because it uses the same encryption-boundary logic, unopened encrypted mail counts under **Primary** until opened — unless its cleartext headers alone reach a spam verdict.
-- Tapping a row calls `setCategory(cat)` (or `null` for All mail) and closes the drawer.
+- Tapping a row calls `setDestination(...)` — a category, `'inbox'` for All mail, or a mailbox like `'sent'` — and closes the drawer. Only Settings pushes a screen.
 
 ### `InboxScreen.tsx` — the filtered list
 
-- Reads `{ category, setCategory }` from `useCategoryFilter()`.
+- Reads `useDestination()` and derives `category = categoryOf(destination)`.
 - Builds one memoised `spamContext` from `{model: spam.model, marks: spam.marks, selfAddress: session?.email}`, so every row in the pass is scored against the same model.
 - Inside its `sections` `useMemo`, after the encryption/attention filters, it applies the category filter in one line:
 

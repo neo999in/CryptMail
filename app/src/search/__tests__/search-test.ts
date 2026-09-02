@@ -1,5 +1,5 @@
 import { MailSummary } from '../../mail/types';
-import { indexContent, messageMatchesQuery, SearchIndex } from '../search';
+import { indexContent, messageMatchesQuery, SearchIndex, textMatchesQuery } from '../search';
 
 function summary(overrides: Partial<MailSummary> = {}): MailSummary {
   return {
@@ -72,5 +72,29 @@ describe('indexContent', () => {
     const next = indexContent(before, 'm1', { subject: 'new', body: 'new' });
     expect(next.m1).toEqual({ subject: 'new', body: 'new' });
     expect(before.m1).toEqual({ subject: 'old', body: 'old' });
+  });
+});
+
+describe('textMatchesQuery', () => {
+  const draft = ['Invoice for August', 'anya@partner.com', 'Attached is the invoice.'];
+
+  test('an empty or whitespace query matches everything', () => {
+    expect(textMatchesQuery(draft, '')).toBe(true);
+    expect(textMatchesQuery(draft, '   ')).toBe(true);
+  });
+
+  test('matches any field, case-insensitively', () => {
+    expect(textMatchesQuery(draft, 'INVOICE')).toBe(true);
+    expect(textMatchesQuery(draft, 'partner.com')).toBe(true);
+    expect(textMatchesQuery(draft, 'attached')).toBe(true);
+  });
+
+  test('does not match text that is in none of the fields', () => {
+    expect(textMatchesQuery(draft, 'receipt')).toBe(false);
+  });
+
+  test('missing fields are skipped rather than matched as empty', () => {
+    expect(textMatchesQuery(['Subject', undefined], 'subject')).toBe(true);
+    expect(textMatchesQuery([undefined, undefined], 'anything')).toBe(false);
   });
 });

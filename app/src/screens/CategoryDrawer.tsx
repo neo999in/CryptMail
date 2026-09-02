@@ -9,10 +9,14 @@
  * still only a reading convenience, and it is the "All accounts" toggle at the
  * top of the panel.
  *
- * The panel on the right lists destinations that exist. Sent and Archive are
- * fetched from the provider (`screens/MailboxScreen.tsx`); the reference also
- * shows Snoozed and Deleted, and CryptMail has no backing for those, so they are
- * not drawn as rows that do nothing — see docs/design/ui-rework.md.
+ * The panel on the right lists destinations that exist, and **every row is the
+ * same kind of thing**: it sets the home screen's `Destination`
+ * (`ui/destination.tsx`) and closes the drawer. Sent and Archive come from the
+ * provider and Drafts and Scheduled from local stores, but none of them pushes a
+ * screen, so none of them arrives with a back arrow. Settings is the one push
+ * here, because it genuinely is a different screen. The reference also shows
+ * Snoozed and Deleted, and CryptMail has no backing for those, so they are not
+ * drawn as rows that do nothing — see docs/design/ui-rework.md.
  *
  * Counts come from `unreadCountsByCategory`, which honours the encryption
  * boundary: unopened encrypted mail is never classified from its ciphertext, so
@@ -27,7 +31,7 @@ import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Category, CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categorizer/categorizer';
+import { CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categorizer/categorizer';
 import { initials } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
@@ -37,9 +41,9 @@ import { confirmDialog } from '../ui/dialog';
 import { useAccent } from '../ui/appearance';
 import { Icon, IconName } from '../ui/Icon';
 import { Avatar, PressableRow } from '../ui/primitives';
-import { useCategoryFilter } from '../ui/inboxFilter';
+import { Destination, useDestination } from '../ui/destination';
 
-const CATEGORY_ICON: Record<Category, IconName> = {
+const CATEGORY_ICON: Record<string, IconName> = {
   primary: 'inbox',
   purchases: 'archive',
   bills: 'file',
@@ -47,8 +51,13 @@ const CATEGORY_ICON: Record<Category, IconName> = {
   spam: 'junk',
 };
 
-/** Destinations that are their own screen rather than a filter on this list. */
-type Destination = { icon: IconName; label: string; go: () => void };
+/** The mailboxes and queues that are not a filter over the inbox's own rows. */
+const BOXES: { key: Destination; icon: IconName; label: string }[] = [
+  { key: 'sent', icon: 'send', label: 'Sent' },
+  { key: 'archive', icon: 'archive', label: 'Archive' },
+  { key: 'drafts', icon: 'edit', label: 'Drafts' },
+  { key: 'scheduled', icon: 'clock', label: 'Scheduled' },
+];
 
 export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
   const {
@@ -65,7 +74,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     removeAccount,
     setUnified,
   } = useApp();
-  const { category, setCategory } = useCategoryFilter();
+  const { destination, setDestination } = useDestination();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
   const stack = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -84,14 +93,15 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
 
   const total = messages.filter((m) => m.unread).length;
 
-  const choose = (next: Category | null) => {
-    setCategory(next);
+  const choose = (next: Destination) => {
+    setDestination(next);
     navigation.closeDrawer();
   };
 
-  const push = (screen: 'Sent' | 'Archive' | 'Drafts' | 'Scheduled' | 'Settings') => {
+  /** Settings is a real screen, so it is the one row here that pushes. */
+  const openSettings = () => {
     navigation.closeDrawer();
-    stack.navigate(screen);
+    stack.navigate('Settings');
   };
 
   /**
@@ -110,13 +120,6 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
       ],
     );
   };
-
-  const destinations: Destination[] = [
-    { icon: 'send', label: 'Sent', go: () => push('Sent') },
-    { icon: 'archive', label: 'Archive', go: () => push('Archive') },
-    { icon: 'edit', label: 'Drafts', go: () => push('Drafts') },
-    { icon: 'clock', label: 'Scheduled', go: () => push('Scheduled') },
-  ];
 
   return (
     <View style={[s.drawer, { paddingTop: insets.top }]}>
@@ -186,11 +189,18 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               icon="inbox"
               label="Inbox"
               count={total}
-              active={category === null}
-              onPress={() => choose(null)}
+              active={destination === 'inbox'}
+              onPress={() => choose('inbox')}
             />
-            {destinations.map((d) => (
-              <DrawerItem key={d.label} icon={d.icon} label={d.label} count={0} active={false} onPress={d.go} />
+            {BOXES.map((d) => (
+              <DrawerItem
+                key={d.key}
+                icon={d.icon}
+                label={d.label}
+                count={0}
+                active={destination === d.key}
+                onPress={() => choose(d.key)}
+              />
             ))}
             {CATEGORIES.filter((cat) => cat !== 'spam').map((cat) => (
               <DrawerItem
@@ -198,7 +208,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                 icon={CATEGORY_ICON[cat]}
                 label={CATEGORY_LABELS[cat]}
                 count={counts[cat]}
-                active={category === cat}
+                active={destination === cat}
                 onPress={() => choose(cat)}
               />
             ))}
@@ -206,14 +216,14 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               icon="junk"
               label="Junk"
               count={counts.spam}
-              active={category === 'spam'}
+              active={destination === 'spam'}
               onPress={() => choose('spam')}
             />
           </View>
         </DrawerContentScrollView>
 
         <View style={[s.footer, { paddingBottom: insets.bottom + space.sm }]}>
-          <PressableRow accessibilityRole="button" onPress={() => push('Settings')} style={s.footerRow}>
+          <PressableRow accessibilityRole="button" onPress={openSettings} style={s.footerRow}>
             <Icon name="settings" size={21} color={color.inkDim} />
             <Text style={s.footerLabel}>Settings</Text>
           </PressableRow>
