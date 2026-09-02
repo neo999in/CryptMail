@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +31,7 @@ import { AuroraPalette, color, defaultAccent, font, glass, radius, shadow, space
 import { AttachmentList } from '../ui/attachments';
 import { Aurora } from '../ui/aurora';
 import { useAppearance } from '../ui/appearance';
+import { HtmlReader } from '../ui/HtmlReader';
 import { Icon } from '../ui/Icon';
 import {
   Avatar,
@@ -67,6 +69,9 @@ export function MessageScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { auroraColors } = useAppearance();
+  // The reader wraps to the scroll view's padded box, not the whole window, or
+  // wide content lays out past the right edge before it is clipped.
+  const bodyWidth = useWindowDimensions().width - 32;
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
@@ -322,7 +327,20 @@ export function MessageScreen({ route, navigation }: Props) {
                 </View>
               ) : (
                 <>
-                  <Body text={opened.body} onLinkPress={setTappedLink} />
+                  {/* HTML when the message has an HTML part, the flattened text
+                      otherwise. Both routes send a tapped link to the same
+                      confirmation sheet — the reader validates the URL a second
+                      time at the tap before handing it over, so a destination is
+                      never opened without being shown. */}
+                  {opened.html ? (
+                    <HtmlReader
+                      contentWidth={bodyWidth}
+                      html={opened.html}
+                      onLinkPress={setTappedLink}
+                    />
+                  ) : (
+                    <Body text={opened.body} onLinkPress={setTappedLink} />
+                  )}
                   <AttachmentList
                     attachments={opened.attachments}
                     decrypted={opened.encryption.kind === 'encrypted'}
