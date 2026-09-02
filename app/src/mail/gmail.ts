@@ -107,12 +107,24 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
  * Inbox and Sent are labels; **archive is not**. Gmail has no archived label —
  * archiving removes `INBOX` and leaves the message in All Mail — so it is asked
  * for by exclusion. Drafts and sent mail are excluded explicitly because they are
- * also "not in the inbox" and would otherwise appear here; spam and trash need no
- * exclusion, since `messages.list` omits both unless `includeSpamTrash` is set.
+ * also "not in the inbox" and would otherwise appear here.
+ *
+ * Junk has to opt in twice, and that is the whole reason the app's Spam view was
+ * empty against a real mailbox. `messages.list` omits SPAM and TRASH unless
+ * `includeSpamTrash` is set, so the flag lifts that exclusion; `labelIds=SPAM`
+ * then narrows the result to the junk folder alone rather than mixing junk into
+ * every other list. Both are sent because each does a different half of the job —
+ * the flag alone would widen every query, and the label alone is filtered out by
+ * the default exclusion before it can match anything.
+ *
+ * The other three lists therefore need no exclusion of their own: spam and trash
+ * are already absent from them, which is also why archive's `-in:` query does not
+ * mention either.
  */
 function selector(box: Mailbox): string {
   if (box === 'sent') return '&labelIds=SENT';
   if (box === 'archive') return `&q=${encodeURIComponent('-in:inbox -in:sent -in:draft')}`;
+  if (box === 'spam') return '&labelIds=SPAM&includeSpamTrash=true';
   return '&labelIds=INBOX';
 }
 

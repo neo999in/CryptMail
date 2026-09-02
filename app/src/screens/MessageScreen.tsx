@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { verdictFor } from '../categorizer/categorizer';
+import { categorizeMessage, providerFiledAsJunk, verdictFor } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
 import { saveAttachment } from '../lib/files';
 import { hostOf, linkify } from '../lib/links';
@@ -102,7 +102,27 @@ export function MessageScreen({ route, navigation }: Props) {
     });
   }, [encryptionFor, opened?.links, searchIndex, session?.email, spam, summary]);
 
-  const mark = summary ? spam.marks[summary.id] : undefined;
+  /**
+   * Whether this message is currently filed under Junk — by the engine, by the
+   * provider, or by the user's own mark.
+   *
+   * Through `categorizeMessage`, the same function the inbox row and the drawer
+   * badge use, so the button below cannot offer *Mark as spam* on a message that
+   * is already in Junk. That was the shape of a real dead end: a message the
+   * provider flagged arrived with no mark of its own, so the only button on offer
+   * was the one that agreed with it, and rescuing it meant marking it spam first.
+   */
+  const filedAsJunk = useMemo(
+    () =>
+      summary
+        ? categorizeMessage(summary, encryptionFor(summary).kind === 'encrypted', searchIndex, {
+            model: spam.model,
+            marks: spam.marks,
+            selfAddress: session?.email,
+          }) === 'spam'
+        : false,
+    [encryptionFor, searchIndex, session?.email, spam, summary],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -241,7 +261,11 @@ export function MessageScreen({ route, navigation }: Props) {
                 decrypting on this device line by line. */}
             <Reveal delay={0}>
               <StatusBanner opened={opened} />
-              <SpamNotice verdict={verdict} />
+              <SpamNotice
+                verdict={verdict}
+                providerJunk={providerFiledAsJunk(summary.labels)}
+                encrypted={opened.encryption.kind === 'encrypted'}
+              />
             </Reveal>
 
             <Reveal delay={80}>
@@ -341,15 +365,16 @@ export function MessageScreen({ route, navigation }: Props) {
                   }}
                 />
                 {/* One button, because the useful action is always the opposite of
-                    what the filter currently believes. It files the message and
+                    where the message is currently filed. It files the message and
                     trains the personal model; it deliberately does not archive or
                     delete — removing mail from the mailbox is a different action
-                    with a different button. */}
+                    with a different button, and nothing here touches how the
+                    provider has filed the message on its own server. */}
                 <SecondaryButton
-                  title={mark === 'spam' ? 'Not spam' : 'Mark as spam'}
-                  icon={mark === 'spam' ? 'check' : 'alert'}
-                  tone={mark === 'spam' ? 'default' : 'danger'}
-                  onPress={() => void (mark === 'spam' ? markNotSpam(summary.id) : markSpam(summary.id))}
+                  title={filedAsJunk ? 'Not spam' : 'Mark as spam'}
+                  icon={filedAsJunk ? 'check' : 'alert'}
+                  tone={filedAsJunk ? 'default' : 'danger'}
+                  onPress={() => void (filedAsJunk ? markNotSpam(summary.id) : markSpam(summary.id))}
                 />
               </View>
             </Reveal>
@@ -565,10 +590,29 @@ function StatusBanner({ opened }: { opened: OpenedMessage }) {
  * is mail the reader did not ask for, and collapsing them into one scary banner
  * would waste the distinction the engine works to draw.
  *
+ * The provider's own junk verdict is the third thing it can report, and it has to
+ * be reported: a message can sit in Junk on the provider's say-so alone, and a
+ * reader who opened it from there would otherwise find no explanation at all. On
+ * an encrypted message that verdict is *not* acted on — the provider only saw
+ * ciphertext — so the copy says which way the disagreement went rather than
+ * leaving the reader to notice for themselves that their provider hid a message
+ * this app is showing.
+ *
  * An explicit mark short-circuits the engine, so `overridden` is reported as the
- * user's own decision rather than dressed up as a detection.
+ * user's own decision rather than dressed up as a detection — and it is reported
+ * *instead* of the provider's verdict, because the whole point of a mark is that
+ * it wins.
  */
-function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
+function SpamNotice({
+  verdict,
+  providerJunk,
+  encrypted,
+}: {
+  verdict: SpamVerdict | null;
+  /** Whether the provider filed this message in its junk folder. */
+  providerJunk: boolean;
+  encrypted: boolean;
+}) {
   if (!verdict) return null;
 
   if (verdict.overridden) {
@@ -580,17 +624,29 @@ function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
     );
   }
 
-  if (!isUnwanted(verdict)) return null;
+  const flagged = isUnwanted(verdict);
+  if (!flagged && !providerJunk) return null;
+
+  const providerSays = providerJunk
+    ? encrypted
+      ? 'Your mail provider filed this as spam. It could only see the ciphertext, so CryptMail keeps it in your inbox.'
+      : 'Your mail provider filed this as spam.'
+    : null;
 
   const phishing = verdict.classification === 'phishing-suspicious';
-  const why = reasons(verdict, 3);
+  const headline = phishing
+    ? 'This message may be impersonating someone. Do not enter passwords or payment details from it.'
+    : flagged
+      ? 'This looks like spam.'
+      : (providerSays as string);
+  // The provider's sentence becomes a reason only when the headline is this
+  // device's own verdict; otherwise it would be printed twice.
+  const why = [...(flagged && providerSays ? [providerSays] : []), ...reasons(verdict, 3)];
 
   return (
     <View style={{ marginBottom: 15 }}>
       <Banner tone="warn" icon="alert">
-        {phishing
-          ? 'This message may be impersonating someone. Do not enter passwords or payment details from it.'
-          : 'This looks like spam.'}
+        {headline}
       </Banner>
       {why.length > 0 ? (
         <View style={s.spamReasons}>

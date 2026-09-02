@@ -13,7 +13,9 @@
  * Deliberately pure: no React, no storage, no network. Keyword tables are a
  * heuristic; spam and phishing are decided by the weighted-symbol engine in
  * `spam/` rather than by keywords, because "the word *invoice* appears" is a fine
- * reason to file something under Bills and a terrible reason to hide it.
+ * reason to file something under Bills and a terrible reason to hide it. On
+ * plaintext mail the provider's own junk verdict decides too, where it has one —
+ * see `providerFiledAsJunk`.
  */
 import { linkify } from '../lib/links';
 import { MailSummary } from '../mail/types';
@@ -101,6 +103,30 @@ const PROVIDER_TABS = [
 ];
 
 /**
+ * The label a provider puts on mail it filed as junk.
+ *
+ * `SPAM` is Gmail's; `JUNK` is what the IMAP and Outlook worlds call the same
+ * folder, and it is here so that adding such a connector is a connector change
+ * and nothing else. Matched case-insensitively for the same reason — Gmail's
+ * system labels are upper case, another provider's may not be.
+ */
+const PROVIDER_JUNK_LABELS = ['SPAM', 'JUNK'];
+
+/**
+ * Whether the provider filed this message as junk.
+ *
+ * A different kind of claim from the tab labels above, and the reason it gets its
+ * own function: `CATEGORY_*` is the provider's opinion about what a message is
+ * *about*, while this is where the provider actually put it. The app fetches that
+ * folder (`mail/types.ts`, `Mailbox`), so without this every message in it would
+ * arrive with no label our code reads and land in Primary — the app would
+ * un-hide, in the inbox, mail the provider had taken out of the inbox.
+ */
+export const providerFiledAsJunk = (labels: string[] | undefined): boolean =>
+  Array.isArray(labels) &&
+  labels.some((label) => typeof label === 'string' && PROVIDER_JUNK_LABELS.includes(label.toUpperCase()));
+
+/**
  * What the provider's labels say about a message being promotional.
  *
  * `unknown` is the honest answer for a connector that supplies no labels at all,
@@ -127,6 +153,19 @@ function providerPromotions(labels: string[] | undefined): 'yes' | 'no' | 'unkno
  */
 export function categorize(text: string, verdict?: SpamVerdict | null, labels?: string[]): Category {
   if (checkIsSpam(text, verdict)) return 'spam';
+
+  // The provider's own junk verdict, deferred to for the same reason its
+  // Promotions label is: it is reached from sending-domain reputation, complaint
+  // rates and bulk-send patterns that no client can see, and it is the strongest
+  // single signal available on plaintext mail. It is checked here — above the
+  // commercial keywords — because Gmail's junk folder is full of mail that reads
+  // like a receipt ("Refund on order 408-…"), and filing that under Purchases
+  // would hide the provider's warning behind a friendly bucket.
+  //
+  // Skipped when the verdict is `overridden`, which means the user marked this
+  // message themselves. A human's "not spam" is the one thing that outranks the
+  // provider; without this guard the correction would appear to do nothing.
+  if (!verdict?.overridden && providerFiledAsJunk(labels)) return 'spam';
 
   const t = text.toLowerCase();
   // Bills and purchases first, and independent of the provider: Gmail has no tab
@@ -224,15 +263,27 @@ function linksFromText(text: string | undefined): SpamInput['links'] {
  * statement about a message's contents, and mail the user chose to encrypt is
  * not sorted on its contents here. It stays in `primary` and stays visible.
  *
+ * That holds even when the provider filed the message as junk, and it is the one
+ * place this app deliberately disagrees with its provider. A `multipart/encrypted`
+ * message is unusual structure with a placeholder subject and no readable text —
+ * mild spam signals, every one of them an artefact of the encryption rather than
+ * anything about the message — so a junk verdict on it is not evidence. Leaving
+ * such a row in `primary` un-files what the provider filed, which is something
+ * this client can do and the provider's own app cannot
+ * (docs/gmail-api-adoption.md). Hiding a message the user needed, in the client
+ * that was meant to be the one thing on their side, is the expensive way to be
+ * wrong.
+ *
  * The one thing that still moves it is the user's own `spam` mark — a human
  * filing a message is not the app classifying it, and the mark has to be honoured
  * or the "mark as spam" action would silently do nothing on exactly the mail this
  * product exists for.
  *
  * Plaintext mail is read from its header subject + provider snippet, scored by
- * the spam engine, and filed with the provider's own tab labels where it has
- * them (`summary.labels`). Those labels exist only because the provider could
- * read the message, which is exactly why they are never consulted above.
+ * the spam engine, and filed with the provider's own labels where it has them
+ * (`summary.labels`) — its junk verdict as well as its tab. Those labels exist
+ * only because the provider could read the message, which is exactly why they are
+ * never consulted above.
  */
 export function categorizeMessage(
   summary: MailSummary,

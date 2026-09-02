@@ -339,7 +339,7 @@ export function InboxScreen({ navigation }: Props) {
             <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={accent} />
           }
           ListEmptyComponent={
-            loadingInbox ? null : filtering ? (
+            loadingInbox ? null : query.trim().length > 0 || filter !== 'all' ? (
               <EmptyState
                 icon="search"
                 title="Nothing matched"
@@ -355,6 +355,19 @@ export function InboxScreen({ navigation }: Props) {
                     }}
                   />
                 }
+              />
+            ) : category !== null ? (
+              // A chosen category with nothing in it is not a failed search, and
+              // the search copy above read as one — the reason this branch exists.
+              <EmptyState
+                icon={category === 'spam' ? 'junk' : 'inbox'}
+                title={`Nothing in ${CATEGORY_LABELS[category]}`}
+                hint={
+                  category === 'spam'
+                    ? 'Mail your provider filed as junk shows here, and so does mail this device flagged. Pull down to check for new mail.'
+                    : 'Mail filed here appears as it arrives. Pull down to check for new mail.'
+                }
+                action={<SecondaryButton title="Show all mail" icon="close" onPress={() => setCategory(null)} />}
               />
             ) : (
               <EmptyState

@@ -4,6 +4,7 @@ import {
   categorize,
   categorizeMessage,
   checkIsSpam,
+  providerFiledAsJunk,
   spamInputFor,
   unreadCountsByCategory,
 } from '../categorizer';
@@ -179,7 +180,7 @@ describe('categorizeMessage', () => {
     expect(categorizeMessage(plain, false, emptyIndex)).toBe('promotions');
   });
 
-  test('the provider label never reaches encrypted mail', () => {
+  test('a provider category label never reaches encrypted mail', () => {
     // Google labelled it, because Google labels everything. It saw ciphertext.
     const encrypted = summary({ labels: ['INBOX', 'CATEGORY_PROMOTIONS'] });
     expect(categorizeMessage(encrypted, true, emptyIndex)).toBe('primary');
@@ -209,6 +210,66 @@ describe('categorizeMessage', () => {
     const encrypted = summary({ id: 'm1' });
     expect(categorizeMessage(encrypted, true, emptyIndex, { marks: { m1: 'spam' } })).toBe('spam');
     expect(categorizeMessage(encrypted, true, emptyIndex, { marks: { m1: 'ham' } })).toBe('primary');
+  });
+});
+
+describe("the provider's own junk verdict", () => {
+  const emptyIndex: SearchIndex = {};
+
+  test('a plaintext message the provider filed as junk is filed as junk here', () => {
+    // The case that was reported: Gmail had two of these in Spam and CryptMail's
+    // Junk view was empty, because the app never asked for the folder and would
+    // not have read the label if it had.
+    const plain = summary({
+      subject: 'Refund on order 408-6419373-4985156',
+      snippet: 'Amazon Amazon Dear Customer, Greetings from Amazon.',
+      labels: ['SPAM'],
+    });
+    expect(categorizeMessage(plain, false, emptyIndex)).toBe('spam');
+  });
+
+  test('the junk label beats the commercial keywords, which would hide the warning', () => {
+    const text = 'Refund on order 408-1550855-4537969 — tracking number attached';
+    // On its wording alone this is an order update, and Junk is full of mail
+    // written to read exactly like one.
+    expect(categorize(text)).toBe('purchases');
+    expect(categorizeMessage(summary({ subject: text, labels: ['SPAM'] }), false, emptyIndex)).toBe('spam');
+  });
+
+  test('matched by name and case-insensitively, so another connector can use its own', () => {
+    // `JUNK` is what the IMAP and Outlook worlds call the same folder.
+    expect(providerFiledAsJunk(['SPAM'])).toBe(true);
+    expect(providerFiledAsJunk(['Junk'])).toBe(true);
+    expect(providerFiledAsJunk(['INBOX', 'CATEGORY_PERSONAL'])).toBe(false);
+    expect(providerFiledAsJunk(undefined)).toBe(false);
+    expect(providerFiledAsJunk([])).toBe(false);
+  });
+
+  test("a user's own 'not spam' outranks the provider", () => {
+    // Otherwise the correction would appear to do nothing on exactly the mail a
+    // provider filter gets wrong, and the row could never be rescued.
+    const plain = summary({ id: 'm1', subject: 'Lunch Friday?', snippet: 'Still on?', labels: ['SPAM'] });
+    expect(categorizeMessage(plain, false, emptyIndex)).toBe('spam');
+    expect(categorizeMessage(plain, false, emptyIndex, { marks: { m1: 'ham' } })).toBe('primary');
+  });
+
+  test('encrypted mail the provider filed as junk stays visible in Primary', () => {
+    // The provider saw `multipart/encrypted`: a placeholder subject, an opaque
+    // body, no readable text — mild spam signals, every one of them an artefact of
+    // the encryption. A junk verdict on that is a verdict about ciphertext, and
+    // hiding a message the user needed is the expensive way to be wrong.
+    expect(categorizeMessage(summary({ labels: ['SPAM'] }), true, emptyIndex)).toBe('primary');
+  });
+
+  test('no labels at all is not a junk verdict', () => {
+    // A connector that supplies none, and every message that predates the folder.
+    expect(categorizeMessage(summary({ subject: 'Lunch Friday?', snippet: 'Still on?' }), false, emptyIndex))
+      .toBe('primary');
+  });
+
+  test('junk counts under Junk in the drawer badge', () => {
+    const items = [{ summary: summary({ id: 'j', subject: 'Hello', unread: true, labels: ['SPAM'] }), encrypted: false }];
+    expect(unreadCountsByCategory(items, emptyIndex).spam).toBe(1);
   });
 });
 

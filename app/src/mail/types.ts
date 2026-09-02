@@ -50,12 +50,18 @@ export type MailSummary = {
   listUnsubscribe?: string;
   returnPath?: string;
   /**
-   * The provider's own labels, verbatim (`CATEGORY_PROMOTIONS`, `IMPORTANT`, …).
+   * The provider's own labels, verbatim (`CATEGORY_PROMOTIONS`, `SPAM`, …).
    *
    * Cleartext metadata the provider assigned, so it costs nothing to carry — it
    * arrives on the same `format=metadata` response the headers do. Read by the
-   * categoriser for **plaintext mail only**: a label is Google's reading of
+   * categoriser for **plaintext mail only**: a label is the provider's reading of
    * content it could see, and an encrypted message gives it nothing to read.
+   *
+   * That applies to the junk label as much as to the category ones. A `SPAM`
+   * label on plaintext mail is a verdict from a filter with reputation data no
+   * client has, and it decides the Junk bucket; the same label on an encrypted
+   * message is a verdict about ciphertext, so it is ignored and the message stays
+   * visible (`categorizer/categorizer.ts`).
    */
   labels?: string[];
 };
@@ -66,8 +72,14 @@ export type MailSummary = {
  * `archive` is not a folder anywhere — it is everything the account keeps that is
  * not in the inbox, not sent, and not a draft. Gmail models it as a query rather
  * than a label, which is why connectors translate this rather than passing it on.
+ *
+ * `spam` is the provider's own junk folder, and it has to be asked for by name:
+ * a message the provider filed as spam is **not** in the inbox — Gmail moves it
+ * out — so listing the inbox can never return it. Without this, the app's Junk
+ * destination could only ever show mail the provider *delivered* and this device
+ * then flagged, which is an empty list on a mailbox whose provider filter works.
  */
-export type Mailbox = 'inbox' | 'sent' | 'archive';
+export type Mailbox = 'inbox' | 'sent' | 'archive' | 'spam';
 
 /**
  * One page of rows, plus the cursor that reaches the page behind it.
