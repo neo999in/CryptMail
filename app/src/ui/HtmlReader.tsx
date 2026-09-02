@@ -39,6 +39,13 @@ import { Icon } from './Icon';
 
 export type HtmlReaderScheme = 'dark' | 'light';
 
+/**
+ * Entity decoding, stated rather than inherited — same `defaultProps` gap as
+ * the engine flags below. Emails are full of `&nbsp;` and `&mdash;`, and a
+ * literal `&mdash;` in the reader is the visible symptom.
+ */
+const PARSER_OPTIONS = { decodeEntities: true } as const;
+
 export type HtmlReaderProps = {
   /** The raw incoming HTML. Treated as attacker-controlled. */
   html: string;
@@ -273,6 +280,17 @@ export function HtmlReader({
           systemFonts={engineConfig.systemFonts}
           renderers={renderers}
           renderersProps={renderersProps}
+          // Passed explicitly, not left to the library's own defaults.
+          // react-native-render-html 6.x sets these through
+          // `TRenderEngineProvider.defaultProps`, and React 19 ignores
+          // `defaultProps` on a function component — so they arrive as
+          // `undefined`, and the engine reads `undefined` as "off" rather than
+          // falling back. With UA styles off, `<b>` stops being bold and
+          // `<i>` stops being italic, which is most of what email markup is.
+          enableUserAgentStyles
+          enableCSSInlineProcessing
+          emSize={14}
+          htmlParserOptions={PARSER_OPTIONS}
         />
       </ScrollView>
     </View>
