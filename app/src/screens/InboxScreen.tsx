@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 
 import { cryptoMode } from '../config';
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
@@ -284,7 +285,7 @@ export function InboxScreen({ navigation }: Props) {
         ) : null}
 
         <View style={s.controls}>
-          <Segmented options={INBOX_TABS} value={tab} onChange={setTab} />
+          <Segmented compact options={INBOX_TABS} value={tab} onChange={setTab} />
           <Pressable
             accessibilityLabel="Filter"
             accessibilityRole="button"
@@ -317,6 +318,7 @@ export function InboxScreen({ navigation }: Props) {
           renderItem={renderItem}
           renderSectionHeader={({ section }) => <Text style={s.sectionHead}>{section.title}</Text>}
           stickySectionHeadersEnabled={false}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
           // Filters and search run over rows already on the device, so paging
           // while one is up would fetch mail the list is about to hide. The
@@ -474,7 +476,11 @@ function MailRow({
           onPress={onPress}
           style={({ pressed }) => [s.rowTap, { paddingVertical: padding }, pressed && s.rowPressed]}
         >
-          <Avatar seed={summary.from.address} label={initials(name)} size={44} />
+          {/* Tagged so Reanimated grows this circle into the message header's
+              avatar on open, instead of a flat push — the "expanding" cue. */}
+          <Animated.View sharedTransitionTag={`mail-avatar-${summary.id}`}>
+            <Avatar seed={summary.from.address} label={initials(name)} size={44} />
+          </Animated.View>
           <View style={s.rowMain}>
             <View style={s.rowTop}>
               <Text numberOfLines={1} style={[s.from, summary.unread && s.fromUnread]}>

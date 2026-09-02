@@ -58,14 +58,20 @@ const navTheme = {
 };
 
 const screenOptions = {
-  // Transparent like every other surface, so the stack header merges into the
-  // black ground instead of sitting on it as a near-black bar. There is no
-  // separator to lose: `headerShadowVisible` is already off.
+  // The header stays transparent so it merges into the black ground instead of
+  // sitting on it as a near-black bar. There is no separator to lose:
+  // `headerShadowVisible` is already off.
   headerStyle: { backgroundColor: 'transparent' },
   headerTintColor: color.ink,
   headerTitleStyle: { fontFamily: font.sansSemibold, fontSize: 17 },
   headerShadowVisible: false,
-  contentStyle: { backgroundColor: 'transparent' },
+  // The screen body is painted the same true black as `AppBackground` rather
+  // than left transparent: react-native-screens gives each stack screen its
+  // own native backing, and a transparent one has nothing to stop the outgoing
+  // screen from showing through mid-transition — the two cards visibly overlap
+  // while sliding. Filling with `color.ground` looks identical at rest (it's
+  // the same colour as the shared background) but opaque during the push.
+  contentStyle: { backgroundColor: color.ground },
 } as const;
 
 /** The inbox lives behind a category drawer; every other screen is a stack push
@@ -130,11 +136,7 @@ function Root() {
   }, [identity, session]);
 
   if (booting) {
-    return (
-      <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-        <ActivityIndicator color={color.brass} />
-      </View>
-    );
+    return <View style={{ flex: 1 }} />;
   }
 
   if (!session) return <ConnectScreen />;

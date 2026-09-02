@@ -28,7 +28,7 @@
  * must keep every touch.
  */
 import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia';
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import {
   Easing,
@@ -162,6 +162,31 @@ export const Aurora = memo(function Aurora({
 /** Re-exported so a screen can pick a palette or match something to it. */
 export { AURORA_PALETTES, auroraPalette } from './palette';
 export type { AuroraPalette } from './palette';
+
+/**
+ * Drop-in `headerBackground` for a native-stack screen that wants the same
+ * band the inbox top bar uses, sized to whatever the header actually renders
+ * at.
+ *
+ * `active` is a prop, not `useIsFocused()` read in here: `headerBackground`
+ * is instantiated inside the native header's own render slot rather than as
+ * a normal descendant of the screen, and a navigation hook called from
+ * inside that slot crashes React with a hooks-count mismatch. Call
+ * `useIsFocused()` in the screen itself and pass the result down — see
+ * `MessageScreen`'s `headerBackground` wiring for the pattern.
+ */
+export function AuroraHeaderBackground({ active, palette }: { active: boolean; palette?: string | AuroraPalette }) {
+  const [height, setHeight] = useState(0);
+  return (
+    <View
+      onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
+      pointerEvents="none"
+      style={{ backgroundColor: color.surface, height: '100%', overflow: 'hidden' }}
+    >
+      <Aurora active={active} height={height} palette={palette} />
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   fallback: { backgroundColor: color.surface },

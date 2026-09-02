@@ -384,7 +384,11 @@ export function ComposeScreen({ route, navigation }: Props) {
       style={s.screen}
       keyboardVerticalOffset={90}
     >
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {/*
           Above everything, because it decides what the rest of the screen means.
           Hidden once a message has been queued: that one is already encrypted

@@ -101,7 +101,10 @@ export function SettingsScreen({ navigation }: Props) {
         <Text style={s.title}>Settings</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + space.xl, paddingTop: space.md }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + space.xl, paddingTop: space.md }}
+        showsVerticalScrollIndicator={false}
+      >
         {groups.map((group) => (
           <View key={group.heading}>
             <GroupHeading>{group.heading}</GroupHeading>

@@ -43,7 +43,11 @@ export function ConversationScreen({ route, navigation }: Props) {
   }
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={s.subject}>{title}</Text>
       <Text style={s.meta}>{thread.count} messages</Text>
 

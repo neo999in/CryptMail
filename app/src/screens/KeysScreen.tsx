@@ -172,6 +172,7 @@ export function KeysScreen({ navigation }: Props) {
     <ScrollView
       style={s.screen}
       contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}
+      showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
       <Card>

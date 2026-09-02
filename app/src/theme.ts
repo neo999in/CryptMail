@@ -334,7 +334,7 @@ export const type = {
   date: { fontFamily: font.sansMedium, fontSize: 13 },
 
   /** A segmented-control tab's label. */
-  tab: { fontFamily: font.sansSemibold, fontSize: 14.5 },
+  tab: { fontFamily: font.sansSemibold, fontSize: 15.5 },
   /** A settings row's label, and a drawer destination. */
   settingsRow: { fontFamily: font.sans, fontSize: 16 },
   /** The value line under it — "Dark / Blue / Roomy". */

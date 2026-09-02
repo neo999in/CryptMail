@@ -492,11 +492,19 @@ export function Segmented<T extends string>({
   value,
   onChange,
   style,
+  compact,
+  stretch,
 }: {
   options: { key: T; label: string }[];
   value: T;
   onChange: (key: T) => void;
   style?: StyleProp<ViewStyle>;
+  /** The inbox's Primary/Encrypted pill: a smaller control living inside the
+   *  top bar, next to the avatar — the roomier size reads oversized there. */
+  compact?: boolean;
+  /** Fills the width available to it, each option taking an equal share,
+   *  instead of sizing to its own content. */
+  stretch?: boolean;
 }) {
   const reducedMotion = useReducedMotion();
   const [layouts, setLayouts] = useState<Record<string, { x: number; width: number }>>({});
@@ -515,15 +523,21 @@ export function Segmented<T extends string>({
       toValue: index,
       duration: motion.base,
       easing: Easing.out(Easing.cubic),
-      // Layout props (width) cannot cross to the native driver, and a view may
-      // not mix drivers, so translateX rides along on the JS one.
-      useNativeDriver: false,
+      // translateX + scaleX (below) are the only two properties driving the
+      // thumb, and neither is a layout prop — the whole animation can run on
+      // the native thread, off whatever the JS thread is doing (e.g. a tab
+      // switch re-filtering the mail list). A `width` tween can't join it:
+      // that's a layout prop, forces the JS driver, and stutters under load.
+      useNativeDriver: true,
     }).start();
   }, [index, progress, reducedMotion]);
 
   const measured = options.length > 0 && options.every((o) => layouts[o.key]);
   const spread = measured && options.length > 1;
   const inputRange = options.map((_, i) => i);
+  // A fixed reference width the thumb is declared at; scaleX stretches it to
+  // each tab's measured width instead of animating `width` directly.
+  const baseWidth = (measured && (layouts[options[0]?.key]?.width || layouts[options[options.length - 1]?.key]?.width)) || 1;
 
   /** Interpolate across every tab's measured value, or hold the one we have. */
   const across = (pick: (key: T) => number) =>
@@ -534,7 +548,7 @@ export function Segmented<T extends string>({
         : 0;
 
   return (
-    <View style={[s.segment, style]}>
+    <View style={[s.segment, stretch && s.segmentStretch, style]}>
       <View accessibilityRole="tablist" style={s.segmentTrack}>
         {/* Drawn before the tabs so it sits behind their labels. */}
         <Animated.View
@@ -542,8 +556,15 @@ export function Segmented<T extends string>({
             s.segmentThumb,
             {
               opacity: measured ? 1 : 0,
-              transform: [{ translateX: across((key) => layouts[key]?.x ?? 0) }],
-              width: across((key) => layouts[key]?.width ?? 0),
+              width: baseWidth,
+              transform: [
+                {
+                  translateX: across(
+                    (key) => (layouts[key]?.x ?? 0) + (layouts[key]?.width ?? 0) / 2 - baseWidth / 2,
+                  ),
+                },
+                { scaleX: across((key) => (layouts[key]?.width ?? baseWidth) / baseWidth) },
+              ],
             },
           ]}
         />
@@ -573,9 +594,11 @@ export function Segmented<T extends string>({
                 );
               }}
               onPress={() => onChange(option.key)}
-              style={s.segmentItem}
+              style={[s.segmentItem, compact && s.segmentItemCompact, stretch && s.segmentItemStretch]}
             >
-              <Animated.Text style={[s.segmentText, active && { color: color.ink }, { opacity: fade }]}>
+              <Animated.Text
+                style={[s.segmentText, compact && s.segmentTextCompact, active && { color: color.ink }, { opacity: fade }]}
+              >
                 {option.label}
               </Animated.Text>
             </Pressable>
@@ -854,8 +877,9 @@ const s = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: color.segment,
     borderRadius: radius.pill,
-    padding: 3,
+    padding: 4,
   },
+  segmentStretch: { alignSelf: 'stretch' },
   segmentTrack: { flexDirection: 'row', position: 'relative' },
   segmentThumb: {
     backgroundColor: color.segmentActive,
@@ -865,10 +889,13 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 0,
   },
-  segmentItem: { paddingHorizontal: 16, paddingVertical: 7 },
+  segmentItem: { paddingHorizontal: 20, paddingVertical: 11 },
+  segmentItemCompact: { paddingHorizontal: 14, paddingVertical: 7 },
+  segmentItemStretch: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   // Both labels stay light: the pill is what says which is selected, so the
   // type does not also have to shout it.
   segmentText: { ...type.tab, color: color.body },
+  segmentTextCompact: { fontSize: 13.5 },
 
   sheet: {
     backgroundColor: color.surface,
@@ -921,8 +948,8 @@ const s = StyleSheet.create({
 
   radio: { alignItems: 'center', gap: space.sm },
   radioLabel: { ...type.settingsRow, color: color.ink },
-  radioRing: { alignItems: 'center', borderRadius: 12, borderWidth: 2, height: 24, justifyContent: 'center', width: 24 },
-  radioDot: { borderRadius: 6, height: 12, width: 12 },
+  radioRing: { alignItems: 'center', borderRadius: 10, borderWidth: 2, height: 20, justifyContent: 'center', width: 20 },
+  radioDot: { borderRadius: 5, height: 10, width: 10 },
 
 
   empty: { alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: 56 },

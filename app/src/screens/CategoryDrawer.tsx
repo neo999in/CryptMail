@@ -162,7 +162,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
 
       {/* ----------------------------------------------------------- panel -- */}
       <View style={s.panel}>
-        <DrawerContentScrollView contentContainerStyle={s.content}>
+        <DrawerContentScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
           {/* Merging is a reading convenience only — composing, sending and
               decrypting stay bound to whichever account the rail has in front. */}
           <Pressable
@@ -259,14 +259,14 @@ function DrawerItem({
 }
 
 const s = StyleSheet.create({
-  drawer: { backgroundColor: color.surface, flexDirection: 'row', flex: 1 },
+  drawer: { backgroundColor: '#141414', flexDirection: 'row', flex: 1 },
 
   rail: { alignItems: 'center', gap: space.md, paddingTop: space.lg, width: 72 },
-  railItem: { borderRadius: radius.lg, padding: 5 },
+  railItem: { borderRadius: radius.pill, padding: 5 },
   railAdd: {
     alignItems: 'center',
     borderColor: color.border,
-    borderRadius: radius.lg,
+    borderRadius: radius.pill,
     borderWidth: 1,
     height: 50,
     justifyContent: 'center',

@@ -63,12 +63,6 @@ export const CAPITALISED_DENSITY: Record<Density, string> = {
   roomy: 'Roomy',
 };
 
-const DENSITY_HINT: Record<Density, string> = {
-  compact: 'The most mail on screen at once.',
-  cosy: 'A middle setting.',
-  roomy: 'The most room around each message.',
-};
-
 export function AppearanceScreen({ navigation }: Props) {
   const {
     accentColor,
@@ -89,29 +83,30 @@ export function AppearanceScreen({ navigation }: Props) {
           <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
           <Text style={s.title}>Display & Appearance</Text>
         </View>
-        <Segmented options={TABS} value={tab} onChange={setTab} style={s.tabs} />
+        <Segmented compact stretch options={TABS} value={tab} onChange={setTab} style={s.tabs} />
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }} showsVerticalScrollIndicator={false}>
         <Preview accent={accentColor} density={density} />
 
         {tab === 'theme' ? (
           <>
-            <Group style={s.radiosGroup}>
+            <Group style={[s.radiosGroup, s.noRing]}>
               <View style={s.radios}>
                 {(Object.keys(THEME_LABEL) as ThemeChoice[]).map((choice) => (
-                  <Radio
-                    key={choice}
-                    label={THEME_LABEL[choice]}
-                    selected={theme === choice}
-                    disabled={choice === 'light' && !LIGHT_THEME_AVAILABLE}
-                    hint={
-                      choice === 'light' && !LIGHT_THEME_AVAILABLE
-                        ? 'A light palette is not built yet'
-                        : undefined
-                    }
-                    onPress={() => setTheme(choice)}
-                  />
+                  <View key={choice} style={s.radioSlot}>
+                    <Radio
+                      label={THEME_LABEL[choice]}
+                      selected={theme === choice}
+                      disabled={choice === 'light' && !LIGHT_THEME_AVAILABLE}
+                      hint={
+                        choice === 'light' && !LIGHT_THEME_AVAILABLE
+                          ? 'A light palette is not built yet'
+                          : undefined
+                      }
+                      onPress={() => setTheme(choice)}
+                    />
+                  </View>
                 ))}
               </View>
             </Group>
@@ -144,18 +139,17 @@ export function AppearanceScreen({ navigation }: Props) {
         ) : (
           <>
             <GroupHeading>Density</GroupHeading>
-            <Group>
+            <View style={[s.radiosGroup, s.radios]}>
               {DENSITIES.map((option) => (
-                <View key={option} style={s.densityRow}>
+                <View key={option} style={s.radioSlot}>
                   <Radio
                     label={CAPITALISED_DENSITY[option]}
                     selected={density === option}
                     onPress={() => setDensity(option)}
                   />
-                  <Text style={s.densityHint}>{DENSITY_HINT[option]}</Text>
                 </View>
               ))}
-            </Group>
+            </View>
             <Text style={s.note}>Density changes the space around a message, never the size of its text.</Text>
           </>
         )}
@@ -232,17 +226,17 @@ function Preview({ accent, density }: { accent: string; density: Density }) {
       </View>
       {[0, 1].map((row) => (
         <View key={row} style={[s.previewRow, { paddingVertical: pad }]}>
+          {row === 0 ? <View style={[s.previewUnreadDot, { backgroundColor: accent }]} /> : <View style={s.previewUnreadDot} />}
           <View style={s.previewRowAvatar} />
           <View style={{ flex: 1, gap: 5 }}>
             <View style={[s.previewLine, { width: '55%' }]} />
             <View style={[s.previewLine, { backgroundColor: color.inkFaint, width: '78%' }]} />
           </View>
-          <View style={[s.previewDate, { backgroundColor: accent }]} />
         </View>
       ))}
       <View style={[s.previewFab, { backgroundColor: color.ink }]}>
-        <Icon name="edit" size={10} color={color.ground} strokeWidth={2.4} />
-        <View style={[s.previewPill, { backgroundColor: color.ground, width: 26, height: 5 }]} />
+        <Icon name="edit" size={11} color={color.ground} strokeWidth={2.4} />
+        <View style={[s.previewPill, { backgroundColor: color.ground, width: 40, height: 6 }]} />
       </View>
     </View>
   );
@@ -260,61 +254,68 @@ const s = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: color.ground2,
     borderColor: color.border,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     marginHorizontal: space.lg,
     marginTop: space.xl,
     overflow: 'hidden',
-    width: 260,
+    width: 300,
   },
   previewBar: {
     alignItems: 'center',
     backgroundColor: color.surface,
     flexDirection: 'row',
-    gap: 8,
-    padding: 12,
+    gap: 10,
+    padding: 14,
   },
-  previewAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 9, height: 18, width: 18 },
+  previewAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 11, height: 22, width: 22 },
   previewPill: { borderRadius: 4, height: 8 },
-  previewChip: { borderRadius: 8, borderWidth: 1, height: 16, width: 16 },
+  previewChip: { borderRadius: 9, borderWidth: 1, height: 18, width: 18 },
   previewTabs: {
     borderBottomColor: color.border,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: 14,
-    paddingHorizontal: 12,
-    paddingTop: 8,
+    gap: 16,
+    paddingHorizontal: 14,
+    paddingTop: 10,
   },
-  previewTab: { alignItems: 'center', gap: 5, paddingBottom: 7 },
+  previewTab: { alignItems: 'center', gap: 6, paddingBottom: 8 },
   previewUnderline: { borderRadius: 1, height: 2, width: '100%' },
   previewRow: {
     alignItems: 'center',
     borderColor: color.border,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
-    marginHorizontal: 10,
-    marginTop: 8,
-    paddingHorizontal: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 12,
   },
-  previewRowAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 13, height: 26, width: 26 },
-  previewLine: { backgroundColor: color.surfaceRaised, borderRadius: 3, height: 6 },
-  previewDate: { borderRadius: 3, height: 6, width: 18 },
+  previewUnreadDot: { backgroundColor: 'transparent', borderRadius: 3, height: 6, width: 6 },
+  previewRowAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 15, height: 30, width: 30 },
+  previewLine: { backgroundColor: color.surfaceRaised, borderRadius: 3, height: 7 },
   previewFab: {
     alignItems: 'center',
     alignSelf: 'flex-end',
-    borderRadius: 12,
+    borderRadius: 14,
     flexDirection: 'row',
-    gap: 5,
-    height: 24,
+    gap: 6,
+    height: 28,
     justifyContent: 'center',
-    margin: 10,
-    paddingHorizontal: 9,
+    margin: 12,
+    paddingHorizontal: 11,
   },
 
-  radiosGroup: { paddingVertical: space.md },
-  radios: { flexDirection: 'row', gap: space.xl, justifyContent: 'center' },
+  noRing: { backgroundColor: 'transparent', borderWidth: 0 },
+  radiosGroup: { marginTop: space.xl, paddingVertical: space.md },
+  radios: { flexDirection: 'row', justifyContent: 'center' },
+  // Equal, fixed-width columns so each ring centers evenly — a bare gap
+  // between intrinsically-sized labels left the rings unevenly spaced, since
+  // "Light"/"Dark"/"System" aren't the same width. Fixed rather than `flex: 1`
+  // so the three cluster together at their own size instead of stretching to
+  // the full width of the card.
+  radioSlot: { alignItems: 'center', width: 84 },
 
   auroraGroup: { gap: space.sm, padding: space.md },
   auroraRow: {
@@ -331,8 +332,6 @@ const s = StyleSheet.create({
   auroraDot: { borderRadius: 999, height: 18, width: 18 },
   auroraName: { ...type.settingsValue, color: color.ink },
 
-  densityRow: { paddingHorizontal: space.lg, paddingVertical: space.md },
-  densityHint: { ...type.settingsValue, color: color.inkFaint, marginTop: 4, textAlign: 'center' },
 
   note: {
     color: color.inkFaint,

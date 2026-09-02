@@ -14,6 +14,7 @@
  * convenience for incoming mail, and quietly mixing two accounts' sent mail
  * would misrepresent which mailbox a message left from.
  */
+import { useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
@@ -25,6 +26,7 @@ import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem, SecondaryBox } from '../state/types';
 import { color, font, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
+import { AuroraHeaderBackground } from '../ui/aurora';
 import { useAccent, useAppearance } from '../ui/appearance';
 import { lockFor } from '../ui/lock';
 import { Avatar, EmptyState, SecondaryButton, Skeleton } from '../ui/primitives';
@@ -55,14 +57,23 @@ export function ArchiveScreen(props: Props) {
 function MailboxScreen({ navigation, box }: Props & { box: SecondaryBox }) {
   const { boxes, loadBox, loadMoreBox, encryptionFor } = useApp();
   const { items, loading, loadingMore, canLoadMore, error } = boxes[box];
-  const { rowPadding } = useAppearance();
+  const { rowPadding, auroraColors } = useAppearance();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const copy = COPY[box];
 
   useEffect(() => {
     void loadBox(box);
   }, [box, loadBox]);
+
+  // The same aurora band the inbox top bar uses — only the list underneath
+  // changes screen to screen, not the chrome around it.
+  useEffect(() => {
+    navigation.setOptions({
+      headerBackground: () => <AuroraHeaderBackground active={isFocused} palette={auroraColors} />,
+    });
+  }, [auroraColors, isFocused, navigation]);
 
   const renderItem = useCallback(
     ({ item }: { item: InboxItem }) => (
@@ -109,6 +120,7 @@ function MailboxScreen({ navigation, box }: Props & { box: SecondaryBox }) {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadBox(box)} tintColor={accent} />}
         onEndReached={() => void loadMoreBox(box)}
         onEndReachedThreshold={0.4}

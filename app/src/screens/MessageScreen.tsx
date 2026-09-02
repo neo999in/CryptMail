@@ -1,10 +1,10 @@
+import { useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Linking,
   Modal,
   Platform,
@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 
 import { verdictFor } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
@@ -25,8 +26,10 @@ import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplyS
 import { RootStackParamList } from '../navigation';
 import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
 import { OpenedMessage, useApp } from '../state/AppState';
-import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
+import { AuroraPalette, color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
+import { Aurora } from '../ui/aurora';
+import { useAppearance } from '../ui/appearance';
 import { Icon } from '../ui/Icon';
 import {
   Avatar,
@@ -35,6 +38,7 @@ import {
   EmptyState,
   Glass,
   frost,
+  IconButton,
   PrimaryButton,
   Skeleton,
   SecondaryButton,
@@ -61,6 +65,8 @@ export function MessageScreen({ route, navigation }: Props) {
     markNotSpam,
   } = useApp();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  const { auroraColors } = useAppearance();
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
@@ -127,11 +133,35 @@ export function MessageScreen({ route, navigation }: Props) {
   }, [route.params.id]);
 
   // Name the sender in the stack header so scrolled-down context is not lost.
+  // The aurora rides behind it the same way it does behind the inbox top bar
+  // — the header's own fill, not a wash over the message body.
   useEffect(() => {
     navigation.setOptions({
       title: summary ? displayName(summary.from.address, summary.from.name) : '',
+      // `active`/`auroraColors` are read here, in the screen itself, and handed
+      // down as props: `headerBackground` is rendered by the native header's
+      // own slot, not as a normal descendant, and a navigation hook called
+      // there directly crashes with a hooks-count mismatch.
+      headerBackground: () => <MessageHeaderBackground active={isFocused} auroraColors={auroraColors} />,
+      // Carries the row's own tag, so Reanimated grows the tapped avatar into
+      // this one instead of a flat push — replaces the default back button,
+      // which is folded in here alongside it.
+      headerLeft: summary
+        ? () => (
+            <View style={{ alignItems: 'center', flexDirection: 'row' }}>
+              <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} />
+              <Animated.View sharedTransitionTag={`mail-avatar-${summary.id}`}>
+                <Avatar
+                  seed={summary.from.address}
+                  label={initials(displayName(summary.from.address, summary.from.name))}
+                  size={30}
+                />
+              </Animated.View>
+            </View>
+          )
+        : undefined,
     });
-  }, [navigation, summary]);
+  }, [auroraColors, isFocused, navigation, summary]);
 
   if (!summary) {
     return (
@@ -214,21 +244,19 @@ export function MessageScreen({ route, navigation }: Props) {
 
   return (
     <View style={s.screen}>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }} style={s.scroll}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+        style={s.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         {!opened && !failure ? (
-          <View>
-            <View style={s.decryptingRow}>
-              <ActivityIndicator color={color.mint} size="small" />
-              <Text style={s.decrypting}>Decrypting on this device…</Text>
-            </View>
-            <View style={{ gap: 10, marginTop: 22 }}>
-              <Skeleton width="72%" height={20} radius={radius.xs} />
-              <Skeleton width={190} height={38} radius={radius.sm} />
-              <View style={{ gap: 8, marginTop: 10 }}>
-                <Skeleton width="100%" height={12} />
-                <Skeleton width="94%" height={12} />
-                <Skeleton width="60%" height={12} />
-              </View>
+          <View style={{ gap: 10 }}>
+            <Skeleton width="72%" height={20} radius={radius.xs} />
+            <Skeleton width={190} height={38} radius={radius.sm} />
+            <View style={{ gap: 8, marginTop: 10 }}>
+              <Skeleton width="100%" height={12} />
+              <Skeleton width="94%" height={12} />
+              <Skeleton width="60%" height={12} />
             </View>
           </View>
         ) : null}
@@ -387,7 +415,7 @@ export function MessageScreen({ route, navigation }: Props) {
         <View style={[s.replybar, s.replybarInner, { paddingBottom: insets.bottom + 14 }]}>
           <View style={s.replyActions}>
             <View style={{ flex: 1 }}>
-              <PrimaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
+              <SecondaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
             </View>
             {showReplyAll ? (
               <View style={{ flex: 1 }}>
@@ -605,6 +633,29 @@ function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
   );
 }
 
+/**
+ * The stack header's fill for this screen: the same aurora band the inbox top
+ * bar uses, sized to whatever the header actually renders at. `pointerEvents`
+ * stays off and `active` follows focus, same four gates as the inbox one.
+ *
+ * `active` and `auroraColors` are props, not hooks read here: this component
+ * is instantiated by `headerBackground`, which the native stack renders in
+ * its own header slot rather than as a normal child of the screen — a
+ * navigation hook called from inside it crashes with a hooks-count mismatch.
+ */
+function MessageHeaderBackground({ active, auroraColors }: { active: boolean; auroraColors: AuroraPalette }) {
+  const [height, setHeight] = useState(0);
+  return (
+    <View
+      onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
+      pointerEvents="none"
+      style={{ backgroundColor: color.surface, height: '100%', overflow: 'hidden' }}
+    >
+      <Aurora active={active} height={height} palette={auroraColors} />
+    </View>
+  );
+}
+
 const truncate = (raw: string, lines = 26) => {
   const all = raw.split('\n');
   return all.length <= lines ? raw : [...all.slice(0, lines), `…  (${all.length - lines} more lines)`].join('\n');
@@ -613,8 +664,6 @@ const truncate = (raw: string, lines = 26) => {
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
   scroll: { flex: 1 },
-  decryptingRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  decrypting: { ...type.meta, color: color.inkFaint, fontSize: 12 },
 
   subject: { ...type.display, color: color.ink, lineHeight: 28 },
   timestamp: { ...type.meta, color: color.inkFaint, marginTop: 6 },

@@ -67,6 +67,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
     <ScrollView
       style={s.screen}
       contentContainerStyle={{ padding: 16, paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }}
+      showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={s.heading}>Set up your key</Text>

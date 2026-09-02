@@ -39,6 +39,7 @@ export function ConnectScreen() {
     <ScrollView
       style={s.screen}
       contentContainerStyle={[s.content, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 }]}
+      showsVerticalScrollIndicator={false}
     >
       <Reveal delay={0}>
         <View style={s.brand}>

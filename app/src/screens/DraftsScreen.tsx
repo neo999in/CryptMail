@@ -33,7 +33,11 @@ export function DraftsScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 10 }}>
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 10 }}
+      showsVerticalScrollIndicator={false}
+    >
       {items.map((d) => (
         <View key={d.id} style={s.row}>
           <Pressable
