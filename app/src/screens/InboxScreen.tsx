@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo } from 'react';
 import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { categorizeMessage } from '../categorizer/categorizer';
+import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { AccountId, AccountRef } from '../store/accountScope';
 import { messageMatchesQuery } from '../search/search';
 import { groupIntoThreads, Thread } from '../threads/threads';
@@ -48,7 +48,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, clearF
     searchIndex,
     spam,
   } = useApp();
-  const { destination } = useDestination();
+  const { destination, setDestination } = useDestination();
   const category = categoryOf(destination);
   const { rowPadding } = useAppearance();
   const accent = useAccent();
@@ -201,12 +201,25 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, clearF
             <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={accent} />
           }
           ListEmptyComponent={
-            loadingInbox ? null : filtering ? (
+            loadingInbox ? null : query.trim().length > 0 || filter !== 'all' ? (
               <EmptyState
                 icon="search"
                 title="Nothing matched"
                 hint="Encrypted mail becomes searchable by its subject and body once you've opened it on this device."
                 action={<SecondaryButton title="Clear filters" icon="close" onPress={clearFilters} />}
+              />
+            ) : category !== null ? (
+              // A chosen category with nothing in it is not a failed search, and
+              // the search copy above read as one — the reason this branch exists.
+              <EmptyState
+                icon={category === 'spam' ? 'junk' : 'inbox'}
+                title={`Nothing in ${CATEGORY_LABELS[category]}`}
+                hint={
+                  category === 'spam'
+                    ? 'Mail your provider filed as junk shows here, and so does mail this device flagged. Pull down to check for new mail.'
+                    : 'Mail filed here appears as it arrives. Pull down to check for new mail.'
+                }
+                action={<SecondaryButton title="Show all mail" icon="close" onPress={() => setDestination('inbox')} />}
               />
             ) : (
               <EmptyState

@@ -166,6 +166,18 @@ export type State = {
    * through `categorizeMessage`.
    */
   spam: SpamState;
+  /**
+   * Every row the inbox screen lists: the inbox itself **and** the provider's junk
+   * folder, newest first.
+   *
+   * Junk is here rather than in `boxes` because in this app junk is a category
+   * rather than a place — the drawer's Junk destination filters this list, and
+   * `showsUnderTab` keeps that category out of the Primary and Encrypted tabs. One
+   * list is what lets a message the provider flagged and a message this device
+   * flagged be counted by one badge and reversed by one button; it is also what
+   * keeps "mark as not spam" working on provider-flagged mail, since every mark
+   * looks the message up here.
+   */
   messages: InboxItem[];
   loadingInbox: boolean;
   /** A page of *older* mail is in flight. Separate from a sync, which replaces the list. */
@@ -183,8 +195,15 @@ export type State = {
   error: string | null;
 };
 
-/** The mailboxes that have their own screen rather than being the inbox. */
-export type SecondaryBox = Exclude<Mailbox, 'inbox'>;
+/**
+ * The mailboxes that have their own screen rather than being the inbox.
+ *
+ * Named rather than derived from `Mailbox`, because `spam` is a `Mailbox` the
+ * provider serves and deliberately **not** one of these: junk is fetched into
+ * `messages` and reached through the drawer's category filter, so it has no box
+ * and no screen of its own. See `state/mailbox.ts`, `collectInbox`.
+ */
+export type SecondaryBox = Extract<Mailbox, 'sent' | 'archive'>;
 
 /** One such list, with the same loading vocabulary the inbox uses. */
 export type BoxState = {

@@ -16,6 +16,9 @@ a human, a real device or a real Gmail account to confirm.
 - **Persistence** — [`app/src/store/spamModelStore.ts`](../app/src/store/spamModelStore.ts)
 - **Integration seam** — [`app/src/categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts)
   (see [`CATEGORIZER.md`](../app/src/categorizer/CATEGORIZER.md))
+- **Where junk comes from** — [`app/src/mail/gmail.ts`](../app/src/mail/gmail.ts)
+  (the `spam` mailbox) and [`app/src/state/mailbox.ts`](../app/src/state/mailbox.ts)
+  (`collectInbox`) — see §14.4
 - **Corrections** — [`app/src/state/mailbox.ts`](../app/src/state/mailbox.ts)
 - **UI** — [`app/src/screens/MessageScreen.tsx`](../app/src/screens/MessageScreen.tsx),
   [`app/src/screens/InboxScreen.tsx`](../app/src/screens/InboxScreen.tsx),
@@ -23,7 +26,9 @@ a human, a real device or a real Gmail account to confirm.
 - **Tests** — `app/src/spam/__tests__/` (7 suites),
   `app/src/store/__tests__/spamModelStore-test.ts`,
   `app/src/categorizer/__tests__/categorizer-test.ts`,
-  `app/src/state/__tests__/mailbox-test.ts`
+  `app/src/state/__tests__/mailbox-test.ts`,
+  `app/src/state/__tests__/junk-test.ts`,
+  `app/src/mail/__tests__/gmail-test.ts`
 
 > **Merge note (2026-08-31).** This document was written on a branch cut before
 > `main` removed the demo mailbox and gained multi-account support. Two classes of
@@ -68,6 +73,21 @@ like it is *pretending to be someone* gets a stronger warning when you open it,
 telling you not to type a password or card number into anything it links to. You
 can disagree with any of it: **Mark as spam** and **Not spam** are one tap, and the
 engine learns from the correction.
+
+**Where the mail in Spam comes from.** Two places, and both belong there:
+
+- **your provider's own junk folder**, fetched with the inbox on every sync. Gmail
+  moves what it filters *out* of the inbox, so this folder has to be asked for by
+  name or the app never sees it — which is exactly the bug §14.4 describes and
+  fixes. On plaintext mail the provider's verdict is deferred to, because it is
+  reached from sending-domain reputation and complaint rates no client can see;
+- **this device's own verdict** on everything the provider *delivered*, which is
+  what the rest of this document is about, and the only filtering that ever reaches
+  an encrypted message.
+
+Encrypted mail is the deliberate exception in both directions: this device does not
+score it (§13.4), and a provider junk verdict on it is ignored rather than obeyed
+(§14.4). It stays visible in Primary and the reader is told the provider disagreed.
 
 **Why it exists.** CryptMail signs into an existing Gmail or IMAP account. Gmail's
 own filtering never sees the inside of an encrypted CryptMail message — the
@@ -231,6 +251,12 @@ screens/
 | [`screens/CategoryDrawer.tsx`](../app/src/screens/CategoryDrawer.tsx) | Reads `unreadCountsByCategory` for the Spam badge. | Badge counts must agree with the filed rows. |
 | [`docs/features.md`](features.md) | The shipped-features row (line 51) and the Tier-1 "Built" entry. | `docs/` is the source of truth for behaviour. |
 | [`app/src/categorizer/CATEGORIZER.md`](../app/src/categorizer/CATEGORIZER.md) | Documents the delegation to the spam engine. | Same reason. |
+
+> This table is the original integration. Four of these files were changed again
+> later — `mail/gmail.ts` and `mail/types.ts` gained a `spam` mailbox,
+> `state/mailbox.ts` fetches it, and `categorizer.ts` reads the label it carries —
+> because the Spam destination could not show the provider's own junk. That work is
+> §14.4, and it is where those changes are described.
 
 ## 4. Complete data flow
 
@@ -1685,11 +1711,15 @@ to keep sealed — the cost of being wrong is a message the user needed, hidden 
 the client that was supposed to be the one thing on their side. Encrypted mail
 stays visible, in Primary, and the user decides.
 
-Two things follow, and both are deliberate:
+Three things follow, and all of them are deliberate:
 
 - **The ciphertext placeholder subject and the provider's snippet are never
   inspected as text.** They are ciphertext artefacts, not content. Neither is the
   *decrypted* text: opening a message to read it is not permission to file it.
+- **The provider's junk verdict does not count either.** Gmail may well file an
+  encrypted message as spam — unusual structure, an opaque body, no readable text —
+  and that is a verdict about ciphertext. It is not obeyed: the row stays in
+  Primary and the reader is told the provider disagreed (§14.4).
 - **The user's own mark still counts.** A `spam` mark short-circuits to an
   override (§11.2), so "mark as spam" works on encrypted mail. A human filing a
   message is not the app classifying it — that distinction is the whole rule.
@@ -1786,6 +1816,89 @@ that existed before these fields did."*
 > sections and property parameters — but that is a test corpus, not a live mailbox.
 >
 > This is a verification limitation, not a known defect. See §21 and §22.
+
+### 14.4 The provider's own junk folder
+
+This is the one part of the feature that was **broken in the running app**, and the
+symptom was the feature appearing not to exist: an account with two messages in
+Gmail's Spam folder showed an empty Junk destination in CryptMail.
+
+**Why.** Three facts compounding.
+
+1. Gmail does not leave a message it filters in the inbox — it removes `INBOX` and
+   adds `SPAM`.
+2. `messages.list` omits SPAM and TRASH from every result unless `includeSpamTrash`
+   is set.
+3. The Junk destination is a *filter over the list the inbox loaded*
+   ([`ui/destination.tsx`](../app/src/ui/destination.tsx)), not a fetch of its own.
+
+So the only mail that could ever appear under Junk was mail Gmail had **delivered**
+and this device had then scored ≥ 5.0 — and on an account where the provider filter
+works, that is close to nothing. The engine was never at fault; nothing was being
+handed to it.
+
+**What it does now.**
+
+| Step | Where |
+|---|---|
+| A `spam` mailbox, asked for with `labelIds=SPAM` **and** `includeSpamTrash=true` | [`mail/gmail.ts`](../app/src/mail/gmail.ts) · `selector` |
+| Fetched on every sync beside the inbox, merged into one newest-first list, its own paging cursor, ten rows per page rather than twenty | [`state/mailbox.ts`](../app/src/state/mailbox.ts) · `collectInbox` |
+| A junk fetch that fails leaves the inbox intact and reports nothing | same |
+| Plaintext mail carrying the label is filed under Junk — **above** the Bills and Purchases keywords | [`categorizer.ts`](../app/src/categorizer/categorizer.ts) · `providerFiledAsJunk` |
+| Encrypted mail carrying the label stays visible in Primary | same |
+| The reader is told when the provider's verdict is why they are looking at this | [`MessageScreen.tsx`](../app/src/screens/MessageScreen.tsx) · `SpamNotice` |
+| No key is harvested from plaintext junk | [`state/mailbox.ts`](../app/src/state/mailbox.ts) · `harvestFrom` |
+
+Junk is fetched into `messages` rather than becoming a screen of its own precisely
+because junk is a *category* here: one list is what lets a message the provider
+flagged sit beside one this device flagged, be counted by one badge, and be reversed
+by the one **Not spam** button — which looks the message up in `messages` and would
+silently do nothing on a row that lived somewhere else.
+
+<!-- 14.4 continues -->
+
+**Precedence, and why it is that way round.**
+
+```
+user's own mark        ─▶ wins outright, either direction        (§11.2)
+this device's verdict  ─▶ spam / phishing-suspicious            (§5.1)
+the provider's label   ─▶ Junk, on plaintext mail only          (here)
+keywords               ─▶ Bills · Purchases · Promotions        (CATEGORIZER.md)
+```
+
+The provider sits **above the keywords** because its junk folder is full of mail
+written to read like an order update — the two messages in the report that started
+this were both "Refund on order 408-…" — and filing those under Purchases would put
+a friendly bucket in front of the provider's warning.
+
+It sits **below a user mark** because a filter that argued with an explicit
+correction would be worse than no filter. Without that ordering, *Not spam* on a
+provider-flagged message would appear to do nothing, and the row could never be
+rescued. The button now offers *Not spam* whenever the message is filed under Junk
+for any reason, rather than only when the user's own mark put it there.
+
+**Encrypted mail is un-filed, not filed.** A `multipart/encrypted` message is
+unusual structure with a placeholder subject and no readable text: mild spam signals,
+every one of them an artefact of the encryption rather than anything about the
+message. A junk verdict on that is a verdict about ciphertext, so it is not acted
+on — the row stays in Primary, and the notice says the provider disagreed. This is
+the sweep [`gmail-api-adoption.md`](gmail-api-adoption.md) §1.6 proposed: it un-files
+what the *provider* categorised rather than categorising anything here, and it is
+something this client can do that the provider's own app cannot. The failure it
+avoids is the expensive one — a message the user needed, hidden by the client that
+was meant to be the one thing on their side.
+
+**Nothing is pushed back to the server.** A mark still files the row locally only
+(§11.1). A message rescued from junk in CryptMail is still in Gmail's Spam folder,
+and Gmail still deletes it after 30 days; pushing the correction back needs
+`messages.modify` with `SPAM`, which is an open probe rather than a decision.
+
+**Tests.** [`app/src/mail/__tests__/gmail-test.ts`](../app/src/mail/__tests__/gmail-test.ts)
+pins the query per mailbox — including that no other list carries `includeSpamTrash`.
+[`app/src/state/__tests__/junk-test.ts`](../app/src/state/__tests__/junk-test.ts)
+pins the sync, the two cursors, the failure tolerance and the harvest guard. The
+filing rules and their precedence are in
+[`categorizer-test.ts`](../app/src/categorizer/__tests__/categorizer-test.ts).
 
 ## 15. Demo mode fixtures
 
@@ -2499,6 +2612,11 @@ Google's `Authentication-Results` parses, that a normal mailbox produces very fe
 spam verdicts, and that mailing lists and ESP-routed transactional mail land in
 Primary. That last check is the live-mail version of bugs 18.1, 18.2 and 18.5.
 
+Also confirm the junk fetch (§14.4), which is the half of the feature only a live
+mailbox can prove: open Junk and check that what Gmail has in Spam is there, that
+opening a row says why it is, that **Not spam** moves it to Primary and keeps it
+there across a sync, and that the Inbox list and badge did not gain any of it.
+
 ## 24. Reading this document
 
 It is written to be read in three ways, and none of them requires opening a source
@@ -2552,5 +2670,5 @@ report and are corrected here rather than copied:
 | **Thresholds** | `SPAM_THRESHOLD` 5.0 · `PHISHING_THRESHOLD` 4.0 |
 | **Network calls** | zero, asserted by a spy |
 | **Email bodies persisted** | none |
-| **Bugs found and fixed after implementation** | 7 |
-| **Status** | ready for manual testing; not verified against real mail |
+| **Bugs found and fixed after implementation** | 7, plus one found in real use: the provider's junk folder was never fetched, so the Spam destination was empty on a working mailbox (§14.4) |
+| **Status** | engine verified by tests; §14.4 fixed after a real account reported an empty Spam view; the fetch itself is still unconfirmed against a live mailbox |
