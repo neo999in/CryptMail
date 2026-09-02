@@ -46,7 +46,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
 | Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
 | Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
-| Sent + Archive screens | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
+| Sent + Archive destinations | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
 | Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
 | Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions from Gmail's `CATEGORY_*` labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 23 |
 | Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
@@ -397,9 +397,11 @@ for out of habit. A row that does nothing costs more trust than a missing row, s
 the drawer lists only what exists.
 
 **Status.** **Sent and Archive are done** —
-[`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one screen
+[`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one body
 parameterised by box, each list fetched from the provider and paged on its own
-cursor. Archive is a query rather than a label (Gmail has no archived label:
+cursor. They are destinations on the home screen rather than pushed screens
+([`ui/destination.tsx`](../app/src/ui/destination.tsx)), so they wear the
+inbox's bar and rows exactly as a category filter does. Archive is a query rather than a label (Gmail has no archived label:
 archiving removes `INBOX`), which is why the connector translates it. What is
 left here is snooze, which needs local scheduling like the outbox, and trash,
 which needs `messages.trash` and a delete affordance.

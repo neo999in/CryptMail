@@ -6,9 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { EncryptionState, useApp } from '../state/AppState';
+import { InboxItem } from '../state/types';
 import { groupIntoThreads } from '../threads/threads';
 import { color, font, glass, radius, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
+import { OriginRect, useOriginRef } from '../ui/expand';
 import { Avatar, EmptyState, SecondaryButton } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Conversation'>;
@@ -52,38 +54,15 @@ export function ConversationScreen({ route, navigation }: Props) {
       <Text style={s.meta}>{thread.count} messages</Text>
 
       <View style={s.list}>
-        {thread.messages.map((m) => {
-          const encryption = encryptionFor(m);
-          const name = displayName(m.from.address, m.from.name);
-          const trust = trustBits(encryption);
-          const preview = previewOf(m.id, m.snippet, encryption, searchIndex);
-          return (
-            <Pressable
-              key={m.id}
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('Message', { id: m.id })}
-              style={({ pressed }) => [s.card, pressed && s.cardPressed]}
-            >
-              <Avatar seed={m.from.address} label={initials(name)} />
-              <View style={s.cardMain}>
-                <View style={s.cardTop}>
-                  <Text numberOfLines={1} style={[s.name, m.unread && s.unread]}>
-                    {name}
-                  </Text>
-                  <Text style={s.time}>{relativeTime(m.date)}</Text>
-                </View>
-                <Text numberOfLines={2} style={s.preview}>
-                  {preview}
-                </Text>
-                <View style={s.trustRow}>
-                  <Icon name={trust.icon} size={11} color={trust.color} />
-                  <Text style={[s.trust, { color: trust.color }]}>{trust.label}</Text>
-                </View>
-              </View>
-              <Icon name="chevron" size={14} color={color.inkFaint} />
-            </Pressable>
-          );
-        })}
+        {thread.messages.map((m) => (
+          <ConversationRow
+            key={m.id}
+            message={m}
+            encryption={encryptionFor(m)}
+            searchIndex={searchIndex}
+            onPress={(origin) => navigation.navigate('Message', { id: m.id, origin })}
+          />
+        ))}
       </View>
     </ScrollView>
   );
@@ -92,6 +71,56 @@ export function ConversationScreen({ route, navigation }: Props) {
 /* -------------------------------------------------------------- helpers ---- */
 
 /** The conversation title: the decrypted subject if we have it, else honest fallbacks. */
+/**
+ * One message in the thread. A component rather than an inline map so it can
+ * hold the ref the expansion measures — opening from here grows the card the
+ * same way an inbox row does.
+ */
+function ConversationRow({
+  message,
+  encryption,
+  searchIndex,
+  onPress,
+}: {
+  message: InboxItem;
+  encryption: EncryptionState;
+  searchIndex: Record<string, { subject: string; body: string }>;
+  onPress: (origin?: OriginRect) => void;
+}) {
+  const [rowRef, measureOrigin] = useOriginRef();
+  const name = displayName(message.from.address, message.from.name);
+  const trust = trustBits(encryption);
+  const preview = previewOf(message.id, message.snippet, encryption, searchIndex);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      collapsable={false}
+      onPress={() => void measureOrigin().then(onPress)}
+      ref={rowRef}
+      style={({ pressed }) => [s.card, pressed && s.cardPressed]}
+    >
+      <Avatar seed={message.from.address} label={initials(name)} />
+      <View style={s.cardMain}>
+        <View style={s.cardTop}>
+          <Text numberOfLines={1} style={[s.name, message.unread && s.unread]}>
+            {name}
+          </Text>
+          <Text style={s.time}>{relativeTime(message.date)}</Text>
+        </View>
+        <Text numberOfLines={2} style={s.preview}>
+          {preview}
+        </Text>
+        <View style={s.trustRow}>
+          <Icon name={trust.icon} size={11} color={trust.color} />
+          <Text style={[s.trust, { color: trust.color }]}>{trust.label}</Text>
+        </View>
+      </View>
+      <Icon name="chevron" size={14} color={color.inkFaint} />
+    </Pressable>
+  );
+}
+
 function subjectOf(id: string, headerSubject: string, encryption: EncryptionState, searchIndex: Record<string, { subject: string }>): string {
   const indexed = searchIndex[id];
   if (indexed?.subject) return indexed.subject;

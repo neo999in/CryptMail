@@ -29,6 +29,7 @@ import {
 import { RootStackParamList } from '../navigation';
 import { RecipientState, useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, type } from '../theme';
+import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
@@ -76,6 +77,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     deleteDraft,
     scheduleSend,
   } = useApp();
+  const { setDestination } = useDestination();
   const insets = useSafeAreaInsets();
 
   // Resume an existing draft, or mint a fresh id for this compose session.
@@ -555,7 +557,11 @@ export function ComposeScreen({ route, navigation }: Props) {
         ) : queued ? (
           <View style={s.fallbacks}>
             <SecondaryButton title="Done" icon="check" onPress={() => navigation.goBack()} />
-            <SecondaryButton title="See queued messages" icon="clock" onPress={() => navigation.navigate('Scheduled')} />
+            <SecondaryButton title="See queued messages" icon="clock" onPress={() => {
+                  // A destination on the home screen, not a screen of its own.
+                  setDestination('scheduled');
+                  navigation.navigate('Home');
+                }} />
           </View>
         ) : changed.length > 0 ? (
           <View style={s.fallbacks}>

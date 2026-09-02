@@ -1,28 +1,36 @@
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { describeCheck } from '../outbox/checkResult';
 import { Held, holdReason, listScheduled, stillPending } from '../outbox/outbox';
-import { RootStackParamList } from '../navigation';
+import { textMatchesQuery } from '../search/search';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
 import { Icon } from '../ui/Icon';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
-
-type Props = NativeStackScreenProps<RootStackParamList, 'Scheduled'>;
+import { BodyProps } from './HomeScreen';
 
 /**
  * The outbox: everything written but not yet delivered. Two kinds live here —
  * messages scheduled for a time, and messages held because a recipient has no
  * key yet. The second kind has no send time at all, so the screen says what it
  * is actually waiting for rather than implying a clock is running.
+ *
+ * A destination body under the home screen's own bar (`screens/HomeScreen.tsx`),
+ * so reaching it from the drawer changes nothing above the list. The cards are
+ * their own: a held message is not a received one, and it is here to be acted on
+ * rather than read.
  */
-export function ScheduledScreen({ navigation }: Props) {
+export function ScheduledBody({ navigation, query, clearSearch }: BodyProps) {
   const { scheduled, keyring, identity, undiscoverable, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
-  const items = listScheduled(scheduled);
+  // Held mail has not been encrypted yet — it is still the text this device
+  // wrote — so the bar's search box reads it directly, drafts-style.
+  const items = listScheduled(scheduled).filter((item) =>
+    textMatchesQuery([item.subject, item.body, ...item.to], query),
+  );
+  const searching = query.trim().length > 0;
 
   /** The id being tried right now, and what the last try said about it. */
   const [checking, setChecking] = useState<string | null>(null);
@@ -67,22 +75,31 @@ export function ScheduledScreen({ navigation }: Props) {
     await cancelScheduled(item.id);
   };
 
-  if (items.length === 0) {
-    return (
-      <View style={s.screen}>
-        <EmptyState
-          icon="clock"
-          title="Nothing waiting"
-          hint="Messages you schedule, and messages held for a recipient who has no key yet, wait here."
-          action={<SecondaryButton title="New message" icon="plus" onPress={() => navigation.navigate('Compose', {})} />}
-        />
-      </View>
-    );
-  }
-
   return (
     <View style={s.screen}>
-      <View style={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}>
+      {items.length === 0 ? (
+        searching ? (
+          <EmptyState
+            icon="search"
+            title="Nothing matched"
+            hint="Queued messages are searched by their subject, their recipients and what you have written."
+            action={<SecondaryButton title="Clear search" icon="close" onPress={clearSearch} />}
+          />
+        ) : (
+          <EmptyState
+            icon="clock"
+            title="Nothing waiting"
+            hint="Messages you schedule, and messages held for a recipient who has no key yet, wait here."
+            action={
+              <SecondaryButton title="New message" icon="plus" onPress={() => navigation.navigate('Compose', {})} />
+            }
+          />
+        )
+      ) : (
+        <ScrollView
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}
+          showsVerticalScrollIndicator={false}
+        >
         {/*
           A message that went out is no longer in the list, so its own card
           cannot report the outcome — and "the row vanished" is a poor way to
@@ -154,7 +171,8 @@ export function ScheduledScreen({ navigation }: Props) {
             </View>
           );
         })}
-      </View>
+        </ScrollView>
+      )}
     </View>
   );
 }
