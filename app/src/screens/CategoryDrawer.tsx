@@ -15,12 +15,12 @@
  * provider and Drafts and Scheduled from local stores, but none of them pushes a
  * screen, so none of them arrives with a back arrow. Settings is the one push
  * here, because it genuinely is a different screen. The reference also shows
- * Snoozed and Deleted, and CryptMail has no backing for those, so they are not
- * drawn as rows that do nothing — see docs/design/ui-rework.md.
+ * Snoozed, and CryptMail has no backing for that, so it is not drawn as a row
+ * that does nothing — see docs/design/ui-rework.md.
  *
  * Counts come from `unreadCountsByCategory`, which honours the encryption
  * boundary: unopened encrypted mail is never classified from its ciphertext, so
- * it counts under Primary until the user opens it. The Junk count is the spam
+ * it counts under Primary until the user opens it. The Spam count is the spam
  * engine's verdict, plus whatever the provider filed as junk, plus any message the
  * user marked themselves — which is why the personal model and the marks are
  * passed through.
@@ -56,6 +56,7 @@ const CATEGORY_ICON: Record<string, IconName> = {
 const BOXES: { key: Destination; icon: IconName; label: string }[] = [
   { key: 'sent', icon: 'send', label: 'Sent' },
   { key: 'archive', icon: 'archive', label: 'Archive' },
+  { key: 'trash', icon: 'trash', label: 'Trash' },
   { key: 'drafts', icon: 'edit', label: 'Drafts' },
   { key: 'scheduled', icon: 'clock', label: 'Scheduled' },
 ];
@@ -92,7 +93,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     });
   }, [messages, searchIndex, encryptionFor, spam, session?.email]);
 
-  // Everything except Junk, which is the Inbox destination's own contents:
+  // Everything except Spam, which is the Inbox destination's own contents:
   // `messages` carries the provider's junk folder as well as the inbox
   // (state/types.ts), and those rows are not in the list this badge belongs to.
   const total = CATEGORIES.reduce((sum, cat) => (cat === 'spam' ? sum : sum + counts[cat]), 0);
@@ -102,7 +103,12 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     navigation.closeDrawer();
   };
 
-  /** Settings is a real screen, so it is the one row here that pushes. */
+  /**
+   * Settings is a real screen, so it is the one row here that pushes. Contacts
+   * is not: it is a list this drawer reaches, and it now shares the home
+   * screen's bar like every other row — the bar drops the mail lens and offers
+   * its All/Verified/Unverified control instead (`screens/ContactsScreen.tsx`).
+   */
   const openSettings = () => {
     navigation.closeDrawer();
     stack.navigate('Settings');
@@ -218,7 +224,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
             ))}
             <DrawerItem
               icon="junk"
-              label="Junk"
+              label="Spam"
               count={counts.spam}
               active={destination === 'spam'}
               onPress={() => choose('spam')}
@@ -227,6 +233,22 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
         </DrawerContentScrollView>
 
         <View style={[s.footer, { paddingBottom: insets.bottom + space.sm }]}>
+          <PressableRow
+            accessibilityRole="button"
+            accessibilityState={{ selected: destination === 'contacts' }}
+            onPress={() => choose('contacts')}
+            style={s.footerRow}
+          >
+            <Icon name="users" size={21} color={destination === 'contacts' ? accent : color.inkDim} />
+            <Text
+              style={[
+                s.footerLabel,
+                destination === 'contacts' && { color: accent, fontFamily: font.sansSemibold },
+              ]}
+            >
+              Contacts
+            </Text>
+          </PressableRow>
           <PressableRow accessibilityRole="button" onPress={openSettings} style={s.footerRow}>
             <Icon name="settings" size={21} color={color.inkDim} />
             <Text style={s.footerLabel}>Settings</Text>

@@ -61,6 +61,17 @@ export type MailboxService = {
   toggleStar(id: string): Promise<void>;
   setUnread(id: string, unread: boolean): Promise<void>;
   archiveMessage(id: string): Promise<void>;
+  /**
+   * Move a message to the provider's trash, or bring it back out.
+   *
+   * A move, not an erasure: the mail is still on the server, in the Trash
+   * destination, and `restoreMessage` puts it back where it was. Emptying the
+   * trash is the provider's own action and CryptMail deliberately does not
+   * offer it — an irreversible delete is not something a client should quietly
+   * grow a button for.
+   */
+  trashMessage(id: string): Promise<void>;
+  restoreMessage(id: string): Promise<void>;
   /** Record the user's spam verdict for a message and train the filter from it. */
   markSpam(id: string): Promise<void>;
   markNotSpam(id: string): Promise<void>;

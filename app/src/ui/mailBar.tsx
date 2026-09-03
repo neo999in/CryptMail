@@ -1,7 +1,7 @@
 /**
  * The top bar every mail list wears.
  *
- * Choosing Bills or Junk in the drawer never leaves the home screen: the same
+ * Choosing Bills or Spam in the drawer never leaves the home screen: the same
  * aurora bar stays put, its title changes, and the body underneath swaps. Sent
  * and Archive are their own provider fetch rather than a filter over `messages`,
  * and Drafts and Scheduled read local stores — but none of that is a reason to
@@ -35,7 +35,7 @@ import { Icon } from './Icon';
 import { Aurora } from './aurora';
 import { useAccent, useAppearance } from './appearance';
 import { useChrome } from './chrome';
-import { Field, IconButton, Input, useFocus } from './primitives';
+import { barIcon, Field, IconButton, Input, useFocus } from './primitives';
 
 /** The bar's own lead-in above its first row, past the status bar. */
 export const BAR_LEAD = 6;
@@ -62,6 +62,21 @@ export function mailTopInset(safeTop: number, headerHeight: number): number {
   return Math.max(safeTop, safeTop + BAR_LEAD + headerHeight - MAIL_LIFT);
 }
 
+/**
+ * How much band is still lit *below* where an open mail starts.
+ *
+ * The bar is taller than `mailTopInset` — the strip it lifts off the title row
+ * plus the controls, which fade but keep their height — so the band goes on
+ * being painted behind the top of the message. That strip is what an open mail
+ * may leave unpainted so its own chrome reads as standing on the band rather
+ * than on a black block below it; past this line there is a list underneath,
+ * not a bar, so nothing may be transparent there. Measured, never assumed: the
+ * demo strip and the safe area both change it.
+ */
+export function mailBandBelow(barHeight: number, topInset: number): number {
+  return Math.max(0, barHeight - topInset);
+}
+
 export type MailBarSearch = {
   value: string;
   onChange: (query: string) => void;
@@ -76,6 +91,7 @@ export function MailTopBar({
   search,
   controls,
   onHeaderHeight,
+  onBarHeight,
 }: {
   title: string;
   /** Second line under the title — used only when the mailbox is ambiguous. */
@@ -90,6 +106,8 @@ export function MailTopBar({
   controls?: React.ReactNode;
   /** The title row's height, for `mailTopInset`. */
   onHeaderHeight?: (height: number) => void;
+  /** The whole bar's height, for `mailBandBelow`. */
+  onBarHeight?: (height: number) => void;
 }) {
   const insets = useSafeAreaInsets();
   const accent = useAccent();
@@ -114,7 +132,11 @@ export function MailTopBar({
     <View
       // Rounded up: a fractional dp height leaves a sub-pixel gap at the band's
       // lower edge on a high-density panel, which reads as a hairline seam.
-      onLayout={(e) => setBarHeight(Math.ceil(e.nativeEvent.layout.height))}
+      onLayout={(e) => {
+        const height = Math.ceil(e.nativeEvent.layout.height);
+        setBarHeight(height);
+        onBarHeight?.(height);
+      }}
       style={[s.topbar, { paddingTop: insets.top + BAR_LEAD }]}
     >
       <View pointerEvents="none" style={s.auroraLayer}>
@@ -136,7 +158,7 @@ export function MailTopBar({
         <View onLayout={(e) => onHeaderHeight?.(Math.ceil(e.nativeEvent.layout.height))}>
           {searching && search ? (
             <View style={s.header}>
-              <IconButton icon="back" label="Close search" onPress={closeSearch} />
+              <IconButton {...barIcon} icon="back" label="Close search" onPress={closeSearch} />
               <Field focused={focus.focused} style={s.searchField}>
                 <View style={s.searchRow}>
                   <Icon name="search" size={16} color={focus.focused ? accent : color.inkFaint} />
@@ -174,7 +196,7 @@ export function MailTopBar({
               </View>
               {actions}
               {search ? (
-                <IconButton icon="search" label="Search" onPress={() => setSearching(true)} size={40} />
+                <IconButton {...barIcon} icon="search" label="Search" onPress={() => setSearching(true)} />
               ) : null}
             </View>
           )}

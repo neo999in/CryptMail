@@ -1821,7 +1821,7 @@ that existed before these fields did."*
 
 This is the one part of the feature that was **broken in the running app**, and the
 symptom was the feature appearing not to exist: an account with two messages in
-Gmail's Spam folder showed an empty Junk destination in CryptMail.
+Gmail's Spam folder showed an empty Spam destination in CryptMail.
 
 **Why.** Three facts compounding.
 
@@ -1829,10 +1829,10 @@ Gmail's Spam folder showed an empty Junk destination in CryptMail.
    adds `SPAM`.
 2. `messages.list` omits SPAM and TRASH from every result unless `includeSpamTrash`
    is set.
-3. The Junk destination is a *filter over the list the inbox loaded*
+3. The Spam destination is a *filter over the list the inbox loaded*
    ([`ui/destination.tsx`](../app/src/ui/destination.tsx)), not a fetch of its own.
 
-So the only mail that could ever appear under Junk was mail Gmail had **delivered**
+So the only mail that could ever appear under Spam was mail Gmail had **delivered**
 and this device had then scored ≥ 5.0 — and on an account where the provider filter
 works, that is close to nothing. The engine was never at fault; nothing was being
 handed to it.
@@ -1844,12 +1844,12 @@ handed to it.
 | A `spam` mailbox, asked for with `labelIds=SPAM` **and** `includeSpamTrash=true` | [`mail/gmail.ts`](../app/src/mail/gmail.ts) · `selector` |
 | Fetched on every sync beside the inbox, merged into one newest-first list, its own paging cursor, ten rows per page rather than twenty | [`state/mailbox.ts`](../app/src/state/mailbox.ts) · `collectInbox` |
 | A junk fetch that fails leaves the inbox intact and reports nothing | same |
-| Plaintext mail carrying the label is filed under Junk — **above** the Bills and Purchases keywords | [`categorizer.ts`](../app/src/categorizer/categorizer.ts) · `providerFiledAsJunk` |
+| Plaintext mail carrying the label is filed under Spam — **above** the Bills and Purchases keywords | [`categorizer.ts`](../app/src/categorizer/categorizer.ts) · `providerFiledAsJunk` |
 | Encrypted mail carrying the label stays visible in Primary | same |
 | The reader is told when the provider's verdict is why they are looking at this | [`MessageScreen.tsx`](../app/src/screens/MessageScreen.tsx) · `SpamNotice` |
 | No key is harvested from plaintext junk | [`state/mailbox.ts`](../app/src/state/mailbox.ts) · `harvestFrom` |
 
-Junk is fetched into `messages` rather than becoming a screen of its own precisely
+Spam is fetched into `messages` rather than becoming a screen of its own precisely
 because junk is a *category* here: one list is what lets a message the provider
 flagged sit beside one this device flagged, be counted by one badge, and be reversed
 by the one **Not spam** button — which looks the message up in `messages` and would
@@ -1862,7 +1862,7 @@ silently do nothing on a row that lived somewhere else.
 ```
 user's own mark        ─▶ wins outright, either direction        (§11.2)
 this device's verdict  ─▶ spam / phishing-suspicious            (§5.1)
-the provider's label   ─▶ Junk, on plaintext mail only          (here)
+the provider's label   ─▶ Spam, on plaintext mail only          (here)
 keywords               ─▶ Bills · Purchases · Promotions        (CATEGORIZER.md)
 ```
 
@@ -1874,7 +1874,7 @@ a friendly bucket in front of the provider's warning.
 It sits **below a user mark** because a filter that argued with an explicit
 correction would be worse than no filter. Without that ordering, *Not spam* on a
 provider-flagged message would appear to do nothing, and the row could never be
-rescued. The button now offers *Not spam* whenever the message is filed under Junk
+rescued. The button now offers *Not spam* whenever the message is filed under Spam
 for any reason, rather than only when the user's own mark put it there.
 
 **Encrypted mail is un-filed, not filed.** A `multipart/encrypted` message is
@@ -2613,7 +2613,7 @@ spam verdicts, and that mailing lists and ESP-routed transactional mail land in
 Primary. That last check is the live-mail version of bugs 18.1, 18.2 and 18.5.
 
 Also confirm the junk fetch (§14.4), which is the half of the feature only a live
-mailbox can prove: open Junk and check that what Gmail has in Spam is there, that
+mailbox can prove: open Spam and check that what Gmail has in Spam is there, that
 opening a row says why it is, that **Not spam** moves it to Primary and keeps it
 there across a sync, and that the Inbox list and badge did not gain any of it.
 

@@ -23,6 +23,21 @@ export type ContactKey = PublicKeyInfo & {
   lastSeen: string;
   /** When the safety number was last compared out of band, if ever. */
   verifiedAt?: string;
+  /**
+   * When a key last arrived for this address under a *different* fingerprint.
+   *
+   * Kept for good, including after the new key is verified — "this address has
+   * changed key before" is a fact about the correspondent that stays true, and
+   * it is the one thing the trust badge alone cannot say once `trust` has moved
+   * off `changed`. The contacts dashboard reads it (`contacts/contacts.ts`).
+   *
+   * Absent means either that no change has been recorded or that the entry
+   * predates this field. It is written going forward only, and nothing infers a
+   * change from its absence.
+   */
+  changedAt?: string;
+  /** The fingerprint that was replaced at `changedAt`, so the old one can be shown. */
+  previousFingerprint?: string;
 };
 
 /**
@@ -82,6 +97,13 @@ export function upsertKey(
         trust: options.rotation === 'self-signed' ? 'seen' : 'changed',
         source,
         lastSeen: now,
+        // Recorded for both outcomes, and a proven rotation included: the
+        // fingerprint under this address did change, and a contact whose key
+        // rotates is exactly what the dashboard is for. What the evidence
+        // decides is whether it *blocks* — `trust` above — not whether it
+        // happened.
+        changedAt: now,
+        previousFingerprint: existing.fingerprint,
         // The old verification attested to the *old* key. Carrying the
         // timestamp over would show "verified 3 March" beside a key nobody has
         // ever checked.
@@ -103,6 +125,10 @@ export function upsertKey(
       // verification, so without this line re-seeing an unchanged key via
       // Autocrypt keeps `trust: 'verified'` but loses the date it was checked.
       verifiedAt: existing?.verifiedAt,
+      // Same reason, and the history half of it: re-seeing the current key must
+      // not erase the record that an earlier one was replaced.
+      changedAt: existing?.changedAt,
+      previousFingerprint: existing?.previousFingerprint,
     },
   };
 }

@@ -63,6 +63,7 @@ export function initialState(): State {
     boxes: {
       sent: emptyBox(),
       archive: emptyBox(),
+      trash: emptyBox(),
     },
     error: null,
   };

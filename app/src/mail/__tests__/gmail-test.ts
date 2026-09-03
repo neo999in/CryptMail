@@ -3,7 +3,7 @@
  *
  * The junk folder is why this file exists. `messages.list` leaves SPAM and TRASH
  * out of every result unless it is told otherwise, and a message Gmail files as
- * spam is not in `INBOX` either — Gmail moves it out. So a Junk view assembled
+ * spam is not in `INBOX` either — Gmail moves it out. So a Spam view assembled
  * from the inbox query is empty on any account whose provider filter is doing its
  * job, which is exactly how the app behaved against a real mailbox: two messages
  * in Gmail's Spam folder, nothing in CryptMail's.
@@ -53,14 +53,28 @@ describe('the query per mailbox', () => {
     expect(urls[0]).toContain('includeSpamTrash=true');
   });
 
+  it('asks for the trash folder by label, and lifts the same exclusion', async () => {
+    const urls = stubGmail();
+
+    await client().list('trash');
+
+    // Deleted mail is excluded from `messages.list` by default exactly as junk
+    // is, so without both halves the Trash destination is empty on a mailbox
+    // full of deleted mail — the same bug the junk folder had.
+    expect(urls[0]).toContain('labelIds=TRASH');
+    expect(urls[0]).toContain('includeSpamTrash=true');
+  });
+
   it('never widens any other list to include junk', async () => {
     for (const box of ['inbox', 'sent', 'archive'] as Mailbox[]) {
       const urls = stubGmail();
       await client().list(box);
-      // Junk is a list of its own. A flag left on the inbox query would mix
-      // suspected phishing into the mail people skim.
+      // Spam and trash are lists of their own. A flag left on the inbox query
+      // would mix suspected phishing — and mail the reader deleted — into the
+      // mail people skim.
       expect(urls[0]).not.toContain('includeSpamTrash');
       expect(urls[0]).not.toContain('SPAM');
+      expect(urls[0]).not.toContain('TRASH');
     }
   });
 
@@ -112,5 +126,56 @@ describe('what a junk row carries back', () => {
   it('reports no cursor as the end of the folder', async () => {
     stubGmail({ list: { messages: [] } });
     await expect(client().list('spam')).resolves.toEqual({ messages: [], nextPageToken: undefined });
+  });
+});
+
+/**
+ * Deleting and restoring.
+ *
+ * These are the one flag change that is not a label edit: Gmail has dedicated
+ * `messages.trash` / `messages.untrash` endpoints, and `messages.modify` may
+ * refuse `TRASH` outright. So what is pinned here is which endpoint is called —
+ * a move that quietly turned into a label patch would appear to work and leave
+ * the message where it was.
+ */
+describe('moving a message to the trash and back', () => {
+  /** Records the path and HTTP method of every call. */
+  function stubCalls() {
+    const calls: { url: string; method?: string }[] = [];
+    const fetch = async (url: unknown, init?: { method?: string }) => {
+      calls.push({ url: String(url), method: init?.method });
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+    };
+    (globalThis as unknown as { fetch: unknown }).fetch = fetch;
+    return calls;
+  }
+
+  it('deletes through messages.trash', async () => {
+    const calls = stubCalls();
+    await client().updateFlags('m1', { trashed: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain('/messages/m1/trash');
+    expect(calls[0].method).toBe('POST');
+  });
+
+  it('restores through messages.untrash', async () => {
+    const calls = stubCalls();
+    await client().updateFlags('m1', { trashed: false });
+    expect(calls[0].url).toContain('/messages/m1/untrash');
+  });
+
+  it('still applies the labels riding along with the move', async () => {
+    // Opening a message and then deleting it produces both in one patch. The
+    // move goes first and on its own, so the label edit cannot land on a
+    // message the modify call would have had to find somewhere else.
+    const calls = stubCalls();
+    await client().updateFlags('m1', { trashed: true, unread: false });
+    expect(calls.map((c) => c.url.split('/messages/')[1])).toEqual(['m1/trash', 'm1/modify']);
+  });
+
+  it('leaves the trash alone when no move was asked for', async () => {
+    const calls = stubCalls();
+    await client().updateFlags('m1', { starred: true });
+    expect(calls.every((c) => !c.url.includes('trash'))).toBe(true);
   });
 });

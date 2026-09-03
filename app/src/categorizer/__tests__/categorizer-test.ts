@@ -218,7 +218,7 @@ describe("the provider's own junk verdict", () => {
 
   test('a plaintext message the provider filed as junk is filed as junk here', () => {
     // The case that was reported: Gmail had two of these in Spam and CryptMail's
-    // Junk view was empty, because the app never asked for the folder and would
+    // Spam view was empty, because the app never asked for the folder and would
     // not have read the label if it had.
     const plain = summary({
       subject: 'Refund on order 408-6419373-4985156',
@@ -230,7 +230,7 @@ describe("the provider's own junk verdict", () => {
 
   test('the junk label beats the commercial keywords, which would hide the warning', () => {
     const text = 'Refund on order 408-1550855-4537969 — tracking number attached';
-    // On its wording alone this is an order update, and Junk is full of mail
+    // On its wording alone this is an order update, and Spam is full of mail
     // written to read exactly like one.
     expect(categorize(text)).toBe('purchases');
     expect(categorizeMessage(summary({ subject: text, labels: ['SPAM'] }), false, emptyIndex)).toBe('spam');
@@ -239,7 +239,7 @@ describe("the provider's own junk verdict", () => {
   test('matched by name and case-insensitively, so another connector can use its own', () => {
     // `JUNK` is what the IMAP and Outlook worlds call the same folder.
     expect(providerFiledAsJunk(['SPAM'])).toBe(true);
-    expect(providerFiledAsJunk(['Junk'])).toBe(true);
+    expect(providerFiledAsJunk(['Spam'])).toBe(true);
     expect(providerFiledAsJunk(['INBOX', 'CATEGORY_PERSONAL'])).toBe(false);
     expect(providerFiledAsJunk(undefined)).toBe(false);
     expect(providerFiledAsJunk([])).toBe(false);
@@ -267,7 +267,7 @@ describe("the provider's own junk verdict", () => {
       .toBe('primary');
   });
 
-  test('junk counts under Junk in the drawer badge', () => {
+  test("the provider's own junk counts under Spam in the drawer badge", () => {
     const items = [{ summary: summary({ id: 'j', subject: 'Hello', unread: true, labels: ['SPAM'] }), encrypted: false }];
     expect(unreadCountsByCategory(items, emptyIndex).spam).toBe(1);
   });

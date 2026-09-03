@@ -44,7 +44,7 @@ provider could read the message, and it could not read that one.
 Adopted, and it was a **defect**, not a feature. Gmail moves a message it files
 as spam *out* of the inbox, and `messages.list` hides SPAM from every result
 unless `includeSpamTrash` is set — so a client that lists `labelIds=INBOX` never
-receives junk at all. The app's Junk destination filters the list the inbox
+receives junk at all. The app's Spam destination filters the list the inbox
 loaded, which meant it could only ever show mail Gmail had **delivered** and this
 device then flagged: an empty folder on any account whose provider filter works.
 Reported from a real mailbox with two messages in Gmail's Spam and none in ours.
@@ -53,13 +53,14 @@ What ships now:
 
 - [`gmail.ts`](../app/src/mail/gmail.ts) adds a `spam` mailbox, asked for with
   **both** `labelIds=SPAM` and `includeSpamTrash=true` — the flag lifts the
-  blanket exclusion, the label narrows the result to the folder. No other list
-  carries either, so junk never leaks into the inbox, Sent or Archive.
+  blanket exclusion, the label narrows the result to the folder. Only the two
+  excluded folders carry either (§1.7), so junk never leaks into the inbox, Sent
+  or Archive.
 - [`state/mailbox.ts`](../app/src/state/mailbox.ts) fetches it on every sync
   beside the inbox (`collectInbox`), ten rows to the inbox's twenty, with its own
   paging cursor. A junk folder that cannot be listed is not a failed sync.
 - [`categorizer.ts`](../app/src/categorizer/categorizer.ts) reads the `SPAM`
-  label for **plaintext mail** and files it under Junk — above the Bills and
+  label for **plaintext mail** and files it under Spam — above the Bills and
   Purchases keywords, because Gmail's junk folder is full of mail written to read
   like an order update. The user's own *Not spam* still outranks it.
 - **Encrypted mail is un-filed instead.** A junk verdict on `multipart/encrypted`
@@ -69,6 +70,29 @@ What ships now:
   something this client can do that Gmail's own app cannot.
 - No key is harvested from plaintext junk, or the junk folder would be a way to
   seed the keyring.
+
+### 1.7 Trash (`labelIds=TRASH`, `messages.trash` / `untrash`) — done
+
+The same exclusion as §1.6, and the same fix: `messages.list` omits TRASH from
+every result unless `includeSpamTrash` is set, so the Trash destination is empty
+on any mailbox until it is asked for by name. `trash` is therefore a `Mailbox` in
+[`mail/types.ts`](../app/src/mail/types.ts) and a `SecondaryBox` in the state
+layer, listed with its own cursor beside Sent and Archive — not a filter over the
+inbox, and not a local "deleted" flag, because deleted mail is a place the
+provider moved the message to.
+
+Deleting and restoring do **not** go through `messages.modify`. `TRASH` is a
+system label Gmail may refuse to set that way, and the dedicated
+`messages.trash` / `messages.untrash` calls are what other clients on the account
+will agree with. Both are carried as one `FlagPatch` field, `trashed`, and the
+connector translates it; the move is issued first and alone, so the label edit
+that rides along with it (opening a message then deleting it sends
+`{ trashed: true, unread: false }`) still lands.
+
+Both directions are **moves**. There is no permanent delete: `messages.delete`
+stays in §3, emptying the trash is the provider's own action, and the UI says so
+— *Move to Trash* in the message overflow, *Restore* in place of Archive on a
+message already there.
 
 ## 2. Probe before deciding
 

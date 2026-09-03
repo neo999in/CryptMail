@@ -170,8 +170,8 @@ export type State = {
    * Every row the inbox screen lists: the inbox itself **and** the provider's junk
    * folder, newest first.
    *
-   * Junk is here rather than in `boxes` because in this app junk is a category
-   * rather than a place — the drawer's Junk destination filters this list, and
+   * Spam is here rather than in `boxes` because in this app junk is a category
+   * rather than a place — the drawer's Spam destination filters this list, and
    * `showsUnderTab` keeps that category out of the Primary and Encrypted tabs. One
    * list is what lets a message the provider flagged and a message this device
    * flagged be counted by one badge and reversed by one button; it is also what
@@ -202,8 +202,23 @@ export type State = {
  * provider serves and deliberately **not** one of these: junk is fetched into
  * `messages` and reached through the drawer's category filter, so it has no box
  * and no screen of its own. See `state/mailbox.ts`, `collectInbox`.
+ *
+ * `trash` is one of these rather than a category for the opposite reason. Spam
+ * is a verdict this app forms and can disagree with the provider about, so it
+ * belongs beside the mail it is filing; deleted mail is a *place* the provider
+ * moved the message to, and it must not appear in the list it was deleted from.
  */
-export type SecondaryBox = Extract<Mailbox, 'sent' | 'archive'>;
+export type SecondaryBox = Extract<Mailbox, 'sent' | 'archive' | 'trash'>;
+
+/**
+ * Every one of them, in drawer order.
+ *
+ * A value rather than a type, because the state layer has to *walk* the boxes —
+ * finding which list a row is in, patching one and leaving the others alone —
+ * and a union cannot be iterated. Adding a box means adding it here, or it will
+ * simply be skipped rather than failing to compile.
+ */
+export const SECONDARY_BOXES: SecondaryBox[] = ['sent', 'archive', 'trash'];
 
 /** One such list, with the same loading vocabulary the inbox uses. */
 export type BoxState = {
@@ -282,6 +297,17 @@ export type Actions = {
   toggleStar(id: string): Promise<void>;
   setUnread(id: string, unread: boolean): Promise<void>;
   archiveMessage(id: string): Promise<void>;
+  /**
+   * Move a message to the provider's trash, or bring it back out.
+   *
+   * A move, not an erasure: the mail is still on the server, in the Trash
+   * destination, and `restoreMessage` puts it back where it was. Emptying the
+   * trash is the provider's own action and CryptMail deliberately does not
+   * offer it — an irreversible delete is not something a client should quietly
+   * grow a button for.
+   */
+  trashMessage(id: string): Promise<void>;
+  restoreMessage(id: string): Promise<void>;
   scheduleSend(input: SendInput & { sendAt: string }): Promise<void>;
   cancelScheduled(id: string): Promise<void>;
   /**

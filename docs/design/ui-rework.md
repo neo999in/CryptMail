@@ -91,7 +91,8 @@ lines) is the biggest change. Target, matching shot 2:
 - **Segmented control**: two tabs on the left, `Filter` pill on the right. This
   replaces the current `All / Encrypted / Attention` filter pills — those move
   *into* the Filter sheet, which is the reference's own pattern, so nothing is
-  lost. Spam stays out of the tabs entirely, reachable from the drawer as Junk.
+  lost. Spam stays out of the tabs entirely, reachable from the drawer as its own
+  destination.
 
   This shipped as `Focused | Other`, fed by the categorizer (Focused = primary
   + bills, Other = promotions + purchases) — a partition, as in the reference.
@@ -126,8 +127,8 @@ becomes the two-column drawer of shot 3:
   faster way to exercise it. The unified-inbox toggle becomes the "All Accounts"
   title row at the top of the panel.
 - **Right panel**: Inbox (with the unread count badge in the accent), Sent,
-  Archive, Drafts, Scheduled, Junk. Sent and Archive are real destinations as of
-  this change — `screens/MailboxScreen.tsx`, fetched from the provider and paged
+  Archive, Trash, Drafts, Scheduled, Spam. Sent, Archive and Trash are real
+  destinations — `screens/MailboxScreen.tsx`, fetched from the provider and paged
   on their own cursors. **None of these rows is a navigation**: every one of them
   sets a `Destination` (`ui/destination.tsx`) on the single screen behind the
   drawer (`screens/HomeScreen.tsx`), so choosing Sent is the same gesture as
@@ -140,8 +141,10 @@ becomes the two-column drawer of shot 3:
   keep their own rows but wear that same bar at the same height, searchable like
   the rest. Where the rows come
   from — a provider fetch, a local store, a filter — is not something the top of
-  the app changes shape over. Settings is the one drawer row that still pushes. The reference also lists Snoozed and Deleted; **neither
-  has a destination in CryptMail today**, so they are not drawn as dead rows —
+  the app changes shape over. Settings is the one drawer row that still pushes — Contacts joined the
+  destinations, so the address book wears the same bar (its All/Verified/Unverified
+  control in place of the mail lens) rather than arriving as its own screen. The reference also lists Snoozed; **it
+  has no destination in CryptMail today**, so it is not drawn as a dead row —
   the panel lists what exists. The categories (Primary, Purchases, Bills,
   Promotions) stay below under a "Categories" heading, which is what this
   drawer is otherwise for. Snooze and trash remain 0.19 in

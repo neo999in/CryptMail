@@ -84,7 +84,7 @@ export type OriginRect = { x: number; y: number; width: number; height: number }
  * the subject line about. Overshoot on a full screen of text is what makes a
  * spring look cheap, so the damping carries this and the stiffness does not.
  */
-const OPEN_SPRING = { damping: 20, stiffness: 150, mass: 0.65 } as const;
+const OPEN_SPRING = { damping: 22, stiffness: 120, mass: 0.9 } as const;
 
 /** Closing is the travel token: the frame crosses the display, and `base` over
  *  that distance reads as a snap rather than a move. */
@@ -93,6 +93,9 @@ const CLOSE_MS = motion.travel;
 /** Leaves quickly, lands softly — the row it is closing onto is already drawn,
  *  so the last few pixels are the ones worth spending the time on. */
 const CLOSE_EASING = Easing.bezier(0.4, 0, 0.2, 1);
+
+/** How long the open will wait on a layout before running without one. */
+const OPEN_BAIL_MS = 100;
 
 /** Which half is running. Read inside worklets, so a number, not a union. */
 const OPENING = 0;
@@ -153,6 +156,7 @@ export function ExpandingScreen({
   origin,
   navigation,
   topInset = 0,
+  revealTop = 0,
   ghost,
   onClosing,
   children,
@@ -169,6 +173,15 @@ export function ExpandingScreen({
    * the mail fills the display.
    */
   topInset?: number;
+  /**
+   * How far below `topInset` the bar underneath is *still the bar* — the strip
+   * of aurora the controls sat on, which they leave lit while they fade.
+   * Nothing here paints inside it either, so a screen that keeps its own top
+   * chrome transparent stands on the band rather than on a black block; past
+   * this line the list is what is underneath, and the ground has to cover it.
+   * Zero — the default — paints from `topInset` down, as before.
+   */
+  revealTop?: number;
   /**
    * The row this screen was opened from, drawn again — the thing the frame ends
    * as. Rendered at the row's own size in the frame's top-left corner and faded
@@ -202,6 +215,18 @@ export function ExpandingScreen({
   /** The pop this screen is holding back until the body is home again. */
   const exit = useRef<NavigationAction | null>(null);
 
+  /**
+   * Whether the body has been measured, so the frame's own box is known.
+   *
+   * The open is gated on it. Mounting a mail screen is real work — the row
+   * summary, the trust chip, the scroll view — and a spring started at mount
+   * runs on the UI thread by wall clock while the JS thread is still doing
+   * that, so the first frame that actually paints is already a third of the way
+   * through and the row it was supposed to grow out of has never been drawn.
+   * Waiting for layout costs a frame and buys the whole first half of the move.
+   */
+  const [measured, setMeasured] = useState(false);
+
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     const node = bodyRef.current;
@@ -213,15 +238,33 @@ export function ExpandingScreen({
       );
     if (node?.measureInWindow) node.measureInWindow((x, y) => apply(x, y));
     else apply(0, 0);
+    // Synchronously, on the layout itself — never inside the `measureInWindow`
+    // callback. That callback simply never fires for some views, and a gate
+    // that waits on it leaves the screen parked at `progress === 0`, which is
+    // an invisible mail rather than a slow one.
+    setMeasured(true);
   }, []);
 
   useEffect(() => {
     if (!animated) {
       progress.value = 1;
-      return;
+      return undefined;
     }
-    progress.value = withSpring(1, OPEN_SPRING);
-  }, [animated, progress]);
+    if (!measured) {
+      // Layout should land on the next commit; if something has swallowed it,
+      // open anyway. A mail that opens from the wrong rectangle is a bad
+      // transition — one that never opens is a broken screen.
+      const bail = setTimeout(() => setMeasured(true), OPEN_BAIL_MS);
+      return () => clearTimeout(bail);
+    }
+    // One more frame after the measurement commit, so the ghost is painted on
+    // the row at rest before anything moves. Without it the first painted frame
+    // is already the second frame of the spring.
+    const frameId = requestAnimationFrame(() => {
+      progress.value = withSpring(1, OPEN_SPRING);
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [animated, measured, progress]);
 
   const leave = useCallback(() => {
     const action = exit.current;
@@ -267,7 +310,9 @@ export function ExpandingScreen({
         width: frame.width,
         height: frame.height,
         borderRadius: 0,
-        backgroundColor: color.ground,
+        // The fill is a layer of its own whenever a strip is being revealed —
+        // see `fillStyle`. On the frame itself it could only be all or nothing.
+        backgroundColor: revealTop > 0 ? 'transparent' : color.ground,
         // Off the bottom edge of the body — which is already clipped to below
         // the bar, so the card is never over the inset on its way up.
         transform: [{ translateY: interpolate(p, [0, 1], [frame.height, 0]) }],
@@ -283,8 +328,30 @@ export function ExpandingScreen({
       borderRadius: interpolate(p, [0, 0.5, 1], [0, radius.lg, 0], 'clamp'),
       // Card while the frame is small enough to read as an object, ground once
       // it is the screen; the message fades in over the top of that either way.
-      backgroundColor: interpolateColor(p, [0, 0.5], [color.card, color.ground]),
+      backgroundColor: revealTop > 0 ? 'transparent' : interpolateColor(p, [0, 0.5], [color.card, color.ground]),
       transform: [{ translateY: 0 }],
+    };
+  });
+
+  /**
+   * The frame's fill, when a strip of bar is being kept lit.
+   *
+   * It cannot live on the frame: the frame is the box that moves, and its
+   * background is either all of it or none. `revealTop` is a line in window
+   * space, so the inset is measured from wherever the frame's top has got to —
+   * while the card is still down on its row it is wholly below that line and
+   * the fill is whole, and it opens up only as the frame arrives at the top.
+   * Nothing pops at the end: the strip is clear from the first frame that
+   * reaches it.
+   */
+  const fillStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    const offset = from
+      ? interpolate(p, [0, 1], [from.y, 0])
+      : interpolate(p, [0, 1], [frame.height, 0]);
+    return {
+      top: Math.max(0, revealTop - offset),
+      backgroundColor: from ? interpolateColor(p, [0, 0.5], [color.card, color.ground]) : color.ground,
     };
   });
 
@@ -305,7 +372,7 @@ export function ExpandingScreen({
     const opening = phase.value === OPENING;
     return {
       opacity: opening
-        ? interpolate(p, [0.1, 0.4], [0, 1], 'clamp')
+        ? interpolate(p, [0.2, 0.55], [0, 1], 'clamp')
         : interpolate(p, [0.25, 0.75], [0, 1], 'clamp'),
       transform: [
         { translateX: interpolate(p, [0, 1], [-from.x, 0]) },
@@ -320,7 +387,7 @@ export function ExpandingScreen({
     return {
       opacity:
         phase.value === OPENING
-          ? interpolate(p, [0, 0.22], [1, 0], 'clamp')
+          ? interpolate(p, [0.05, 0.4], [1, 0], 'clamp')
           : interpolate(p, [0, 0.3], [1, 0], 'clamp'),
     };
   });
@@ -348,9 +415,15 @@ export function ExpandingScreen({
     // bar above is on show, but it belongs to a screen that is not in front,
     // and tapping through to the drawer from inside a message would be a bug.
     <View style={[styles.root, { paddingTop: topInset }]}>
-      <Animated.View pointerEvents="none" style={[styles.ground, { top: topInset }, groundStyle]} />
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.ground, { top: topInset + revealTop }, groundStyle]}
+      />
       <View collapsable={false} onLayout={onLayout} ref={bodyRef} style={styles.body}>
         <Animated.View style={[styles.frame, frameStyle]}>
+          {revealTop > 0 ? (
+            <Animated.View pointerEvents="none" style={[styles.fill, fillStyle]} />
+          ) : null}
           <Animated.View
             style={[styles.content, { width: frame.width, height: frame.height }, contentStyle]}
           >
@@ -378,6 +451,7 @@ const styles = StyleSheet.create({
   // may paint into the inset the bar owns.
   body: { flex: 1, overflow: 'hidden' },
   frame: { overflow: 'hidden', position: 'absolute' },
+  fill: { bottom: 0, left: 0, position: 'absolute', right: 0 },
   content: { left: 0, position: 'absolute', top: 0 },
   // Pinned to the frame's leading corner, at the row's own size: as the frame
   // closes upward the row stays where the row is.

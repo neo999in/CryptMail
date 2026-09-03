@@ -181,6 +181,14 @@ PGP software.
 - **Changed:** a previously-seen address presents a new key → sending stops;
   could be a new device (benign) or an attacker (not). Require re-verification.
 
+Trust is the *current* state and it moves: a changed key that is then compared
+out of band becomes `verified`, and the mark says nothing about the change any
+more. So the change itself is recorded separately and kept — `changed_at` and
+`previous_fingerprint` on the keyring entry — and the contacts dashboard shows
+it for the life of the contact. "This address has swapped keys before" stays
+true after the new one is trusted, and it is the sort of thing a user is
+entitled to see when the same address swaps again.
+
 A keyserver being honest is a trust assumption, and automatic discovery makes it
 a load-bearing one: once every client fetches every key, a directory that swaps
 one has a much wider reach. Two things bound that. `upsertKey` marks a key that

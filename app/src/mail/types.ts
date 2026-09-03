@@ -59,7 +59,7 @@ export type MailSummary = {
    *
    * That applies to the junk label as much as to the category ones. A `SPAM`
    * label on plaintext mail is a verdict from a filter with reputation data no
-   * client has, and it decides the Junk bucket; the same label on an encrypted
+   * client has, and it decides the Spam bucket; the same label on an encrypted
    * message is a verdict about ciphertext, so it is ignored and the message stays
    * visible (`categorizer/categorizer.ts`).
    */
@@ -75,11 +75,17 @@ export type MailSummary = {
  *
  * `spam` is the provider's own junk folder, and it has to be asked for by name:
  * a message the provider filed as spam is **not** in the inbox — Gmail moves it
- * out — so listing the inbox can never return it. Without this, the app's Junk
+ * out — so listing the inbox can never return it. Without this, the app's Spam
  * destination could only ever show mail the provider *delivered* and this device
  * then flagged, which is an empty list on a mailbox whose provider filter works.
+ *
+ * `trash` is the same shape of thing: deleted mail is excluded from every other
+ * list by default, so it too has to be named. It is deliberately a *mailbox* and
+ * not a local "deleted" flag — the provider is where mail is deleted and where it
+ * is restored from, and a client that hid rows it had not actually moved would
+ * disagree with every other app on the account.
  */
-export type Mailbox = 'inbox' | 'sent' | 'archive' | 'spam';
+export type Mailbox = 'inbox' | 'sent' | 'archive' | 'spam' | 'trash';
 
 /**
  * One page of rows, plus the cursor that reaches the page behind it.
@@ -92,8 +98,21 @@ export type MailPage = {
   nextPageToken?: string;
 };
 
-/** A change to a message's flags. `archived: true` removes it from the inbox. */
-export type FlagPatch = { unread?: boolean; starred?: boolean; archived?: boolean };
+/**
+ * A change to a message's flags.
+ *
+ * `archived: true` removes it from the inbox. `trashed` moves it to and from the
+ * provider's trash — `true` deletes, `false` restores — and unlike the others it
+ * is not a label edit on most providers, so a connector is expected to translate
+ * it (see `mail/gmail.ts`). Nothing here erases mail permanently: emptying the
+ * trash is the provider's own action, not a flag.
+ */
+export type FlagPatch = {
+  unread?: boolean;
+  starred?: boolean;
+  archived?: boolean;
+  trashed?: boolean;
+};
 
 export interface MailClient {
   readonly kind: 'gmail';

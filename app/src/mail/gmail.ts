@@ -82,6 +82,16 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
     },
 
     async updateFlags(id, patch) {
+      // Deleting and restoring are their own endpoints, not label edits: Gmail
+      // treats `TRASH` as a system label `messages.modify` may refuse, and the
+      // dedicated calls are what other clients on the account will agree with.
+      // Done first and on its own, so a patch that also carries `unread: false`
+      // — which is what opening a message then deleting it produces — still ends
+      // with the message in the right place.
+      if (patch.trashed !== undefined) {
+        await call(`/messages/${id}/${patch.trashed ? 'trash' : 'untrash'}`, { method: 'POST' });
+      }
+
       const addLabelIds: string[] = [];
       const removeLabelIds: string[] = [];
       if (patch.starred === true) addLabelIds.push('STARRED');
@@ -109,13 +119,18 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
  * for by exclusion. Drafts and sent mail are excluded explicitly because they are
  * also "not in the inbox" and would otherwise appear here.
  *
- * Junk has to opt in twice, and that is the whole reason the app's Spam view was
- * empty against a real mailbox. `messages.list` omits SPAM and TRASH unless
+ * The junk folder has to opt in twice, and that is the whole reason the app's
+ * Spam view was empty against a real mailbox. `messages.list` omits SPAM and TRASH unless
  * `includeSpamTrash` is set, so the flag lifts that exclusion; `labelIds=SPAM`
  * then narrows the result to the junk folder alone rather than mixing junk into
  * every other list. Both are sent because each does a different half of the job —
  * the flag alone would widen every query, and the label alone is filtered out by
  * the default exclusion before it can match anything.
+ *
+ * Trash opts in the same way and for the same reason, with `labelIds=TRASH`: a
+ * deleted message is excluded from `messages.list` by default, so without the
+ * flag the Trash destination would be permanently empty even on a mailbox full
+ * of deleted mail.
  *
  * The other three lists therefore need no exclusion of their own: spam and trash
  * are already absent from them, which is also why archive's `-in:` query does not
@@ -125,6 +140,7 @@ function selector(box: Mailbox): string {
   if (box === 'sent') return '&labelIds=SENT';
   if (box === 'archive') return `&q=${encodeURIComponent('-in:inbox -in:sent -in:draft')}`;
   if (box === 'spam') return '&labelIds=SPAM&includeSpamTrash=true';
+  if (box === 'trash') return '&labelIds=TRASH&includeSpamTrash=true';
   return '&labelIds=INBOX';
 }
 

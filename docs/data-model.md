@@ -62,8 +62,10 @@ The DB file is encrypted at rest with a key held in the OS keychain.
 | fingerprint | text | |
 | public_key | blob | armored |
 | source | text | `autocrypt` / `directory` / `manual`. A key fetched from `keys.openpgp.org` or from WKD is `directory` either way — the trust it earns is identical, so splitting the two would only invite treating one as better than the other. |
-| trust | text | `seen` / `verified` / `changed` |
+| trust | text | `seen` / `verified` / `changed` — the *current* state, which moves back off `changed` the moment the new key is compared out of band. |
 | first_seen / last_seen | ts | |
+| changed_at | ts | When a key last arrived for this address under a **different** fingerprint. Kept for good, including after the replacement is verified: `trust` is the current state, and "this address has swapped keys before" is a separate fact that stays true. Read by the contacts dashboard ([`contacts/contacts.ts`](../app/src/contacts/contacts.ts)). Written going forward only — its absence on an older entry is not evidence of anything. |
+| previous_fingerprint | text | The fingerprint replaced at `changed_at`. |
 
 ### `messages`
 | column | type | notes |

@@ -9,6 +9,9 @@
  * fetch and Drafts and Scheduled are still their own local stores — but that is
  * a fact about where rows come from, not a reason to push a screen, and pushing
  * one made half the drawer feel like a different app with a back button.
+ * Contacts is here for the same reason: it holds people rather than mail, but it
+ * is still a list the drawer reaches, and it should not be the one row that
+ * arrives with a back arrow and a header of its own.
  *
  * This is UI state, not a domain subsystem, so it lives here rather than in
  * `AppState`: it never touches mail, keys or the send path — it only decides
@@ -19,7 +22,7 @@ import React, { createContext, useContext, useMemo, useState } from 'react';
 import { Category } from '../categorizer/categorizer';
 import { SecondaryBox } from '../state/types';
 
-export type Destination = 'inbox' | Category | SecondaryBox | 'drafts' | 'scheduled';
+export type Destination = 'inbox' | Category | SecondaryBox | 'drafts' | 'scheduled' | 'contacts';
 
 type DestinationState = {
   destination: Destination;

@@ -1,11 +1,17 @@
 /**
- * Sent and Archive — the two mailboxes that are not the inbox.
+ * Sent, Archive and Trash — the mailboxes that are not the inbox.
  *
  * One screen, parameterised, because they differ in three details and nothing
  * else: the title, the empty state, and which address a row leads with (Sent
  * shows who it went *to*; there is no point telling you that you sent it — and
  * that rule lives in `ui/mailRow.tsx`, keyed on the active account, so the
  * closing transition's ghost reaches the same answer).
+ *
+ * Trash is one of them rather than a category because deleted mail is a *place*
+ * the provider moved the message to, not a verdict this app formed about it —
+ * which is also why nothing here empties it. Deleting is reversible from the
+ * message itself (`screens/MessageScreen.tsx`), and permanent erasure stays the
+ * provider's own action.
  *
  * They are their own lists, fetched from the provider, not a filter over the
  * inbox — filtering `messages` would show only the sent mail that happened to be
@@ -38,7 +44,7 @@ import { Icon, IconName } from '../ui/Icon';
 import { useAccent, useAppearance } from '../ui/appearance';
 import { useChrome } from '../ui/chrome';
 import { OriginRect } from '../ui/expand';
-import { mailTopInset } from '../ui/mailBar';
+import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
@@ -57,6 +63,12 @@ const COPY: Record<SecondaryBox, { title: string; empty: string; hint: string; i
     hint: 'Mail you archive leaves the inbox but stays in the account. Nothing is deleted.',
     icon: 'archive',
   },
+  trash: {
+    title: 'Trash',
+    empty: 'Trash is empty',
+    hint: 'Deleted mail waits here, and opening it offers Restore. CryptMail never erases mail from the server — your provider empties the trash on its own schedule.',
+    icon: 'trash',
+  },
 };
 
 export function MailboxBody({
@@ -66,6 +78,7 @@ export function MailboxBody({
   tab,
   filter,
   headerHeight,
+  barHeight,
   clearFilters,
 }: BodyProps & { box: SecondaryBox }) {
   const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session } = useApp();
@@ -118,9 +131,17 @@ export function MailboxBody({
   const openMail = useCallback(
     (id: string, origin?: OriginRect) => {
       setOverlay('open');
-      navigation.navigate('Message', { id, origin, topInset: mailTopInset(insets.top, headerHeight) });
+      const topInset = mailTopInset(insets.top, headerHeight);
+      navigation.navigate('Message', {
+        id,
+        origin,
+        topInset,
+        // What is still bar below that line, so the message's own header can
+        // stand on the band instead of on a black block.
+        bandInset: mailBandBelow(barHeight, topInset),
+      });
     },
-    [headerHeight, insets.top, navigation, setOverlay],
+    [barHeight, headerHeight, insets.top, navigation, setOverlay],
   );
 
   // Whatever happened to the mail that was open, this bar is the front of the

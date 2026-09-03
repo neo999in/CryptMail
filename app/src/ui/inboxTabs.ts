@@ -18,7 +18,7 @@
  *    is headers-only — no network, no decryption — and the categorizer already
  *    honours the same boundary (unopened encrypted mail classifies as `primary`
  *    from headers alone, never from its ciphertext).
- *  - It does not hide spam under either tab. Junk is its own destination in the
+ *  - It does not hide spam under either tab. Spam is its own destination in the
  *    drawer; a tab that quietly mixed suspected phishing into a list people skim
  *    would undo the point of detecting it.
  */

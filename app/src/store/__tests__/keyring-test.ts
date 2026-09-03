@@ -24,6 +24,12 @@ describe('adding a key', () => {
     expect(keyring[ANYA.email].verifiedAt).toBeUndefined();
   });
 
+  it('records no key change, because there is no key it replaced', () => {
+    const keyring = upsertKey({}, ANYA, 'autocrypt');
+    expect(keyring[ANYA.email].changedAt).toBeUndefined();
+    expect(keyring[ANYA.email].previousFingerprint).toBeUndefined();
+  });
+
   it('records a keyserver key as trusted on first use and nothing more', () => {
     // A keyserver is a party that can hand out the wrong key. Nothing it says
     // can amount to verification; only comparing a safety number does.
@@ -83,6 +89,26 @@ describe('when the fingerprint changes', () => {
     );
   });
 
+  it('records when it changed, and what it replaced', () => {
+    // The trust mark is the *current* state and moves on the moment the new key
+    // is verified. This is the history behind it, and the contacts dashboard is
+    // what reads it (`contacts/contacts.ts`).
+    const after = upsertKey(verified, ANYA_ROTATED, 'autocrypt')[ANYA.email];
+    expect(after.previousFingerprint).toBe(ANYA.fingerprint);
+    expect(Date.parse(after.changedAt ?? '')).not.toBeNaN();
+  });
+
+  it('keeps that record when the new key is later verified and seen again', () => {
+    const changed = upsertKey(verified, ANYA_ROTATED, 'autocrypt');
+    const nowVerified: Keyring = {
+      [ANYA.email]: { ...changed[ANYA.email], trust: 'verified', verifiedAt: '2026-03-03T00:00:00.000Z' },
+    };
+    const after = upsertKey(nowVerified, ANYA_ROTATED, 'autocrypt')[ANYA.email];
+    expect(after.trust).toBe('verified');
+    expect(after.changedAt).toBe(changed[ANYA.email].changedAt);
+    expect(after.previousFingerprint).toBe(ANYA.fingerprint);
+  });
+
   it('blocks the same way whether the key arrived by header or by keyserver', () => {
     // Discovery makes this the common path: once every client fetches every
     // key, a keyserver quietly swapping one is the attack that matters.
@@ -107,6 +133,13 @@ describe('a key change that proves it is a rotation', () => {
     const after = upsertKey(seen, ANYA_ROTATED, 'autocrypt', undefined, { rotation: 'self-signed' });
     expect(after[ANYA.email].trust).toBe('seen');
     expect(after[ANYA.email].fingerprint).toBe(ANYA_ROTATED.fingerprint);
+  });
+
+  it('is still recorded as a key change, because that is what it is', () => {
+    // The evidence decides whether the change *blocks*, not whether it happened.
+    const after = upsertKey(seen, ANYA_ROTATED, 'manual', undefined, { rotation: 'self-signed' })[ANYA.email];
+    expect(after.previousFingerprint).toBe(ANYA.fingerprint);
+    expect(after.changedAt).toBeTruthy();
   });
 
   it('is not treated as verified — nobody compared the new safety number', () => {

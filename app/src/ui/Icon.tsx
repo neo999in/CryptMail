@@ -23,6 +23,7 @@ export type IconName =
   | 'signout'
   | 'inbox'
   | 'user'
+  | 'users'
   | 'edit'
   | 'star'
   | 'archive'
@@ -35,6 +36,7 @@ export type IconName =
   | 'file'
   | 'download'
   | 'menu'
+  | 'more'
   | 'junk'
   | 'trash'
   | 'settings'
@@ -172,6 +174,17 @@ function glyph(name: IconName, p: object) {
           <Path d="M5 20a7 7 0 0 1 14 0" {...p} />
         </>
       );
+    // Two figures, the second half-hidden behind the first — the address book,
+    // told apart from the single `user` that means the account.
+    case 'users':
+      return (
+        <>
+          <Circle cx={9.5} cy={8.5} r={3.2} {...p} />
+          <Path d="M3.5 20a6 6 0 0 1 12 0" {...p} />
+          <Path d="M16 5.6a3.2 3.2 0 0 1 0 5.8" {...p} />
+          <Path d="M17.5 14.4A6 6 0 0 1 20.5 20" {...p} />
+        </>
+      );
     case 'edit':
       return (
         <>
@@ -245,6 +258,16 @@ function glyph(name: IconName, p: object) {
       );
     case 'menu':
       return <Path d="M4 7h16M4 12h16M4 17h16" {...p} />;
+    // Filled, not stroked: three 1.1-radius rings read as smudges at 20px, and
+    // this is the one glyph in the set that is dots rather than a drawing.
+    case 'more':
+      return (
+        <>
+          <Circle cx={12} cy={5} r={1.85} fill={(p as { stroke: string }).stroke} stroke="none" />
+          <Circle cx={12} cy={12} r={1.85} fill={(p as { stroke: string }).stroke} stroke="none" />
+          <Circle cx={12} cy={19} r={1.85} fill={(p as { stroke: string }).stroke} stroke="none" />
+        </>
+      );
     case 'junk':
       return (
         <>

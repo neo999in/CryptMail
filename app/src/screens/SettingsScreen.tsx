@@ -88,6 +88,12 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Home'),
           },
           {
+            icon: 'users',
+            label: 'Contacts and trust',
+            value: 'Everyone this device has seen, and how far each is trusted',
+            onPress: () => go('contacts'),
+          },
+          {
             icon: 'key',
             label: 'Keys and fingerprints',
             value: cryptoMode === 'demo' ? 'Demo crypto — nothing is really encrypted' : undefined,

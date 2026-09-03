@@ -6,7 +6,7 @@ import { core, PLACEHOLDER_SUBJECT } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
 import { attachmentsOf, htmlOf, plainBodyOf } from '../mail/plainBody';
-import { MailClient, Mailbox, MailSummary } from '../mail/types';
+import { FlagPatch, MailClient, Mailbox, MailSummary } from '../mail/types';
 import { indexContent } from '../search/search';
 import { extractLinks, learn, unlearn } from '../spam/spam';
 import type { SpamMark } from '../spam/spam';
@@ -16,7 +16,7 @@ import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
 import { Ctx, MailboxService, message } from './contracts';
 import { trustForOpened } from './derive';
-import { BoxState, InboxItem, OpenedMessage, SecondaryBox, State } from './types';
+import { BoxState, InboxItem, OpenedMessage, SECONDARY_BOXES, SecondaryBox, State } from './types';
 
 /**
  * Messages fetched per mailbox, per page.
@@ -32,7 +32,7 @@ const PAGE_SIZE = 20;
  * Every sync now lists two mailboxes, and each id in each page is its own
  * metadata request — so a full-size junk page would double the burst of parallel
  * requests a refresh makes, on the path the Gmail notes already call the most
- * likely cause of a failed sync (docs/gmail-api-adoption.md, quota). Junk is a
+ * likely cause of a failed sync (docs/gmail-api-adoption.md, quota). Spam is a
  * list people check rather than read, so ten rows is the right first page and
  * "load older mail" reaches the rest.
  */
@@ -89,7 +89,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
    * Which mailboxes a merged inbox merges.
    *
    * The inbox and the junk folder, because both feed the one list the inbox
-   * screen renders: a Junk view holding every account's local verdicts but only
+   * screen renders: a Spam view holding every account's local verdicts but only
    * one account's provider-flagged mail would be a merged list with a hole in it.
    * Sent and Archive stay the active account's own — see `moreAvailable`.
    */
@@ -157,8 +157,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
   /**
    * Everything the inbox screen lists: the inbox, plus the provider's junk folder.
    *
-   * Junk is fetched here rather than being its own screen because in this app junk
-   * is a *category*, not a place — the drawer's Junk destination filters the same
+   * Spam is fetched here rather than being its own screen because in this app junk
+   * is a *category*, not a place — the drawer's Spam destination filters the same
    * list the inbox does (`ui/inboxTabs.ts` keeps that category out of the Primary
    * and Encrypted tabs). Fetching it into the same list is what puts a message the
    * provider flagged and a message this device flagged side by side, counted by
@@ -425,25 +425,30 @@ export function createMailbox(ctx: Ctx): MailboxService {
     },
 
     /**
-     * Optimistic flag update: apply locally at once for a responsive feel, then
-     * persist to the provider. If the provider rejects it, resync from the inbox.
-     */
-    /**
-     * Optimistic flag update, sent to the provider the row actually came from.
+     * Optimistic flag update, sent to the provider the row actually came from,
+     * and applied to the list that row is actually in.
      *
-     * In a merged inbox `mail.current` is only one of several mailboxes, so
-     * starring a row from another account through it would 404 — or, worse,
-     * change a different message that happens to share an id.
+     * Both halves of that are about lists that are not the inbox. In a merged
+     * inbox `mail.current` is only one of several mailboxes, so starring a row
+     * from another account through it would 404 — or, worse, change a different
+     * message that happens to share an id. And a row opened from Sent, Archive or
+     * Trash is not in `messages` at all, so patching that list alone left the
+     * message the reader had just deleted sitting in the list they deleted it
+     * from until the next fetch.
+     *
+     * If the provider rejects the change, the list it came from is refetched, so
+     * what is on screen is what the server says again.
      */
     async setFlags(id, change) {
-      const row = store.get().messages.find((m) => m.id === id);
-      const client = (row && mail.clients.get(row.account)) ?? mail.current;
+      const found = locate(id);
+      const client = (found && mail.clients.get(found.row.account)) ?? mail.current;
       if (!client) return;
-      store.patch({ messages: applyFlagPatch(store.get().messages, id, change) });
+      patchRow(found, id, change);
       try {
         await client.updateFlags(id, change);
       } catch {
-        void service.refreshInbox();
+        if (found?.box) void service.loadBox(found.box);
+        else void service.refreshInbox();
       }
     },
 
@@ -456,10 +461,58 @@ export function createMailbox(ctx: Ctx): MailboxService {
 
     archiveMessage: (id) => service.setFlags(id, { archived: true }),
 
+    // A move to the provider's trash and back out of it — never an erasure. The
+    // message stays on the server either way, which is why the pair is
+    // symmetrical and why neither of them has to ask before acting.
+    trashMessage: (id) => service.setFlags(id, { trashed: true }),
+
+    restoreMessage: (id) => service.setFlags(id, { trashed: false }),
+
     markSpam: (id) => applyMark(id, 'spam'),
 
     markNotSpam: (id) => applyMark(id, 'ham'),
   };
+
+  /**
+   * The row, and which list is currently showing it.
+   *
+   * `box: null` means the inbox. Searched in that order because it is the common
+   * case, and because a row can only be in one of these lists at a time — each
+   * box is fetched by its own query, and none of those queries overlaps the
+   * inbox.
+   */
+  function locate(id: string): { row: InboxItem; box: SecondaryBox | null } | null {
+    const state = store.get();
+    const inInbox = state.messages.find((m) => m.id === id);
+    if (inInbox) return { row: inInbox, box: null };
+    for (const box of SECONDARY_BOXES) {
+      const row = state.boxes[box].items.find((m) => m.id === id);
+      if (row) return { row, box };
+    }
+    return null;
+  }
+
+  /**
+   * Apply a patch to the one list holding the row, and to no other.
+   *
+   * Deliberately not "every list": `applyFlagPatch` drops the row on a move, and
+   * a sent message that is archived keeps its `SENT` label — so patching Sent
+   * with a change made from the inbox would take away a message that is still
+   * there. The list the row is in is the list that changed.
+   */
+  function patchRow(
+    found: { row: InboxItem; box: SecondaryBox | null } | null,
+    id: string,
+    change: FlagPatch,
+  ): void {
+    if (!found) return;
+    if (!found.box) {
+      store.patch({ messages: applyFlagPatch(store.get().messages, id, change) });
+      return;
+    }
+    const items = applyFlagPatch(store.get().boxes[found.box].items, id, change);
+    store.patch({ boxes: patchBox(found.box, { items }) });
+  }
 
   /**
    * Record the user's verdict for one message and train the filter from it.

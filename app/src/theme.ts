@@ -184,6 +184,12 @@ export const color = {
   lineSoft: '#1A1A1A',
   /** Whole-row press wash — neutral, so it reads at any accent. */
   rowPress: 'rgba(255,255,255,0.06)',
+  /** The same wash under a single icon. Stronger than a row's, because it is
+   *  spread over a 36-point circle rather than the width of the screen and the
+   *  eye reads the total light, not the alpha. Translucent on purpose: these
+   *  buttons sit on the aurora band as often as on the flat ground, and an
+   *  opaque chip would punch a hole in it. */
+  iconPress: 'rgba(255,255,255,0.13)',
 
   ink: '#F2F2F2',
   inkDim: '#A3A3A3',

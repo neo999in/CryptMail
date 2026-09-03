@@ -7,7 +7,7 @@ import type { OriginRect } from './ui/expand';
 
 /**
  * `Home` is a drawer holding one screen, and **every drawer row is a
- * destination on that one screen** — Sent and Archive as much as Bills and Junk
+ * destination on that one screen** — Sent and Archive as much as Bills and Spam
  * (`ui/destination.tsx`, `screens/HomeScreen.tsx`). What the drawer opens is
  * never a push, so the bar never swaps its account avatar for a back arrow.
  * Only genuine detail screens — a message, a compose, settings — are stack
@@ -28,6 +28,10 @@ export type RootStackParamList = {
     /** Height of the top bar the opening screen keeps on show above the mail.
      *  The inbox passes its aurora bar; a screen with none passes nothing. */
     topInset?: number;
+    /** How much of that bar is still band *below* `topInset` — the strip the
+     *  message may leave unpainted so its own header stands on the aurora
+     *  rather than on the ground. Absent wherever `topInset` is. */
+    bandInset?: number;
   };
   Conversation: { threadId: string };
   Compose: {
@@ -41,6 +45,7 @@ export type RootStackParamList = {
     attachments?: Attachment[];
   };
   Keys: undefined;
+  /** The address book and per-contact trust dashboard (`contacts/contacts.ts`). */
   Recovery: undefined;
   Settings: undefined;
   Appearance: undefined;

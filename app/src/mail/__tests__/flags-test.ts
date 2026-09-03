@@ -46,6 +46,18 @@ describe('applyFlagPatch', () => {
     expect(next.map((m) => m.id)).toEqual(['m2']);
   });
 
+  test('deleting removes the message from the list it was in', () => {
+    const next = applyFlagPatch(list, 'm1', { trashed: true });
+    expect(next.map((m) => m.id)).toEqual(['m2']);
+  });
+
+  test('restoring removes the message from the trash list it was in', () => {
+    // The other direction of the same move: a restored message leaves Trash.
+    // Which list gains it is the business of that list, which refetches.
+    const next = applyFlagPatch(list, 'm2', { trashed: false });
+    expect(next.map((m) => m.id)).toEqual(['m1']);
+  });
+
   test('an unknown id leaves the list unchanged', () => {
     const next = applyFlagPatch(list, 'nope', { starred: true });
     expect(next.map((m) => m.id)).toEqual(['m1', 'm2']);

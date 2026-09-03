@@ -320,18 +320,44 @@ export function SecondaryButton({
 }
 
 /** Square icon-only control used in headers and toolbars. */
+/**
+ * How a bar's icon buttons are drawn: bigger, heavier, at full ink.
+ *
+ * The defaults below are tuned for an icon that sits *beside a label* — the
+ * label carries the emphasis and the glyph only has to point at it. A bar is
+ * the other case: glyphs alone, often over a lit band, with nothing next to
+ * them to read. At 36 / `inkDim` / 1.9 a row of those reads as disabled
+ * controls, so every top bar in the app spreads this instead.
+ */
+export const barIcon = { size: 36, glyph: 24, tint: color.ink, weight: 2.2 } as const;
+
 export function IconButton({
   icon,
   label,
   onPress,
   tint = color.inkDim,
   size = 36,
+  glyph,
+  weight,
+  fill,
 }: {
   icon: IconName;
   label: string;
   onPress: () => void;
   tint?: string;
   size?: number;
+  /** Paints the glyph's interior as well as its outline — the on state of a
+   *  button that toggles, where a colour change alone is the same mark twice.
+   *  Only for glyphs drawn as one closed shape; an outline icon made of
+   *  several strokes fills into a blob. */
+  fill?: string;
+  /** Glyph size, when it should not follow the box. A bar sets the two apart:
+   *  the glyph stays big and the box shrinks around it, so the icons sit close
+   *  together as one set of actions. `hitSlop` keeps the target honest. */
+  glyph?: number;
+  /** Stroke weight for the glyph, where the default reads too light — a bar of
+   *  icons standing on its own, with no text beside it to carry the emphasis. */
+  weight?: number;
 }) {
   const press = usePressScale(0.92);
   return (
@@ -339,17 +365,19 @@ export function IconButton({
       <Pressable
         accessibilityLabel={label}
         accessibilityRole="button"
-        hitSlop={6}
+        hitSlop={10}
         onPress={onPress}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         style={({ pressed }) => [
           s.iconBtn,
-          { width: size, height: size },
-          pressed && { backgroundColor: color.surfaceRaised },
+          // Round, so the wash under the press is a circle centred on the
+          // glyph rather than a chip with corners the icon does not fill.
+          { width: size, height: size, borderRadius: size / 2 },
+          pressed && { backgroundColor: color.iconPress },
         ]}
       >
-        <Icon name={icon} size={Math.round(size * 0.47)} color={tint} />
+        <Icon name={icon} size={glyph ?? Math.round(size * 0.47)} color={tint} strokeWidth={weight} fill={fill} />
       </Pressable>
     </Animated.View>
   );
@@ -844,9 +872,10 @@ const s = StyleSheet.create({
   // Square-ish ghost tile rather than a filled circle — ghost icon buttons in
   // this family of components sit flush until pressed, they don't sit inside
   // their own filled pill.
+  // The radius is set with the box, since a circle is half of whatever size
+  // the caller asked for.
   iconBtn: {
     alignItems: 'center',
-    borderRadius: radius.sm,
     justifyContent: 'center',
   },
 

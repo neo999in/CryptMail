@@ -8,7 +8,7 @@ The roadmap answers *"what are we committed to, and in what phase?"*; this file
 answers *"what exactly would we build, which files would it touch, what's
 blocking it, and how would we know it works?"*
 
-Last updated: 2026-08-31.
+Last updated: 2026-09-03.
 
 ---
 
@@ -46,14 +46,15 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
 | Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
 | Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
-| Sent + Archive destinations | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
+| Sent + Archive + Trash destinations | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive, Trash | 16 |
 | Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
-| Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions and Junk from Gmail's own labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 30 |
+| Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions and Spam from Gmail's own labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 30 |
 | Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
+| Contacts + per-contact trust dashboard (0.5) | [`contacts/contacts.ts`](../app/src/contacts/contacts.ts), [`contacts/useContacts.ts`](../app/src/contacts/useContacts.ts) | `ContactsScreen`, Compose autocomplete | 26 |
 | Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
-| The provider's junk folder, fetched and filed under Junk ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Junk | 20 |
+| The provider's junk folder, fetched and filed under Spam ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Spam | 20 |
 
-416 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
+942 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
 lives in `store/*`; `state/*` orchestrates (a React end in `AppState.tsx`, the
 work in plain service modules).
@@ -149,7 +150,7 @@ by the same interval tick that drives the scheduler. Worth extracting one shared
 **Done when.** A snoozed message disappears from the inbox, reappears at its due
 time, and survives a restart.
 
-### 0.5 Contacts & per-contact trust dashboard · Impact M · Effort M
+### 0.5 Contacts & per-contact trust dashboard · Impact M · Effort M — ✅ **Built**
 
 **What.** An address book built from the keyring plus seen senders: one screen
 showing every contact, their trust state, when the key was first seen, and
@@ -159,12 +160,48 @@ whether it ever changed.
 already drives the compose fail-safe, but it's only visible on the Keys screen.
 Trust is the product's actual security claim; it deserves a first-class surface.
 
-**Build sketch.** `contacts/contacts.ts` merging `Keyring` with addresses
-observed in `messages`. New `ContactsScreen`; recipient autocomplete in Compose
-sourced from it, with the trust badge shown inline as you type.
+**What was built.** [`contacts/contacts.ts`](../app/src/contacts/contacts.ts) —
+pure, 26 tests — merges the keyring with every address seen in the mail, in
+either direction, and yields a `Contact` per address carrying its trust state,
+when the key was first seen, how it arrived, when it was compared out of band,
+when it last changed, and how much correspondence there has been.
+[`contacts/useContacts.ts`](../app/src/contacts/useContacts.ts) is the one place
+that wiring lives, so the screen and Compose cannot disagree about who exists.
+[`ContactsScreen`](../app/src/screens/ContactsScreen.tsx) is a stack push from
+the drawer footer and from Settings — not a home-screen destination, since it is
+not a list of mail — with a search field, an All / Verified / Unverified / No key
+filter, and a headline that counts each state in words. Compose's To field gained
+autocomplete from the same source, each suggestion carrying its trust badge.
+
+Four things are worth knowing about the shape it took:
+
+- **A contact with no key is a first-class row**, not an omission. That state is
+  exactly the one that holds a message in the outbox behind an invite, and the
+  autocomplete deliberately does not rank it below the contacts that have keys —
+  burying them would hide the people the invite path exists for.
+- **"Ever changed" needed a new fact.** `trust` is the *current* state and moves
+  back off `changed` as soon as the new key is compared, so `upsertKey` now
+  records `changedAt` and `previousFingerprint` and keeps them
+  ([data-model.md](data-model.md), [key-management.md](key-management.md)). They
+  are written going forward only; nothing infers a change from their absence.
+- **No decryption, ever.** Every field comes from a cleartext envelope header or
+  the keyring, so an unopened encrypted mailbox produces the same book as a
+  fully-read one.
+- **Junk follows the categoriser's rule**, not the provider's: a user's own spam
+  mark files a message, and a provider junk label counts only for plaintext mail,
+  because a junk verdict on ciphertext is a verdict about structure the filter
+  could not read. A junk sender that has a key is still listed — a key the user
+  imported does not vanish because mail landed in the wrong folder.
+
+The verification ceremony stays on Keys: comparing a safety number is a
+deliberate, one-contact-at-a-time act, and a list is the wrong place for it. The
+dashboard says who needs it and sends you there.
 
 **Done when.** Every address the app has seen appears with the right trust badge,
-and picking one in Compose shows its state before you type a body.
+and picking one in Compose shows its state before you type a body. ✅ — with the
+caveat the module documents: the keyring half is complete the moment an account
+loads, while the observed half grows as mail is fetched, so a mailbox whose Sent
+has never been opened has genuinely not been seen.
 
 ### 0.6 Email signature + canned replies · Impact S · Effort S
 
@@ -388,27 +425,30 @@ dynamic type, RTL and localisation.
 **Done when.** The inbox and message screens are fully navigable by screen
 reader, every trust state has a text equivalent, and a light palette exists.
 
-### 0.19 Snooze and trash folders · Impact M · Effort M
+### 0.19 Snooze folder · Impact M · Effort M
 
-**What.** Snoozed and Deleted destinations, backed by Gmail label and thread
+**What.** A Snoozed destination, backed by local scheduling and Gmail label
 operations, listed in the navigation drawer.
 
-**Why.** The drawer's shape is Outlook's, and those are entries a person reaches
+**Why.** The drawer's shape is Outlook's, and that is an entry a person reaches
 for out of habit. A row that does nothing costs more trust than a missing row, so
 the drawer lists only what exists.
 
-**Status.** **Sent and Archive are done** —
+**Status.** **Sent, Archive and Trash are done** —
 [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one body
 parameterised by box, each list fetched from the provider and paged on its own
 cursor. They are destinations on the home screen rather than pushed screens
 ([`ui/destination.tsx`](../app/src/ui/destination.tsx)), so they wear the
 inbox's bar and rows exactly as a category filter does. Archive is a query rather than a label (Gmail has no archived label:
-archiving removes `INBOX`), which is why the connector translates it. What is
-left here is snooze, which needs local scheduling like the outbox, and trash,
-which needs `messages.trash` and a delete affordance.
+archiving removes `INBOX`), which is why the connector translates it; Trash is a
+label, but one `messages.list` excludes unless asked twice, exactly like the junk
+folder. Deleting and restoring go through `messages.trash` / `messages.untrash`
+rather than a label edit, and both are **moves** — CryptMail has no permanent
+delete, and emptying the trash stays the provider's own action. What is left here
+is snooze, which needs local scheduling like the outbox.
 
-**Done when.** Snoozing returns a thread at the chosen time and deleting reaches
-the provider and survives a refresh, with both listed in the drawer.
+**Done when.** Snoozing returns a thread at the chosen time, listed in the
+drawer.
 
 ### 0.17 Client-side key sharing · Impact M · Effort M — ✎ designed
 
@@ -510,7 +550,7 @@ now against the demo core, with the crypto swapped in later.
 | **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |
 | **Expiring / self-destruct messages** | M | M | Client-enforced only; the copy must be honest that a recipient can always keep a copy. |
 | **S/MIME support** | M | L | Enterprise interop; a large second format surface. |
-| ~~**Client-side spam / phishing scanning**~~ | — | — | ✅ **Built, and needed no core.** [`spam/`](../app/src/spam/) — weighted symbol scoring over headers, content, links and attachment metadata, plus a personal Naive Bayes model trained by "Mark as spam"/"Mark as not spam" and persisted sealed in [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts). Runs on plaintext mail only: encrypted mail is not scored at all, opened or not, and a provider junk verdict on it is ignored rather than obeyed. The provider's junk folder *is* fetched and filed under Junk for plaintext mail ([SPAM_PHISHING_DETECTION.md](SPAM_PHISHING_DETECTION.md) §14.4). Entirely local — no URL is ever fetched to classify a message. **Malware scanning is still open**: it needs attachment bodies (Tier 1 *Attachments*) and a scanning engine, and only filename/type metadata is inspected today. |
+| ~~**Client-side spam / phishing scanning**~~ | — | — | ✅ **Built, and needed no core.** [`spam/`](../app/src/spam/) — weighted symbol scoring over headers, content, links and attachment metadata, plus a personal Naive Bayes model trained by "Mark as spam"/"Mark as not spam" and persisted sealed in [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts). Runs on plaintext mail only: encrypted mail is not scored at all, opened or not, and a provider junk verdict on it is ignored rather than obeyed. The provider's junk folder *is* fetched and filed under Spam for plaintext mail ([SPAM_PHISHING_DETECTION.md](SPAM_PHISHING_DETECTION.md) §14.4). Entirely local — no URL is ever fetched to classify a message. **Malware scanning is still open**: it needs attachment bodies (Tier 1 *Attachments*) and a scanning engine, and only filename/type metadata is inspected today. |
 
 ---
 
@@ -548,8 +588,8 @@ crypto is finished:
    on plaintext mail, and any rule offered for encrypted mail has to work from
    what the user states — a sender, an address — rather than from content.
 2. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
-3. **0.5 Contacts + trust dashboard** — makes the security model visible where
-   recipients are chosen.
+3. ~~**0.5 Contacts + trust dashboard**~~ — ✅ **built**. The security model is
+   now visible where recipients are chosen.
 4. **0.17 Client-side key sharing** — designed and unblocked; closes the last
    discovery gap that needs no network.
 

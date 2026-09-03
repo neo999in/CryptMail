@@ -249,7 +249,7 @@ kept only as history — don't port from it. Build screens out of
   drawn **inside a mail list's top bar own bounds**, so the ground under the
   list is untouched. That bar is one component,
   [app/src/ui/mailBar.tsx](app/src/ui/mailBar.tsx), worn by the inbox, Sent,
-  Archive, Drafts and Scheduled alike — each of those is a **destination body on
+  Archive, Drafts, Scheduled and Contacts alike — each of those is a **destination body on
   the one home screen** ([app/src/screens/HomeScreen.tsx](app/src/screens/HomeScreen.tsx),
   [app/src/ui/destination.tsx](app/src/ui/destination.tsx)), not a route: the
   drawer sets a destination and never pushes, so no mail list arrives with a back

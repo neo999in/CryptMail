@@ -181,10 +181,13 @@ title; content in a `ScrollView` below it. Pad by the safe-area insets —
 
 ### A mail list
 
-Every list of mail — the inbox, its category filters, Sent, Archive — is a
-**destination body on the one home screen**, never a push
-(`ui/destination.tsx`, `screens/HomeScreen.tsx`). Drafts and Scheduled are
-destinations too; their rows are their own, their bar is the same one.
+Every list of mail — the inbox, its category filters, Sent, Archive, Trash — is
+a **destination body on the one home screen**, never a push
+(`ui/destination.tsx`, `screens/HomeScreen.tsx`). Drafts, Scheduled and Contacts
+are destinations too; their rows are their own, their bar is the same one.
+Contacts is the one that holds people rather than mail, and it shows in exactly
+two places: the bar offers no refresh, and its strip carries Contacts' own
+All · Verified · Unverified control instead of the mail lens.
 
 **The bar is mounted once, on the home screen, above whichever body is up.** Not
 per body: a `MailTopBar` inside each body remounts on every destination change,
@@ -228,7 +231,7 @@ text this device wrote, so `textMatchesQuery` reads it directly
 ```
 
 A destination that pushes a screen instead is the thing this exists to prevent.
-Sent and Archive used to: half the drawer then had a back arrow, a slide and a
+Sent, Archive and Trash used to: half the drawer then had a back arrow, a slide and a
 second title row, while the other half quietly re-filtered a list — two
 gestures that are the same gesture, looking nothing alike.
 
@@ -332,7 +335,7 @@ have to hold for any further use of it:
 1. It is sized from a **measured** height and never `absoluteFill` — it lives
    inside a mail list's top bar (`ui/mailBar.tsx`) own bounds, so the ground
    under the list is untouched. That bar is one component worn by the inbox,
-   Sent, Archive, Drafts and Scheduled alike; there is still exactly one band on
+   Sent, Archive, Trash, Drafts and Scheduled alike; there is still exactly one band on
    screen, because exactly one of those screens is in front.
 2. It is `pointerEvents="none"`.
 3. It animates only when `useShouldAnimate()` says so: screen focused
@@ -356,20 +359,27 @@ Note that the band paints **over** the bar's `color.surface` fill rather than
 lighting it, so the inbox bar reads darker than the rest of the chrome. That is
 intended.
 
-### Opening a mail: it rises, and it goes back to its row
+### Opening a mail: it grows out of its row, and it goes back to it
 
-Not a push, and not the same move in both directions.
+Not a push, and the same move in both directions.
 [app/src/ui/expand.tsx](app/src/ui/expand.tsx) owns both halves; it is discrete
 motion, one run per open, gated on `useReducedMotion()` alone.
 
-- **Opening slides up.** The card comes off the bottom edge at full size, over a
-  list that stays lit in the gap above it until it is covered. A mail is a whole
-  screen of text, and a screen of text that arrives by growing out of a row-high
-  band spends most of the transition unreadable.
-- **Closing collapses onto the row.** The frame shrinks back to the exact
-  rectangle that was tapped, while a copy of that row fades back in over the
-  message. The mail becomes the row again, so the list handed back is visibly
-  the one that was left.
+- **Opening grows from the row.** The frame starts as the rectangle that was
+  tapped, with a copy of that row drawn in it, and opens out to the full display
+  while the message cross-fades in behind it.
+- **Closing runs the same geometry backwards.** The frame shrinks to that
+  rectangle and the row fades back in over the message. The mail becomes the row
+  again, so the list handed back is visibly the one that was left.
+
+The symmetry is deliberate. A tapped row is a direct manipulation, and a card
+that arrived from the bottom edge but left into a row made the reader learn two
+stories about one gesture. What kept the halves apart was the fear that a screen
+of text growing out of a row-high band spends the transition unreadable — and it
+would, if it were scaled. **It is not scaled**: the frame reveals the message,
+which sits at fixed pixel size throughout, so type is at 100% on the first frame
+and every frame after. That is the condition on this shape; a version that
+stretched the content would be the old objection, and correct.
 
 Both run in one clipping frame drawn over the still-visible inbox, and the
 aurora bar the mail opened under does not move for either.
@@ -387,18 +397,19 @@ The parts that have to stay together:
   about to draw under it; a second definition drifts, and the drift reads as a
   cut. Anything added to a row — the unread dot included — belongs in that file,
   not in the list's wrapper.
-- **Only the frame's box is animated.** Opening, it is full size the whole way
-  and rides one `translateY`. Collapsing, the box itself shrinks and
-  `overflow: hidden` does the work: the message inside stays absolutely
-  positioned at fixed pixel dimensions on a `transform`, so Yoga measures that
-  subtree once instead of at every width between the card and the row, and text
-  is hidden rather than scaled, never squashed.
+- **Only the frame's box is animated.** The box travels between the row's
+  rectangle and the display, and `overflow: hidden` does the work: the message
+  inside stays absolutely positioned at fixed pixel dimensions on a `transform`
+  that cancels the frame's offset, so it is pinned in window coordinates while
+  the frame moves over it. Yoga measures that subtree once instead of at every
+  width between the row and the card, and text is hidden rather than scaled,
+  never squashed.
 - The row hands its rectangle over at press time, via `useOriginRef()`. A list
   row is somewhere else every frame, and the only rectangle that matters is the
   one that was under the finger. No rectangle — every entry point that is not a
-  tapped row — still slides up, and closes by sliding back down: there is
-  nothing to collapse onto, and inventing a row would throw the card at one that
-  is not there. Reduced motion draws the screen in place. Both of those paths
+  tapped row — slides up from the bottom edge instead, and closes by sliding
+  back down: there is nothing to morph out of, and inventing a row would throw
+  the card at one that is not there. Reduced motion draws the screen in place. Both of those paths
   must keep working.
 - **The band is not in the transition at all.** The inbox passes a `topInset`
   and nothing the message draws paints inside it, at any point — so the aurora
@@ -409,6 +420,33 @@ The parts that have to stay together:
   at `#000000` — so keeping their height would hold the mail down against dead
   space. Both edges of that range have been walked: the line is where it is on
   purpose, and `MAIL_LIFT` in the inbox is the one knob.
+- **The message's own header stands on that band.** What the inset leaves out
+  is still bar — the lifted strip plus the faded controls — so the band goes on
+  being painted behind the top of the open mail. The message therefore paints
+  no ground above its subject: the card bar and the trust banner are
+  transparent, they lose the hairline that separated them from the list, and the
+  black starts on the subject line. Two numbers make that safe and neither may
+  be guessed: `bandInset` (`mailBandBelow`, measured on the bar — the demo strip
+  and the safe area both change it) and the subject's own laid-out top. The
+  reveal is the smaller of the two, because one dp past the band there is a live
+  inbox row underneath, and transparent chrome over moving rows is a bug, not a
+  look. `revealTop` in [ui/expand.tsx](app/src/ui/expand.tsx) is how the frame
+  and the dimming ground are told to keep off it; at zero — any entry point with
+  no bar above it — everything paints from `topInset` down, exactly as before.
+  The frame's fill is a layer of its own for this, not a `backgroundColor`: the
+  frame is the box that moves and its background is all of it or none, while
+  `revealTop` is a line in *window* space. The layer's inset is measured from
+  wherever the frame's top has got to, so the card is filled solid the whole
+  time it is down on its row and opens the strip only as it arrives — the strip
+  is clear from the first frame that reaches it, and nothing pops at the end.
+- **The header does not animate at all.** The back row and the trust banner are
+  simply drawn on the band, carried up by the frame like the rest of the
+  message. A wall-clock delay and a gate on the transition's own progress were
+  both built and both removed: the first expired mid-spring so the chrome
+  appeared in flight and was dragged up the display, and the second was correct
+  but bought nothing worth a second beat. There is one move on this screen — the
+  card — and this chrome is part of it.
+
 - **The band keeps running, too.** `Aurora` restarts its loop from zero on every
   re-activation, so it must not be allowed to stop. Gate 3 therefore reads "on
   screen", not "focused": [ui/chrome.tsx](app/src/ui/chrome.tsx) carries that
@@ -424,14 +462,59 @@ The parts that have to stay together:
   `'closing'` shows the contents again while the band is still held running.
   Faded, never unmounted: the bar's height is what the mail is inset by, and a
   bar that collapsed under it would open a strip of list along the top.
-- **A spring opening, a timing close.** `withSpring` decelerates the way the
-  finger that started it did; a spring run backwards reads as hesitation, so
-  closing is `motion.base` with an ease-in. One `progress` value drives both,
-  with a `phase` shared value saying which — the two are not each other's
-  reverse. It is flipped at the start of the close, where both halves describe
-  the same resting frame and the switch itself paints nothing. `beforeRemove`
+- **The open waits for layout.** Mounting a mail screen is real work, and a
+  spring started at mount runs on the UI thread by wall clock while the JS
+  thread is still doing it — so the first frame that actually paints is already
+  a third of the way through, and the row it was supposed to grow out of is
+  never drawn at all. The open therefore starts on the frame after the body is
+  measured. That gate fails **open**: it is set from the layout event itself,
+  never from the `measureInWindow` callback (which can simply never fire), and a
+  timer starts the animation anyway if layout never lands. A mail that opens
+  from the wrong rectangle is a bad transition; one that never opens is an
+  invisible screen.
+- **The list dims, it is not cut away.** The black under the frame comes up as
+  the frame opens and clears early as it closes, so the list is lit either side
+  of the mail and never disappears in a single frame.
+- **A spring out, a timing back.** `withSpring` decelerates the way the finger
+  that started it did; a spring run backwards reads as hesitation, so closing is
+  `motion.travel` on a standard ease — quick to leave, soft to land, because the
+  row it is closing onto is already drawn and the arrival is the part worth the
+  time. `travel` is the one duration longer than `base` and exists for this: a
+  box crossing the height of the display at `base` reads as a snap. One
+  `progress` value drives both, with a `phase` shared value saying which. The
+  geometry is shared; `phase` tunes the cross-fades, which are *not* symmetric —
+  opening, the message is what was asked for and comes up early; closing, the
+  row is the destination and takes over sooner still. It is flipped at the start
+  of the close, where both halves describe the same resting frame and the switch
+  itself paints nothing. `beforeRemove`
   holds the pop until the frame is back on the row, then re-dispatches the
   action it captured.
+
+### A mail page draws itself before its body arrives
+
+The transition above is only honest if the card it opens is the message. So
+[screens/MessageScreen.tsx](app/src/screens/MessageScreen.tsx) renders
+everything the *list already knew* on its first frame — subject, time, sender,
+recipients, the key line (encrypted mail only — on plain mail it would name a
+key that protected nothing, and the "Not encrypted" banner already says what
+happened), the "Not encrypted" banner, and the act-on-it buttons
+— all from the `summary` the row was drawn from, with no network and no
+decryption behind any of it.
+
+Exactly two things wait, because they do not exist yet:
+
+- **the body**, which is a fetch and, for encrypted mail, a decryption;
+- **an encrypted subject**, which is the placeholder one on the wire until the
+  message has been decrypted. A plain subject is already known, so it is drawn.
+
+Those two are the only skeletons on the page. Everything else appearing a beat
+later is a card that expanded into a placeholder of a message rather than into
+the message, and it reads as lag no matter how good the transition is. For the
+same reason the body's arrival is **one** short fade, not a staircase of
+staggered ones: the stagger was describing content that is now already on
+screen. `PlainBanner` is its own component precisely so the banner drawn while
+the body loads is the same one the reader is left with — the encrypted banner
+cannot join it, since its wording is the signature's verdict.
 
 ---
 

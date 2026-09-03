@@ -28,11 +28,14 @@ npm test           # 52 unit tests (jest-expo)
 | Conversation | [src/screens/ConversationScreen.tsx](src/screens/ConversationScreen.tsx) | A whole thread, decrypted, oldest first |
 | Drafts | [src/screens/DraftsScreen.tsx](src/screens/DraftsScreen.tsx) | Autosaved drafts, resume or discard |
 | Scheduled | [src/screens/ScheduledScreen.tsx](src/screens/ScheduledScreen.tsx) | Queued sends, with cancel before the send fires |
+| Contacts | [src/screens/ContactsScreen.tsx](src/screens/ContactsScreen.tsx) | Every address seen, with its trust state, when its key was first seen and whether it ever changed |
 
 Supporting modules: [src/search/](src/search/) (over decrypted mail, in memory),
 [src/threads/](src/threads/) (grouping by `References`/`In-Reply-To`),
 [src/drafts/](src/drafts/) (autosave), [src/outbox/](src/outbox/) (scheduled
-send), [src/pgp/](src/pgp/) (parsing real armored OpenPGP public keys), and
+send), [src/contacts/](src/contacts/) (the address book: the keyring merged with
+every address seen in the mail), [src/pgp/](src/pgp/) (parsing real armored
+OpenPGP public keys), and
 [src/mail/flags.ts](src/mail/flags.ts) (star / archive / read). Each has tests in
 a sibling `__tests__/` directory.
 

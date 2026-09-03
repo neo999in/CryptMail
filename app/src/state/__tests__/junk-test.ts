@@ -4,7 +4,7 @@
  * This pins the defect that made the whole spam feature look broken against a real
  * account. Gmail moves a message it considers spam *out* of the inbox, and
  * `messages.list` hides SPAM from every result unless asked, so a client that
- * lists `INBOX` never sees junk at all — and the app's Junk destination, which
+ * lists `INBOX` never sees junk at all — and the app's Spam destination, which
  * filters the list the inbox loaded, was therefore empty no matter how much spam
  * the account held. The engine was fine; nothing was ever handed to it.
  *

@@ -14,9 +14,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
+import { Contact, searchContacts } from '../contacts/contacts';
+import { useContacts } from '../contacts/useContacts';
 import { isDraftEmpty } from '../drafts/drafts';
 import { pickFiles, readPickedFile } from '../lib/files';
-import { isValidEmail } from '../lib/format';
+import { displayName, initials, isValidEmail } from '../lib/format';
 import {
   Attachment,
   addAttachment,
@@ -33,7 +35,7 @@ import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
 import { Icon } from '../ui/Icon';
-import { Badge, Field, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
+import { Avatar, Badge, Field, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
 
@@ -77,6 +79,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     deleteDraft,
     scheduleSend,
   } = useApp();
+  const contacts = useContacts();
   const { setDestination } = useDestination();
   const insets = useSafeAreaInsets();
 
@@ -169,6 +172,22 @@ export function ComposeScreen({ route, navigation }: Props) {
   // the live list while composing (they are here, but will not survive leaving).
   const unsaved = useMemo(() => splitForStorage(attachments).omitted, [attachments]);
   const lost = existing?.attachmentsOmitted ?? [];
+
+  /**
+   * Address-book suggestions for what is being typed into the To field.
+   *
+   * Sourced from `contacts/contacts.ts`, so it offers everyone this device has
+   * seen — not only the addresses that have a key. Suggesting only the latter
+   * would quietly steer the user towards the contacts encryption already works
+   * for, and away from the people the invite-and-hold path exists for.
+   *
+   * Anyone already on the message is dropped: they are on screen as a chip, and
+   * picking them again does nothing.
+   */
+  const suggestions = useMemo(
+    () => searchContacts(contacts, draft).filter((c) => !to.includes(c.email)),
+    [contacts, draft, to],
+  );
 
   const recipients = useMemo(() => resolveRecipients(to), [resolveRecipients, to]);
   const missing = recipients.filter((r) => r.status === 'missing');
@@ -387,7 +406,10 @@ export function ComposeScreen({ route, navigation }: Props) {
       keyboardVerticalOffset={90}
     >
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+        // `flexGrow` so the message below can take whatever height the header
+        // and the attachment row leave, rather than the screen ending in a
+        // void with the body a 120px box at the top of it.
+        contentContainerStyle={{ flexGrow: 1, padding: 16, paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
@@ -415,7 +437,12 @@ export function ComposeScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        <Field label="To" focused={toFocus.focused} tone={changed.length > 0 && !plain ? 'warn' : 'default'}>
+        <Field
+          label="To"
+          focused={toFocus.focused}
+          style={s.headField}
+          tone={changed.length > 0 && !plain ? 'warn' : 'default'}
+        >
           {recipients.length > 0 ? (
             <View style={s.chips}>
               {recipients.map((r) => (
@@ -450,9 +477,38 @@ export function ComposeScreen({ route, navigation }: Props) {
           />
         </Field>
 
+        {/*
+          The address book, offered as you type — and with each contact's trust
+          state on the row, so it is known *before* the message is written
+          rather than at the send button. Under the field rather than inside it:
+          the field already grows with chips, and a list that pushed them around
+          as it appeared would move the ✕ out from under a finger.
+
+          The list itself shows in both modes — an address book is useful either
+          way — but the trust badge is dropped in plaintext mode, exactly as the
+          chips drop theirs: a key state that changes nothing about what happens
+          must not be read as a reason to send in the clear.
+        */}
+        {suggestions.length > 0 ? (
+          <View style={s.suggestions}>
+            {suggestions.map((contact) => (
+              <SuggestionRow
+                key={contact.email}
+                contact={contact}
+                showKeyState={!plain}
+                onPick={() => {
+                  add([contact.email]);
+                  setDraft('');
+                  setError(null);
+                }}
+              />
+            ))}
+          </View>
+        ) : null}
+
         {/* The placeholders describe what will actually happen to this text.
             Left unchanged they would promise privacy to a plaintext message. */}
-        <Field label="Subject" focused={subjectFocus.focused}>
+        <Field label="Subject" focused={subjectFocus.focused} style={s.headField}>
           <Input
             onChangeText={setSubject}
             placeholder={plain ? 'Sent in the clear, like any email' : 'Encrypted inside the payload'}
@@ -461,16 +517,37 @@ export function ComposeScreen({ route, navigation }: Props) {
           />
         </Field>
 
-        <Field label="Message" focused={bodyFocus.focused}>
+        {/*
+          No "Message" label. To and Subject need theirs — two single-line boxes
+          are otherwise indistinguishable — but the body is the one field on the
+          screen that cannot be mistaken for anything else, and its placeholder
+          already says what will happen to the text. Dropping it gives the
+          writing back a line and breaks the three-identical-slabs stack.
+
+          It opens taller than the primitive's 120px floor so a short message
+          does not sit in a box a third the size of the empty screen under it —
+          but it still grows with its text and the page scrolls, rather than
+          taking a fixed share and scrolling inside itself. A body that scrolls
+          within a page that also scrolls puts the attachment row behind a
+          nested gesture, which is how "Attach a file" ends up unreachable on a
+          forwarded message.
+        */}
+        <Field focused={bodyFocus.focused} style={s.bodyField}>
           <Input
             big
             multiline
             onChangeText={setBody}
             placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
+            style={s.bodyInput}
             value={body}
             {...bodyFocus.bind}
           />
         </Field>
+
+        {/* Takes up whatever the message does not, so the attachment row rests
+            just above the send bar instead of floating in the middle of an
+            empty screen. It collapses to nothing as the message grows. */}
+        <View style={s.spacer} />
 
         <View style={s.attachments}>
           <View style={s.attachHead}>
@@ -707,6 +784,69 @@ function ModeTab({
   );
 }
 
+/**
+ * One autocomplete suggestion: who they are, and how far they are trusted.
+ *
+ * `onPressIn`, not `onPress`. Picking a suggestion blurs the To field, and the
+ * blur handler commits and clears the draft — which empties this list and
+ * unmounts the row before a press could land on it. `onPressIn` fires first, so
+ * the tap is never lost.
+ */
+function SuggestionRow({
+  contact,
+  showKeyState,
+  onPick,
+}: {
+  contact: Contact;
+  /** False in plaintext mode, where a contact's key changes nothing. */
+  showKeyState: boolean;
+  onPick: () => void;
+}) {
+  const name = displayName(contact.email, contact.name);
+  const badge = SUGGESTION_BADGE[contact.trust];
+
+  return (
+    <Pressable
+      accessibilityLabel={showKeyState ? `${name}, ${contact.email}, ${badge.label}` : `${name}, ${contact.email}`}
+      accessibilityRole="button"
+      onPressIn={onPick}
+      style={({ pressed }) => [s.suggestion, pressed && { backgroundColor: color.rowPress }]}
+    >
+      <Avatar seed={contact.email} label={initials(name)} size={28} />
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={s.suggestionName}>
+          {name}
+        </Text>
+        <Text numberOfLines={1} style={s.suggestionEmail}>
+          {contact.email}
+        </Text>
+      </View>
+      {showKeyState ? (
+        <Badge tone={badge.tone} icon={badge.icon}>
+          {badge.label}
+        </Badge>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * The trust wording, shortened for a row this narrow.
+ *
+ * "no key yet" rather than "will be invited": this is a statement about the
+ * contact, and only a message actually being sent turns it into an invite —
+ * which is what the chip says once they are on the message.
+ */
+const SUGGESTION_BADGE: Record<
+  Contact['trust'],
+  { tone: 'enc' | 'warn' | 'plain'; icon?: 'lock' | 'alert' | 'clock'; label: string }
+> = {
+  verified: { tone: 'enc', icon: 'lock', label: 'verified' },
+  seen: { tone: 'enc', icon: 'lock', label: 'key found' },
+  changed: { tone: 'warn', icon: 'alert', label: 'key changed' },
+  none: { tone: 'plain', icon: 'clock', label: 'no key yet' },
+};
+
 function RecipientChip({
   state,
   showKeyState,
@@ -770,6 +910,25 @@ const s = StyleSheet.create({
   modeActiveWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine },
   modeText: { fontFamily: font.sansSemibold, fontSize: 12.5 },
   modeTextActive: { fontFamily: font.sansBold },
+
+  suggestions: {
+    backgroundColor: color.panel,
+    borderColor: color.line,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginBottom: 14,
+    marginTop: -6,
+    overflow: 'hidden',
+  },
+  suggestion: { alignItems: 'center', flexDirection: 'row', gap: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  suggestionName: { color: color.ink, fontFamily: font.sansSemibold, fontSize: 13.5 },
+  suggestionEmail: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
+
+  // The two single-line fields, kept lighter than the body they sit above.
+  headField: { marginBottom: 8, paddingVertical: 9 },
+  bodyField: { marginBottom: 14 },
+  bodyInput: { minHeight: 200 },
+  spacer: { flexGrow: 1 },
 
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 9 },
   chip: {

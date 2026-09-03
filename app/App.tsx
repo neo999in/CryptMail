@@ -129,6 +129,8 @@ function FullStack() {
         initialParams={{}}
       />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
+      {/* Draws its own top bar, like Settings — it opens with a search field
+          and a filter, and a native header above those is one bar too many. */}
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />

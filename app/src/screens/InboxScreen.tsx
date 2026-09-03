@@ -16,7 +16,7 @@ import { showsUnderTab } from '../ui/inboxTabs';
 import { useChrome } from '../ui/chrome';
 import { categoryOf, useDestination } from '../ui/destination';
 import { OriginRect } from '../ui/expand';
-import { mailTopInset } from '../ui/mailBar';
+import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
@@ -31,7 +31,7 @@ import { BodyProps } from './HomeScreen';
  * remounts the aurora. What the bar holds — the search text, the lens, the
  * filter — arrives here as props.
  */
-export function InboxBody({ navigation, query, tab, filter, headerHeight, clearFilters }: BodyProps) {
+export function InboxBody({ navigation, query, tab, filter, headerHeight, barHeight, clearFilters }: BodyProps) {
   const {
     session,
     accounts,
@@ -124,9 +124,17 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, clearF
   const openMail = useCallback(
     (id: string, origin?: OriginRect) => {
       setOverlay('open');
-      navigation.navigate('Message', { id, origin, topInset: mailTopInset(insets.top, headerHeight) });
+      const topInset = mailTopInset(insets.top, headerHeight);
+      navigation.navigate('Message', {
+        id,
+        origin,
+        topInset,
+        // What is still bar below that line, so the message's own header can
+        // stand on the band instead of on a black block.
+        bandInset: mailBandBelow(barHeight, topInset),
+      });
     },
-    [headerHeight, insets.top, navigation, setOverlay],
+    [barHeight, headerHeight, insets.top, navigation, setOverlay],
   );
 
   // Whatever happened to the mail that was open, this bar is the front of the

@@ -35,7 +35,7 @@ import { initials } from '../lib/format';
 import { listScheduled } from '../outbox/outbox';
 import { HomeProps } from '../navigation';
 import { useApp } from '../state/AppState';
-import { SecondaryBox } from '../state/types';
+import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { color, font, radius, space, type } from '../theme';
 import { Icon } from '../ui/Icon';
 import { useAccent } from '../ui/appearance';
@@ -44,7 +44,8 @@ import { INBOX_TABS, InboxTab } from '../ui/inboxTabs';
 import { MailTopBar } from '../ui/mailBar';
 import { Filter, FILTERS, needsAttention } from '../ui/mailFilter';
 import { ComposeFab } from '../ui/mailList';
-import { Avatar, IconButton, PressableRow, Segmented, Sheet } from '../ui/primitives';
+import { Avatar, barIcon, IconButton, PressableRow, Segmented, Sheet } from '../ui/primitives';
+import { ContactFilter, CONTACT_FILTERS, ContactsBody } from './ContactsScreen';
 import { DraftsBody } from './DraftsScreen';
 import { InboxBody } from './InboxScreen';
 import { MailboxBody } from './MailboxScreen';
@@ -60,29 +61,38 @@ export type BodyProps = HomeProps & {
   filter: Filter;
   /** The bar's title row height — where a mail opened from here starts. */
   headerHeight: number;
+  /** The bar's full height — how much band is still lit under an open mail. */
+  barHeight: number;
   /** Puts search, lens, filter *and* destination back to their defaults. */
   clearFilters: () => void;
   /** Clears the search text alone — for a body with nothing else narrowing it. */
   clearSearch: () => void;
+  /** Contacts' own three-way filter, since its strip carries no mail lens. */
+  contactFilter: ContactFilter;
+  /** Puts that filter back to All, from its "nobody in this state" empty. */
+  showAllContacts: () => void;
 };
 
 const TITLES: Record<string, string> = {
   inbox: 'Inbox',
   sent: 'Sent',
   archive: 'Archive',
+  trash: 'Trash',
   drafts: 'Drafts',
   scheduled: 'Scheduled',
+  contacts: 'Contacts',
 };
 
 /** Destinations whose rows are provider mail, and so carry the lens and filter. */
 function showsMail(destination: Destination): boolean {
-  return destination !== 'drafts' && destination !== 'scheduled';
+  return destination !== 'drafts' && destination !== 'scheduled' && destination !== 'contacts';
 }
 
 /** What the bar's search box says it will search, per destination. */
 const SEARCH_HINT: Record<string, string> = {
   drafts: 'Search drafts',
   scheduled: 'Search queued mail',
+  contacts: 'Search name or address',
 };
 
 /**
@@ -116,13 +126,17 @@ export function HomeScreen(props: HomeProps) {
   const [tab, setTab] = useState<InboxTab>('primary');
   const [filter, setFilter] = useState<Filter>('all');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [contactFilter, setContactFilter] = useState<ContactFilter>('all');
   /** Measured on the bar, read by a body to place an opened mail. */
   const [headerHeight, setHeaderHeight] = useState(0);
+  /** The whole bar, controls included — the band an open mail may stand on. */
+  const [barHeight, setBarHeight] = useState(0);
 
   const category = categoryOf(destination);
   const mail = showsMail(destination);
-  const box: SecondaryBox | null =
-    destination === 'sent' || destination === 'archive' ? destination : null;
+  const box: SecondaryBox | null = SECONDARY_BOXES.includes(destination as SecondaryBox)
+    ? (destination as SecondaryBox)
+    : null;
 
   const attention = useMemo(
     () => messages.filter((m) => needsAttention(encryptionFor(m))).length,
@@ -130,11 +144,13 @@ export function HomeScreen(props: HomeProps) {
   );
 
   const clearSearch = useCallback(() => setQuery(''), []);
+  const showAllContacts = useCallback(() => setContactFilter('all'), []);
 
   const clearFilters = useCallback(() => {
     setQuery('');
     setFilter('all');
     setTab('primary');
+    setContactFilter('all');
     setDestination('inbox');
   }, [setDestination]);
 
@@ -149,7 +165,18 @@ export function HomeScreen(props: HomeProps) {
     return () => sub.remove();
   }, [destination, isFocused, setDestination]);
 
-  const bodyProps: BodyProps = { ...props, query, tab, filter, headerHeight, clearFilters, clearSearch };
+  const bodyProps: BodyProps = {
+    ...props,
+    query,
+    tab,
+    filter,
+    headerHeight,
+    barHeight,
+    clearFilters,
+    clearSearch,
+    contactFilter,
+    showAllContacts,
+  };
 
   return (
     <View style={s.screen}>
@@ -178,14 +205,14 @@ export function HomeScreen(props: HomeProps) {
         actions={
           <>
             {destination !== 'inbox' ? (
-              <IconButton icon="close" label="Show all mail" onPress={() => setDestination('inbox')} />
+              <IconButton {...barIcon} icon="close" label="Show all mail" onPress={() => setDestination('inbox')} />
             ) : null}
             {mail ? (
               <IconButton
+                {...barIcon}
                 icon="refresh"
                 label="Refresh"
                 onPress={() => void (box ? loadBox(box) : refreshInbox())}
-                size={40}
               />
             ) : null}
           </>
@@ -214,6 +241,20 @@ export function HomeScreen(props: HomeProps) {
                   {filter !== 'all' ? <View style={[s.filterDot, { backgroundColor: accent }]} /> : null}
                 </Pressable>
               </>
+            ) : destination === 'contacts' ? (
+              // Contacts has a lens of its own — All · Verified · Unverified —
+              // so it fills the strip rather than describing what is in it.
+              // `stretch`ed into equal thirds, which keeps the sliding thumb's
+              // corners circular: it is sized from the first tab and moved by
+              // `scaleX`, and unequal tabs stretch those arcs flat.
+              <Segmented
+                compact
+                stretch
+                options={CONTACT_FILTERS}
+                value={contactFilter}
+                onChange={setContactFilter}
+                style={s.contactFilter}
+              />
             ) : (
               <Text style={s.countLabel}>
                 {destination === 'drafts'
@@ -224,6 +265,7 @@ export function HomeScreen(props: HomeProps) {
           </View>
         }
         onHeaderHeight={setHeaderHeight}
+        onBarHeight={setBarHeight}
       />
 
       {box ? (
@@ -234,6 +276,8 @@ export function HomeScreen(props: HomeProps) {
         <DraftsBody {...bodyProps} />
       ) : destination === 'scheduled' ? (
         <ScheduledBody {...bodyProps} />
+      ) : destination === 'contacts' ? (
+        <ContactsBody {...bodyProps} />
       ) : (
         <InboxBody {...bodyProps} />
       )}
@@ -285,6 +329,9 @@ const s = StyleSheet.create({
     paddingTop: space.sm,
   },
   countLabel: { ...type.small, color: color.inkDim },
+  // Takes the strip's width, the way the three-way control did on the screen it
+  // replaces — the mail lens is two tabs and leaves room for the Filter chip.
+  contactFilter: { flex: 1 },
   // An outline chip — a hairline border on the card fill — rather than a filled
   // segment-coloured pill.
   filterPill: {
