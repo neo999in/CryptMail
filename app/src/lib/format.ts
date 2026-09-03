@@ -39,6 +39,31 @@ export function relativeTime(iso: string, now = new Date()): string {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
+/**
+ * The full, unambiguous stamp for an opened message — "Wed, 2 Sep 2026, 12:13".
+ *
+ * `relativeTime` above is for a list: the column is narrow, and "Wed" is enough
+ * to place a message among the ones either side of it. An opened message has
+ * neither of those — there is room, and there is nothing next to it to read the
+ * day against — so the whole thing is spelled out, year included. A message
+ * from a year ago that says only "Wed" is the bug this fixes.
+ *
+ * The locale picks the field order, the separators and 12- versus 24-hour;
+ * nothing is joined with an English word here.
+ */
+export function fullTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /** Very small RFC 5322 address parser — enough for `Name <a@b.c>` headers. */
 export function parseAddress(header: string): { name?: string; address: string } {
   const match = header.match(/^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/);

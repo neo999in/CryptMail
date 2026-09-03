@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { categorizeMessage, providerFiledAsJunk, verdictFor } from '../categorizer/categorizer';
-import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
+import { displayName, fullTimestamp, initials, shortFingerprint } from '../lib/format';
 import { saveAttachment } from '../lib/files';
 import { hostOf, linkify } from '../lib/links';
 import { Attachment } from '../mail/attachment';
@@ -451,7 +451,7 @@ export function MessageScreen({ route, navigation }: Props) {
               <Skeleton width="72%" height={20} radius={radius.xs} />
             </View>
           )}
-          <Text style={s.timestamp}>{relativeTime(summary.date)}</Text>
+          <Text style={s.timestamp}>{fullTimestamp(summary.date)}</Text>
 
           <View style={s.sender}>
             <Avatar seed={summary.from.address} label={initials(senderName)} size={38} />
