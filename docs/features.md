@@ -46,11 +46,12 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Autocrypt harvest during sync | [`keys/autocrypt.ts`](../app/src/keys/autocrypt.ts) | — (inbox sync) | 10 |
 | Key discovery + publish (VKS, WKD) | [`keys/discovery.ts`](../app/src/keys/discovery.ts) | `KeysScreen`, `SetupScreen` | 23 |
 | Invite + `awaiting-key` queue | [`outbox/outbox.ts`](../app/src/outbox/outbox.ts), [`store/inviteStore.ts`](../app/src/store/inviteStore.ts) | Compose, `ScheduledScreen` | 15 |
-| Sent + Archive screens | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
+| Sent + Archive destinations | [`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Sent, Archive | 5 |
 | Reply / reply-all / forward (0.7) | [`mail/reply.ts`](../app/src/mail/reply.ts) | `MessageScreen` → Compose | 32 |
-| Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions from Gmail's `CATEGORY_*` labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 23 |
+| Category drawer (Primary/Bills/…) — **plaintext mail only**, Promotions and Junk from Gmail's own labels | [`categorizer/categorizer.ts`](../app/src/categorizer/categorizer.ts) | `CategoryDrawer`, Inbox | 30 |
 | Attachments (0.18) | [`mail/attachment.ts`](../app/src/mail/attachment.ts), [`core/mime.ts`](../app/src/core/mime.ts) | Compose, `MessageScreen` | 33 |
 | Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
+| The provider's junk folder, fetched and filed under Junk ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Junk | 20 |
 
 416 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
@@ -397,9 +398,11 @@ for out of habit. A row that does nothing costs more trust than a missing row, s
 the drawer lists only what exists.
 
 **Status.** **Sent and Archive are done** —
-[`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one screen
+[`screens/MailboxScreen.tsx`](../app/src/screens/MailboxScreen.tsx), one body
 parameterised by box, each list fetched from the provider and paged on its own
-cursor. Archive is a query rather than a label (Gmail has no archived label:
+cursor. They are destinations on the home screen rather than pushed screens
+([`ui/destination.tsx`](../app/src/ui/destination.tsx)), so they wear the
+inbox's bar and rows exactly as a category filter does. Archive is a query rather than a label (Gmail has no archived label:
 archiving removes `INBOX`), which is why the connector translates it. What is
 left here is snooze, which needs local scheduling like the outbox, and trash,
 which needs `messages.trash` and a delete affordance.
@@ -507,7 +510,7 @@ now against the demo core, with the crypto swapped in later.
 | **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |
 | **Expiring / self-destruct messages** | M | M | Client-enforced only; the copy must be honest that a recipient can always keep a copy. |
 | **S/MIME support** | M | L | Enterprise interop; a large second format surface. |
-| ~~**Client-side spam / phishing scanning**~~ | — | — | ✅ **Built, and needed no core.** [`spam/`](../app/src/spam/) — weighted symbol scoring over headers, content, links and attachment metadata, plus a personal Naive Bayes model trained by "Mark as spam"/"Mark as not spam" and persisted sealed in [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts). Runs after local decrypt; header analysis works on unopened encrypted mail because those headers are cleartext. Entirely local — no URL is ever fetched to classify a message. **Malware scanning is still open**: it needs attachment bodies (Tier 1 *Attachments*) and a scanning engine, and only filename/type metadata is inspected today. |
+| ~~**Client-side spam / phishing scanning**~~ | — | — | ✅ **Built, and needed no core.** [`spam/`](../app/src/spam/) — weighted symbol scoring over headers, content, links and attachment metadata, plus a personal Naive Bayes model trained by "Mark as spam"/"Mark as not spam" and persisted sealed in [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts). Runs on plaintext mail only: encrypted mail is not scored at all, opened or not, and a provider junk verdict on it is ignored rather than obeyed. The provider's junk folder *is* fetched and filed under Junk for plaintext mail ([SPAM_PHISHING_DETECTION.md](SPAM_PHISHING_DETECTION.md) §14.4). Entirely local — no URL is ever fetched to classify a message. **Malware scanning is still open**: it needs attachment bodies (Tier 1 *Attachments*) and a scanning engine, and only filename/type metadata is inspected today. |
 
 ---
 

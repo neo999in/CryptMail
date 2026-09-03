@@ -1,7 +1,7 @@
 /**
  * Reading the mailbox: syncing it, opening a message, and flag changes.
  */
-import { spamInputFor } from '../categorizer/categorizer';
+import { providerFiledAsJunk, spamInputFor } from '../categorizer/categorizer';
 import { core, PLACEHOLDER_SUBJECT } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
@@ -26,6 +26,18 @@ import { BoxState, InboxItem, OpenedMessage, SecondaryBox, State } from './types
  */
 const PAGE_SIZE = 20;
 
+/**
+ * The junk folder is paged like the inbox, but a page of it is smaller.
+ *
+ * Every sync now lists two mailboxes, and each id in each page is its own
+ * metadata request — so a full-size junk page would double the burst of parallel
+ * requests a refresh makes, on the path the Gmail notes already call the most
+ * likely cause of a failed sync (docs/gmail-api-adoption.md, quota). Junk is a
+ * list people check rather than read, so ten rows is the right first page and
+ * "load older mail" reaches the rest.
+ */
+const JUNK_PAGE_SIZE = 10;
+
 export function createMailbox(ctx: Ctx): MailboxService {
   const { store, mail } = ctx;
 
@@ -36,12 +48,20 @@ export function createMailbox(ctx: Ctx): MailboxService {
    * message and no decryption at all. Before this existed a key was only learned
    * if the user happened to *open* that message — which meant the common case,
    * "they wrote to me first", still ended in "no key for them" at compose time.
+   *
+   * Plaintext mail the provider filed as junk is skipped. A key is a lasting
+   * statement about who a contact is, and a sync that harvested from the junk
+   * folder would let anyone who can put mail in it seed this device's keyring.
+   * Encrypted junk is still harvested: the provider's verdict on ciphertext is
+   * not evidence (`categorizer.ts`), and a message that arrived encrypted is
+   * precisely the case this exists for.
    */
   async function harvestFrom(messages: MailSummary[]) {
     let keyring = store.get().keyring;
     for (const summary of messages) {
       if (!summary.autocrypt) continue;
       if (summary.from.address === store.get().session?.email) continue;
+      if (providerFiledAsJunk(summary.labels) && !isEncrypted(summary)) continue;
       keyring = await harvestAutocrypt(keyring, summary.from.address, summary.autocrypt, summary.from.name);
     }
     await ctx.services.contacts.commitKeyring(keyring);
@@ -65,14 +85,24 @@ export function createMailbox(ctx: Ctx): MailboxService {
 
   const exhausted = (box: Mailbox, account: AccountId) => cursors.get(cursorKey(box, account)) === null;
 
+  /**
+   * Which mailboxes a merged inbox merges.
+   *
+   * The inbox and the junk folder, because both feed the one list the inbox
+   * screen renders: a Junk view holding every account's local verdicts but only
+   * one account's provider-flagged mail would be a merged list with a hole in it.
+   * Sent and Archive stay the active account's own — see `moreAvailable`.
+   */
+  const mergesAccounts = (box: Mailbox): boolean => box === 'inbox' || box === 'spam';
+
   /** True while any *listed* mailbox still has older mail to fetch. */
   function moreAvailable(box: Mailbox): boolean {
     const { unified, activeAccount } = store.get();
     if (!activeAccount) return false;
-    // Only the inbox merges. Sent and Archive are the active account's own, so a
-    // second mailbox's sent mail is never silently mixed into what you sent from
-    // this one.
-    const listed = unified && box === 'inbox' ? [...mail.clients.keys()] : [activeAccount];
+    // Only the inbox and its junk folder merge. Sent and Archive are the active
+    // account's own, so a second mailbox's sent mail is never silently mixed into
+    // what you sent from this one.
+    const listed = unified && mergesAccounts(box) ? [...mail.clients.keys()] : [activeAccount];
     return listed.some((account) => !exhausted(box, account));
   }
 
@@ -101,12 +131,12 @@ export function createMailbox(ctx: Ctx): MailboxService {
       // to the provider.
       if (mode === 'more' && exhausted(box, account)) return [];
       const pageToken = mode === 'more' ? (cursors.get(cursorKey(box, account)) ?? undefined) : undefined;
-      const result = await client.list(box, { limit: PAGE_SIZE, pageToken });
+      const result = await client.list(box, { limit: box === 'spam' ? JUNK_PAGE_SIZE : PAGE_SIZE, pageToken });
       cursors.set(cursorKey(box, account), result.nextPageToken ?? null);
       return tag(result.messages, account);
     }
 
-    if (!unified || box !== 'inbox') {
+    if (!unified || !mergesAccounts(box)) {
       if (!mail.current) return [];
       return page(activeAccount, mail.current);
     }
@@ -123,6 +153,35 @@ export function createMailbox(ctx: Ctx): MailboxService {
     );
     return lists.flat();
   }
+
+  /**
+   * Everything the inbox screen lists: the inbox, plus the provider's junk folder.
+   *
+   * Junk is fetched here rather than being its own screen because in this app junk
+   * is a *category*, not a place — the drawer's Junk destination filters the same
+   * list the inbox does (`ui/inboxTabs.ts` keeps that category out of the Primary
+   * and Encrypted tabs). Fetching it into the same list is what puts a message the
+   * provider flagged and a message this device flagged side by side, counted by
+   * one badge, and reversible with the one "Not spam" button that already exists.
+   *
+   * A junk fetch that fails is **not** a failed sync. The inbox is what the user
+   * asked for; a connector with no junk folder, or one that refuses to list it, is
+   * a legitimate connector and must not blank the mail behind an error.
+   */
+  async function collectInbox(mode: 'refresh' | 'more'): Promise<InboxItem[]> {
+    const inbox = await collect('inbox', mode);
+    let junk: InboxItem[] = [];
+    try {
+      junk = await collect('spam', mode);
+    } catch {
+      // Deliberately swallowed — see above. The junk cursor is left wherever it
+      // was, so the next sync tries again from the same place.
+    }
+    return [...inbox, ...junk];
+  }
+
+  /** True while the inbox or its junk folder has older mail to fetch. */
+  const moreInboxAvailable = (): boolean => moreAvailable('inbox') || moreAvailable('spam');
 
   const byDateDesc = (a: InboxItem, b: InboxItem) => b.date.localeCompare(a.date);
 
@@ -168,8 +227,11 @@ export function createMailbox(ctx: Ctx): MailboxService {
       if (!mail.current) return;
       store.patch({ loadingInbox: true, error: null });
       try {
-        const messages = await collect('inbox', 'refresh');
-        store.patch({ messages, loadingInbox: false, canLoadMore: moreAvailable('inbox') });
+        // Sorted here rather than trusted from the connector: this is two
+        // mailboxes' pages concatenated — and, while merged, several accounts' —
+        // so newest-first is this function's job, not the provider's.
+        const messages = (await collectInbox('refresh')).sort(byDateDesc);
+        store.patch({ messages, loadingInbox: false, canLoadMore: moreInboxAvailable() });
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
@@ -196,11 +258,11 @@ export function createMailbox(ctx: Ctx): MailboxService {
       if (loadingInbox || loadingMore || !canLoadMore) return;
       store.patch({ loadingMore: true, error: null });
       try {
-        const older = await collect('inbox', 'more');
+        const older = await collectInbox('more');
         store.patch({
           messages: merge(store.get().messages, older),
           loadingMore: false,
-          canLoadMore: moreAvailable('inbox'),
+          canLoadMore: moreInboxAvailable(),
         });
         await harvestFrom(older);
       } catch (e) {

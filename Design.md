@@ -179,6 +179,59 @@ title; content in a `ScrollView` below it. Pad by the safe-area insets —
 </View>
 ```
 
+### A mail list
+
+Every list of mail — the inbox, its category filters, Sent, Archive — is a
+**destination body on the one home screen**, never a push
+(`ui/destination.tsx`, `screens/HomeScreen.tsx`). Drafts and Scheduled are
+destinations too; their rows are their own, their bar is the same one.
+
+**The bar is mounted once, on the home screen, above whichever body is up.** Not
+per body: a `MailTopBar` inside each body remounts on every destination change,
+which restarts the aurora from a zero height and throws away the search text —
+a visible blink on a gesture that is meant to read as a filter. The state the
+bar owns (search text, the Primary/Encrypted lens, the filter) therefore lives
+on the home screen and is passed down as `BodyProps`, and so do the compose
+button and the filter sheet.
+
+The pieces:
+
+- `ui/mailBar.tsx` — the aurora top bar. It owns the measured height the band is
+  sized from, the search field, the demo-crypto strip and the fade while a mail
+  is open above it (`ui/chrome.tsx`). `mailTopInset()` is where an opened mail
+  starts.
+- `ui/mailList.tsx` — `MailListRow` (the card of `ui/mailRow.tsx` plus the entry
+  animation and the origin measurement the expand transition needs),
+  `groupByDay` + `SectionHeading`, `MailSkeletonList`, and `ComposeFab`.
+- `ui/mailFilter.ts` — the "needs attention" filter and its predicate, shared
+  because the control and the bodies that apply it are now different components.
+
+The bar's controls strip is **always drawn, at one height** (`CONTROL_HEIGHT`
+plus its padding). Drafts and Scheduled have no Primary/Encrypted lens to offer —
+that is a property of received mail, and a draft has not been encrypted yet — so
+they put a count there instead of leaving the strip out: a strip that disappears
+takes the bar's height with it, and the list under it jumps on a gesture that is
+meant to read as a filter. Search is offered on every destination; a draft is
+text this device wrote, so `textMatchesQuery` reads it directly
+(`search/search.ts`) rather than going through the decrypted-content index.
+
+```tsx
+// screens/HomeScreen.tsx — the bar, once
+<View style={s.screen}>
+  <MailTopBar title={…} leading={<DrawerAvatar />} search={{ value: query, onChange: setQuery }} … />
+  {box ? <MailboxBody {...bodyProps} box={box} /> : <InboxBody {...bodyProps} />}
+  <ComposeFab … />
+</View>
+
+// a body — the list, and nothing above it
+<SectionList sections={groupByDay(rows, (r) => r.item.date)} … />
+```
+
+A destination that pushes a screen instead is the thing this exists to prevent.
+Sent and Archive used to: half the drawer then had a back arrow, a slide and a
+second title row, while the other half quietly re-filtered a list — two
+gestures that are the same gesture, looking nothing alike.
+
 ### Grouped rows
 
 `GroupHeading` + `Group`. The `Group` supplies the border, the radius, the
@@ -277,8 +330,10 @@ surface, and it is allowed **only because of the terms it meets**. All of them
 have to hold for any further use of it:
 
 1. It is sized from a **measured** height and never `absoluteFill` — it lives
-   inside the inbox top bar's own bounds, so the ground under the mail list is
-   untouched.
+   inside a mail list's top bar (`ui/mailBar.tsx`) own bounds, so the ground
+   under the list is untouched. That bar is one component worn by the inbox,
+   Sent, Archive, Drafts and Scheduled alike; there is still exactly one band on
+   screen, because exactly one of those screens is in front.
 2. It is `pointerEvents="none"`.
 3. It animates only when `useShouldAnimate()` says so: screen focused
    (`active`, from `useIsFocused()`), app in the foreground, reduced motion
@@ -300,6 +355,83 @@ Anything that animates answers to the same four gates.
 Note that the band paints **over** the bar's `color.surface` fill rather than
 lighting it, so the inbox bar reads darker than the rest of the chrome. That is
 intended.
+
+### Opening a mail: it rises, and it goes back to its row
+
+Not a push, and not the same move in both directions.
+[app/src/ui/expand.tsx](app/src/ui/expand.tsx) owns both halves; it is discrete
+motion, one run per open, gated on `useReducedMotion()` alone.
+
+- **Opening slides up.** The card comes off the bottom edge at full size, over a
+  list that stays lit in the gap above it until it is covered. A mail is a whole
+  screen of text, and a screen of text that arrives by growing out of a row-high
+  band spends most of the transition unreadable.
+- **Closing collapses onto the row.** The frame shrinks back to the exact
+  rectangle that was tapped, while a copy of that row fades back in over the
+  message. The mail becomes the row again, so the list handed back is visibly
+  the one that was left.
+
+Both run in one clipping frame drawn over the still-visible inbox, and the
+aurora bar the mail opened under does not move for either.
+
+The parts that have to stay together:
+
+- `Message` is a `transparentModal` with `animation: 'none'` and
+  `gestureEnabled: false` ([App.tsx](app/App.tsx)) — the inbox has to stay
+  visible underneath, and a half-swiped native card cannot be put back on the
+  row.
+- **The ghost is the row, not a likeness of it.**
+  [ui/mailRow.tsx](app/src/ui/mailRow.tsx) is the single definition the list and
+  the transition both draw, which is why it lives in `ui/` rather than in the
+  inbox. The last frame of the collapse is pixel-identical to what the list is
+  about to draw under it; a second definition drifts, and the drift reads as a
+  cut. Anything added to a row — the unread dot included — belongs in that file,
+  not in the list's wrapper.
+- **Only the frame's box is animated.** Opening, it is full size the whole way
+  and rides one `translateY`. Collapsing, the box itself shrinks and
+  `overflow: hidden` does the work: the message inside stays absolutely
+  positioned at fixed pixel dimensions on a `transform`, so Yoga measures that
+  subtree once instead of at every width between the card and the row, and text
+  is hidden rather than scaled, never squashed.
+- The row hands its rectangle over at press time, via `useOriginRef()`. A list
+  row is somewhere else every frame, and the only rectangle that matters is the
+  one that was under the finger. No rectangle — every entry point that is not a
+  tapped row — still slides up, and closes by sliding back down: there is
+  nothing to collapse onto, and inventing a row would throw the card at one that
+  is not there. Reduced motion draws the screen in place. Both of those paths
+  must keep working.
+- **The band is not in the transition at all.** The inbox passes a `topInset`
+  and nothing the message draws paints inside it, at any point — so the aurora
+  is never scaled, faded, clipped or re-mounted by the transition.
+  That inset is the status bar plus most of the title row, not the bar's full
+  height. The tabs and filter are faded out while a mail is open, and the band
+  behind them is the black end of the palette's gradient — every sky bottoms out
+  at `#000000` — so keeping their height would hold the mail down against dead
+  space. Both edges of that range have been walked: the line is where it is on
+  purpose, and `MAIL_LIFT` in the inbox is the one knob.
+- **The band keeps running, too.** `Aurora` restarts its loop from zero on every
+  re-activation, so it must not be allowed to stop. Gate 3 therefore reads "on
+  screen", not "focused": [ui/chrome.tsx](app/src/ui/chrome.tsx) carries that
+  one bit, and the *inbox* sets it at the tap, in the same commit as the
+  navigate — a mount effect on the far side is one commit too late and costs two
+  visible jumps. The other three gates are untouched.
+- **The band keeps its contents out of the way — but only while the mail is
+  open.** The bar's title, tabs, icons and filter fade out on the way in: they
+  describe a list that is not what is being read. They come back the moment the
+  mail *starts* closing, not when it unmounts at the end, because the collapse
+  reveals the list from its first frame and a populated list under an empty bar
+  reads as broken. That is why `Overlay` is three states and not a boolean —
+  `'closing'` shows the contents again while the band is still held running.
+  Faded, never unmounted: the bar's height is what the mail is inset by, and a
+  bar that collapsed under it would open a strip of list along the top.
+- **A spring opening, a timing close.** `withSpring` decelerates the way the
+  finger that started it did; a spring run backwards reads as hesitation, so
+  closing is `motion.base` with an ease-in. One `progress` value drives both,
+  with a `phase` shared value saying which — the two are not each other's
+  reverse. It is flipped at the start of the close, where both halves describe
+  the same resting frame and the switch itself paints nothing. `beforeRemove`
+  holds the pop until the frame is back on the row, then re-dispatches the
+  action it captured.
 
 ---
 

@@ -21,23 +21,21 @@ import { InboxDrawerParamList, RootStackParamList } from './src/navigation';
 import { ComposeScreen } from './src/screens/ComposeScreen';
 import { ConnectScreen } from './src/screens/ConnectScreen';
 import { ConversationScreen } from './src/screens/ConversationScreen';
-import { DraftsScreen } from './src/screens/DraftsScreen';
-import { ArchiveScreen, SentScreen } from './src/screens/MailboxScreen';
-import { InboxScreen } from './src/screens/InboxScreen';
+import { HomeScreen } from './src/screens/HomeScreen';
 import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
-import { ScheduledScreen } from './src/screens/ScheduledScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider } from './src/ui/appearance';
+import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
-import { CategoryFilterProvider } from './src/ui/inboxFilter';
+import { DestinationProvider } from './src/ui/destination';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<InboxDrawerParamList>();
@@ -74,8 +72,10 @@ const screenOptions = {
   contentStyle: { backgroundColor: color.ground },
 } as const;
 
-/** The inbox lives behind a category drawer; every other screen is a stack push
- *  on top, so the drawer gesture only applies to the inbox itself. */
+/** One screen lives behind the drawer, and every drawer row is a destination on
+ *  it (`screens/HomeScreen.tsx`) — Sent and Archive included. Only a message, a
+ *  compose or settings is a stack push, so the drawer gesture applies to the
+ *  whole of what the drawer can reach. */
 function InboxDrawer() {
   return (
     <Drawer.Navigator
@@ -93,7 +93,7 @@ function InboxDrawer() {
         },
       }}
     >
-      <Drawer.Screen name="Inbox" component={InboxScreen} />
+      <Drawer.Screen name="Inbox" component={HomeScreen} />
     </Drawer.Navigator>
   );
 }
@@ -104,17 +104,30 @@ function FullStack() {
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="Home" component={InboxDrawer} options={{ headerShown: false }} />
       <Stack.Screen name="Conversation" component={ConversationScreen} options={{ title: 'Conversation' }} />
-      <Stack.Screen name="Message" component={MessageScreen} options={{ title: '' }} />
+      {/* The one screen that is not a push: a message opens by growing out of
+          the row that was tapped, which needs the list left visible underneath
+          (`transparentModal`), no stack animation of its own, and no native
+          back gesture — `ExpandingScreen` holds the pop back until its frame is
+          home again, and a half-swiped card cannot be put back on the row.
+          The screen draws its own top bar for the same reason: a native header
+          would appear at full size before the frame reached it. */}
+      <Stack.Screen
+        name="Message"
+        component={MessageScreen}
+        options={{
+          animation: 'none',
+          contentStyle: { backgroundColor: 'transparent' },
+          gestureEnabled: false,
+          headerShown: false,
+          presentation: 'transparentModal',
+        }}
+      />
       <Stack.Screen
         name="Compose"
         component={ComposeScreen}
         options={{ title: 'New message', presentation: 'modal' }}
         initialParams={{}}
       />
-      <Stack.Screen name="Sent" component={SentScreen} options={{ title: 'Sent' }} />
-      <Stack.Screen name="Archive" component={ArchiveScreen} options={{ title: 'Archive' }} />
-      <Stack.Screen name="Drafts" component={DraftsScreen} options={{ title: 'Drafts' }} />
-      <Stack.Screen name="Scheduled" component={ScheduledScreen} options={{ title: 'Scheduled' }} />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
@@ -143,11 +156,16 @@ function Root() {
   if (setupOpen) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
-    <CategoryFilterProvider>
-      <NavigationContainer theme={navTheme}>
-        <FullStack />
-      </NavigationContainer>
-    </CategoryFilterProvider>
+    <DestinationProvider>
+      {/* Above the navigator: an open message and the inbox bar it left showing
+          are two different screens, and one has to be able to tell the other
+          it is still on show. */}
+      <ChromeProvider>
+        <NavigationContainer theme={navTheme}>
+          <FullStack />
+        </NavigationContainer>
+      </ChromeProvider>
+    </DestinationProvider>
   );
 }
 

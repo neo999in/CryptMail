@@ -15,7 +15,7 @@ Scopes are `openid`, `email`, `gmail.modify` ([`config.ts`](../app/src/config.ts
 
 | # | API | Why | Cost |
 |---|---|---|---|
-| 1 | **`batch` endpoint** (`POST /batch/gmail/v1`) | A page of 20 rows is currently 21 round trips — one `messages.list` plus a `messages.get` per id, fired in parallel. Batched it is 2. This is also what stops bursty parallel `get`s tripping 429s, which is the most likely cause of a failed sync on a slow connection. | Multipart request/response encoding in `gmail.ts`. No interface change: `listInbox` keeps its shape. |
+| 1 | **`batch` endpoint** (`POST /batch/gmail/v1`) | A page of 20 rows is currently 21 round trips — one `messages.list` plus a `messages.get` per id, fired in parallel. Batched it is 2. A sync is now that plus an 11-request junk page (§1.6), which is why that page is ten rows rather than twenty. This is also what stops bursty parallel `get`s tripping 429s, which is the most likely cause of a failed sync on a slow connection. | Multipart request/response encoding in `gmail.ts`. No interface change: `list` keeps its shape. |
 | 2 | **`users.getProfile`** | Returns `emailAddress`, `messagesTotal`, `threadsTotal`, `historyId`. One cheap call. `messagesTotal` lets "Load older mail" say how much is actually behind it; `historyId` is the seed for #3. | Two lines. Do it with #3. |
 | 3 | **`history.list`** | The correct sync primitive: given a `historyId`, it returns only what changed — added, deleted, labels changed. Replaces re-listing the newest page on every refresh, and fixes a real defect — `refreshInbox` rebuilds `messages` from the newest page down, so **it discards rows the user paged in**. Needs the full-list path kept as a fallback: history is retained for a limited window (roughly a week, and Google may expire it sooner), and an expired `historyId` returns 404. | Moderate. A new `MailClient` method and a cursor in the store beside the paging cursors. |
 | 4 | **`settings.sendAs.list`** | The account's aliases and their `signature` / `replyToAddress` / default flag. An identity and its key are bound to an address: if a user sends as an alias, the `From` we sign and the key we encrypt under must agree, and today we assume the single Play-services address. This is a correctness gap in the send path, not a feature. | Small call; the design work is in `identity`/`send`, not the connector. Needs `gmail.settings.basic` — a **new scope**, so it forces re-consent. |
@@ -39,12 +39,42 @@ older mail) falls through to keywords; absence is not a verdict.
 The labels are never consulted for encrypted mail. They exist because the
 provider could read the message, and it could not read that one.
 
+### 1.6 The junk folder (`labelIds=SPAM`) — done
+
+Adopted, and it was a **defect**, not a feature. Gmail moves a message it files
+as spam *out* of the inbox, and `messages.list` hides SPAM from every result
+unless `includeSpamTrash` is set — so a client that lists `labelIds=INBOX` never
+receives junk at all. The app's Junk destination filters the list the inbox
+loaded, which meant it could only ever show mail Gmail had **delivered** and this
+device then flagged: an empty folder on any account whose provider filter works.
+Reported from a real mailbox with two messages in Gmail's Spam and none in ours.
+
+What ships now:
+
+- [`gmail.ts`](../app/src/mail/gmail.ts) adds a `spam` mailbox, asked for with
+  **both** `labelIds=SPAM` and `includeSpamTrash=true` — the flag lifts the
+  blanket exclusion, the label narrows the result to the folder. No other list
+  carries either, so junk never leaks into the inbox, Sent or Archive.
+- [`state/mailbox.ts`](../app/src/state/mailbox.ts) fetches it on every sync
+  beside the inbox (`collectInbox`), ten rows to the inbox's twenty, with its own
+  paging cursor. A junk folder that cannot be listed is not a failed sync.
+- [`categorizer.ts`](../app/src/categorizer/categorizer.ts) reads the `SPAM`
+  label for **plaintext mail** and files it under Junk — above the Bills and
+  Purchases keywords, because Gmail's junk folder is full of mail written to read
+  like an order update. The user's own *Not spam* still outranks it.
+- **Encrypted mail is un-filed instead.** A junk verdict on `multipart/encrypted`
+  is a verdict about ciphertext — unusual structure, a placeholder subject, no
+  readable text — so such a row stays visible in Primary and the reader is told
+  the provider disagreed. That is the sweep this row used to propose, and it is
+  something this client can do that Gmail's own app cannot.
+- No key is harvested from plaintext junk, or the junk folder would be a way to
+  seed the keyring.
+
 ## 2. Probe before deciding
 
 | API | Question it answers |
 |---|---|
-| `messages.list?q=in:spam` | **Does Gmail's own filter eat our encrypted mail?** `multipart/encrypted` with a placeholder subject and an opaque body is unusual structure with no readable text — mild spam signals, all of them artefacts of the encryption. `listInbox` filters on `labelIds=INBOX`, so a message Google files as spam never reaches CryptMail at all and the user is never told. Send between two real accounts and look. If it happens, a sweep for our placeholder subject in `in:spam` is a thing this client can do that Gmail's own app cannot — and it un-files what the *provider* categorised rather than categorising anything ourselves. |
-| `messages.modify` add/remove `SPAM` | Whether "not spam" can be pushed back to the provider at all. `TRASH` cannot be set this way — hence the dedicated `messages.trash`/`untrash` — and `SPAM` may be restricted the same way. Verify against the live account rather than assuming. |
+| `messages.modify` add/remove `SPAM` | Whether "not spam" can be pushed back to the provider at all. Today a mark is local: it moves the row in CryptMail and leaves Gmail's own filing alone, so a rescued message still ages out of Gmail's Spam after 30 days. `TRASH` cannot be set this way — hence the dedicated `messages.trash`/`untrash` — and `SPAM` may be restricted the same way. Verify against the live account rather than assuming. |
 | `messages.insert` | Whether an encrypted copy of a sent message can be written into the mailbox without a send round trip. Would also make seeding a test mailbox cheap. |
 
 ## 3. Deliberately not

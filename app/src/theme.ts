@@ -373,6 +373,9 @@ export const shadow = {
 export const motion = {
   fast: 120,
   base: 180,
+  /** The one longer beat: a box travelling the height of the display — the mail
+   *  transition, and nothing smaller. At `base` that distance reads as a snap. */
+  travel: 260,
 } as const;
 
 /**

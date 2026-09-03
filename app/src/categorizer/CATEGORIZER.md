@@ -7,7 +7,7 @@ local decrypt, as the read-side sibling of the search index.
 
 - **Engine:** [`src/categorizer/categorizer.ts`](./categorizer.ts)
 - **Tests:** [`src/categorizer/__tests__/categorizer-test.ts`](./__tests__/categorizer-test.ts)
-- **Consumers:** [`src/screens/InboxScreen.tsx`](../screens/InboxScreen.tsx), [`src/screens/CategoryDrawer.tsx`](../screens/CategoryDrawer.tsx), [`src/screens/MessageScreen.tsx`](../screens/MessageScreen.tsx), [`src/ui/inboxFilter.tsx`](../ui/inboxFilter.tsx)
+- **Consumers:** [`src/screens/InboxScreen.tsx`](../screens/InboxScreen.tsx), [`src/screens/CategoryDrawer.tsx`](../screens/CategoryDrawer.tsx), [`src/screens/MessageScreen.tsx`](../screens/MessageScreen.tsx), [`src/ui/destination.tsx`](../ui/destination.tsx)
 - **Spam engine it delegates to:** [`src/spam/spam.ts`](../spam/spam.ts) (`headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`)
 
 The module is **deliberately pure**: no React, no storage, no network. That is
@@ -30,7 +30,7 @@ const includesAny = (haystack: string, needles: string[]): boolean =>
   needles.some((needle) => haystack.includes(needle));
 ```
 
-### The rule pipeline — `categorize(text, verdict?): Category`
+### The rule pipeline — `categorize(text, verdict?, labels?): Category`
 
 A single pass over already-readable text, applied in strict precedence order.
 **First match wins**; if nothing matches, the text is `primary`.
@@ -38,18 +38,26 @@ A single pass over already-readable text, applied in strict precedence order.
 | Order | Check | Result | Rationale |
 |-------|-------|--------|-----------|
 | 1 | `checkIsSpam(text, verdict)` | `spam` | Checked first so a flagged message can never masquerade as a bill or an order. |
-| 2 | contains any **bill** keyword | `bills` | A message that is both a bill and an ad is a bill first. |
-| 3 | contains any **purchase** keyword | `purchases` | `"your order"` beats a `"sale"` mention in the same mail. |
-| 4 | contains any **promotion** keyword | `promotions` | Lowest-priority commercial bucket. |
-| 5 | *(no match)* | `primary` | Default. |
+| 2 | `providerFiledAsJunk(labels)`, unless the verdict is a user's own mark | `spam` | The provider's junk verdict, reached from reputation data no client has. Above the keywords because a junk folder is full of mail written to read like an order update. |
+| 3 | contains any **bill** keyword | `bills` | A message that is both a bill and an ad is a bill first. |
+| 4 | contains any **purchase** keyword | `purchases` | `"your order"` beats a `"sale"` mention in the same mail. |
+| 5 | provider `CATEGORY_*` labels | `promotions` / `primary` | Promotions is the one axis Gmail classifies, and its answer wins in both directions. |
+| 6 | contains any **promotion** keyword | `promotions` | Lowest-priority commercial bucket, and only when the provider said nothing. |
+| 7 | *(no match)* | `primary` | Default. |
 
 ```ts
-export function categorize(text: string, verdict?: SpamVerdict | null): Category {
+export function categorize(text: string, verdict?: SpamVerdict | null, labels?: string[]): Category {
   if (checkIsSpam(text, verdict)) return 'spam';
+  if (!verdict?.overridden && providerFiledAsJunk(labels)) return 'spam';
 
   const t = text.toLowerCase();
   if (includesAny(t, BILL_KEYWORDS)) return 'bills';
   if (includesAny(t, PURCHASE_KEYWORDS)) return 'purchases';
+
+  const promotional = providerPromotions(labels);
+  if (promotional === 'yes') return 'promotions';
+  if (promotional === 'no') return 'primary';
+
   if (includesAny(t, PROMOTION_KEYWORDS)) return 'promotions';
   return 'primary';
 }
@@ -59,6 +67,13 @@ The optional second argument is a verdict a caller has **already** computed from
 the whole message — headers, links and attachments included. Called with one
 argument, as the older callers do, the text is scored on its content alone: still
 a real classification, just working from less evidence.
+
+The third is the provider's own labels, verbatim. `providerFiledAsJunk` reads the
+junk one (`SPAM`, or `JUNK` from another connector) and `providerPromotions` reads
+the `CATEGORY_*` tabs; absence of labels is never a verdict in either case. A user
+mark makes the verdict `overridden`, and that outranks the provider — otherwise
+*Not spam* would appear to do nothing on exactly the mail a provider filter gets
+wrong.
 
 The precedence ordering is intentional and covered by tests: an invoice that
 also advertises a sale resolves to `bills`; an order that mentions a discount
@@ -179,32 +194,38 @@ type SearchIndex = Record<string, DecryptedContent>; // keyed by message id
 
 ### The encryption boundary (the core rule)
 
-`categorizeMessage` decides *what text* to feed to `categorize`, and
+`categorizeMessage` decides *whether there is anything to classify at all*, and
 `spamInputFor` decides what the spam engine may see:
 
 ```ts
 export function categorizeMessage(summary, encrypted, index, context = {}): Category {
   const verdict = verdictFor(summary, encrypted, index, context);
-  if (encrypted) {
-    const content = index[summary.id];
-    // Nothing decrypted here. Header evidence still counts; there is no text to
-    // keyword-match, so the non-spam categories cannot apply.
-    if (!content) return verdict.classification !== 'legitimate' ? 'spam' : 'primary';
-    return categorize(`${content.subject} ${content.body}`, verdict);
-  }
-  return categorize(`${summary.subject} ${summary.snippet}`, verdict);
+  // `verdictFor` returns the unscored verdict for encrypted mail unless the user
+  // marked it, so this is the mark and nothing else.
+  if (encrypted) return verdict.classification === 'spam' ? 'spam' : 'primary';
+  return categorize(`${summary.subject} ${summary.snippet}`, verdict, summary.labels);
 }
 ```
 
-- **Plaintext mail** → classified from `subject + snippet`, plus headers and links.
-- **Encrypted mail, opened** (present in `index`) → classified from the decrypted `subject + body`, plus headers.
-- **Encrypted mail, never opened** (absent from `index`) → `primary`, *unless the cleartext headers alone are damning enough to reach a verdict*, in which case `spam`. Its ciphertext placeholder subject and the provider's snippet are **never** inspected — `spamInputFor` passes `subject: undefined, body: undefined` for that case, so there is no text to score and none to learn from. This mirrors how `messageMatchesQuery` treats encrypted search.
+- **Plaintext mail** → classified from `subject + snippet`, plus headers, links and
+  the provider's labels.
+- **Encrypted mail** → `primary`, opened or not. Not from its ciphertext, and not
+  from the plaintext this device holds after opening it: decrypting a message to
+  read it is not permission to file it. `spamInputFor` passes
+  `subject: undefined, body: undefined` for an unopened one, which mirrors how
+  `messageMatchesQuery` treats encrypted search.
+- **The one exception** is the user's own `spam` mark, which short-circuits the
+  engine to an override. A human filing a message is not the app classifying it,
+  and without this "mark as spam" would silently do nothing on encrypted mail.
 
-That last point is the one change the spam engine made to this module's
-behaviour: an unopened encrypted message used to be unconditionally `primary`.
-A message that fails DMARC while claiming to be a bank is suspicious whether or
-not its body has been opened, and refusing to say so would have made the filter
-blind on exactly the mail the provider cannot scan either.
+**A provider junk verdict does not move encrypted mail either.** Gmail may file a
+`multipart/encrypted` message as spam — unusual structure, a placeholder subject, no
+readable text — and every one of those signals is an artefact of the encryption. The
+row stays in `primary` and the reader is told the provider disagreed
+(`MessageScreen`, `SpamNotice`). See
+[SPAM_PHISHING_DETECTION.md](../../../docs/SPAM_PHISHING_DETECTION.md) §13.4 and
+§14.4: a verdict is a statement about a message, and this app does not reach
+statements about mail it was trusted to keep sealed.
 
 ### Outputs
 
@@ -238,28 +259,32 @@ Four pieces wire the pure engine into the UI. The active category is **UI
 view-state**, held outside `AppState` on purpose — it never touches mail, keys,
 or the send path; it only decides which already-loaded rows render.
 
-### `inboxFilter.tsx` — shared filter state
+### `destination.tsx` — shared destination state
 
-Exposes a small React context (`CategoryFilterProvider` / `useCategoryFilter`)
+Exposes a small React context (`DestinationProvider` / `useDestination`)
 holding one value:
 
 ```ts
-{ category: Category | null; setCategory: (c: Category | null) => void }
+{ destination: Destination; setDestination: (d: Destination) => void }
 ```
 
-`null` means **"All mail"** (no category filter). Both the drawer and the inbox
-list read and write this shared state.
+`Destination` is `'inbox' | Category | 'sent' | 'archive' | 'drafts' |
+'scheduled'` — every row in the drawer, since none of them is a navigation
+(`screens/HomeScreen.tsx`). `'inbox'` means **"All mail"**, and `categoryOf(d)`
+is the category a destination filters by, or `null`. Both the drawer and the
+home screen's bodies read and write this shared state.
 
 ### `CategoryDrawer.tsx` — the left navigation drawer
 
 - Lists **All mail** plus every `CATEGORIES` entry, with an icon and an unread badge per row.
 - Badges come from `unreadCountsByCategory(items, searchIndex, {model, marks, selfAddress})`, memoised over `messages`, `searchIndex`, `spam` and the session address. It derives each row's `encrypted` flag from `encryptionFor(summary).kind === 'encrypted'`.
-- Because it uses the same encryption-boundary logic, unopened encrypted mail counts under **Primary** until opened — unless its cleartext headers alone reach a spam verdict.
-- Tapping a row calls `setCategory(cat)` (or `null` for All mail) and closes the drawer.
+- Because it uses the same encryption-boundary logic, encrypted mail counts under **Primary** whether or not it has been opened — only the user's own mark moves it.
+- The **Inbox** row's own count is every category except Junk. `messages` carries the provider's junk folder as well as the inbox, and those rows are not in the list that badge belongs to.
+- Tapping a row calls `setDestination(...)` — a category, `'inbox'` for All mail, or a mailbox like `'sent'` — and closes the drawer. Only Settings pushes a screen.
 
 ### `InboxScreen.tsx` — the filtered list
 
-- Reads `{ category, setCategory }` from `useCategoryFilter()`.
+- Reads `useDestination()` and derives `category = categoryOf(destination)`.
 - Builds one memoised `spamContext` from `{model: spam.model, marks: spam.marks, selfAddress: session?.email}`, so every row in the pass is scored against the same model.
 - Inside its `sections` `useMemo`, after the encryption/attention filters, it applies the category filter in one line:
 
@@ -271,7 +296,7 @@ list read and write this shared state.
 
   Rows are classified live during the render pass — nothing is persisted.
 - The header title shows `CATEGORY_LABELS[category]` (falling back to `"Inbox"`), and the total-unread count is shown **only** when `category === null`, so a number never reads as a per-category count.
-- When a category is active, a close button clears it via `setCategory(null)`; the "Clear filters" empty-state action resets query, filter, and category together.
+- When a category is active, a close button clears it via `setDestination('inbox')`; the "Clear filters" empty-state action resets query, filter, and destination together.
 
 ### `MessageScreen.tsx` — the notice on an open message
 
@@ -281,8 +306,12 @@ list read and write this shared state.
   `href`/label pairs from the opened message's HTML part. A link whose visible text
   lies about its destination is the strongest phishing signal there is, and it only
   exists once the message is open.
-- Offers **Mark as spam** / **Mark as not spam**, which train the personal model
-  through `AppState` (see §4).
+- Offers **Mark as spam** / **Not spam**, which train the personal model through
+  `AppState` (see §4). Which of the two it offers comes from `categorizeMessage`,
+  not from the mark alone — so a message the *provider* filed as junk is offered
+  **Not spam** rather than the button that agrees with it.
+- Says so when the provider's verdict is the only reason the reader is looking at a
+  warning, and says which way the disagreement went on encrypted mail.
 
 ### Data flow
 
@@ -293,7 +322,7 @@ messages + searchIndex + encryptionFor + spam   (from useApp / AppState)
         │                                                     │
         │                                            user taps a row
         │                                                     ▼
-        │                                   useCategoryFilter.setCategory(cat)
+        │                                   useDestination.setDestination(cat)
         │                                                     │
         ▼                                                     ▼
 InboxScreen.sections ── categorizeMessage(summary, encrypted, searchIndex, spamContext) === category
@@ -333,6 +362,13 @@ bayes.ts    ─┘                      │
 - **A user mark short-circuits everything.** `marks[id]` of `'spam'` or `'ham'` is
   a human decision, not evidence to be weighed against rules: the engine returns
   immediately with a single `USER_MARKED_*` symbol and does not consult the model.
+- **The provider's junk folder is the other source of a `spam` bucket**, and it
+  never reaches the engine at all: `providerFiledAsJunk(summary.labels)` is a fact
+  about where the message was filed, not a score. It applies to plaintext mail
+  only, sits above the commercial keywords, and loses to a user mark. The folder is
+  fetched by [`state/mailbox.ts`](../state/mailbox.ts) (`collectInbox`) — before
+  that it was never fetched, and the Junk destination was empty on any account
+  whose provider filter worked.
 - **Corrections train a personal Naive Bayes model**, persisted in
   [`src/store/spamModelStore.ts`](../store/spamModelStore.ts) and applied on the
   next render. Reversing a mark *untrains* the first verdict rather than outvoting

@@ -5,7 +5,7 @@
  * subsystems (core, mail, auth, keys, store); appearance is none of them, it
  * never touches a message or a key, and putting it there would widen the one
  * boundary the architecture depends on staying narrow. It is view state that
- * happens to be persisted, which is exactly what `ui/inboxFilter.tsx` is too.
+ * happens to be persisted, which is exactly what `ui/destination.tsx` is too.
  *
  * Reading it: `useAccent()` for a colour, `useAppearance()` for the whole thing
  * plus the setters. Styles built at module scope with `StyleSheet.create` cannot

@@ -1,4 +1,3 @@
-import { useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
@@ -16,9 +15,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated from 'react-native-reanimated';
 
-import { verdictFor } from '../categorizer/categorizer';
+import { categorizeMessage, providerFiledAsJunk, verdictFor } from '../categorizer/categorizer';
 import { displayName, initials, relativeTime, shortFingerprint } from '../lib/format';
 import { saveAttachment } from '../lib/files';
 import { hostOf, linkify } from '../lib/links';
@@ -27,11 +25,13 @@ import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplyS
 import { RootStackParamList } from '../navigation';
 import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
 import { OpenedMessage, useApp } from '../state/AppState';
-import { AuroraPalette, color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
+import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
-import { Aurora } from '../ui/aurora';
 import { useAppearance } from '../ui/appearance';
 import { HtmlReader } from '../ui/HtmlReader';
+import { useChrome, useKeepsBarBeneath } from '../ui/chrome';
+import { ExpandingScreen } from '../ui/expand';
+import { MailRowCard } from '../ui/mailRow';
 import { Icon } from '../ui/Icon';
 import {
   Avatar,
@@ -72,6 +72,12 @@ export function MessageScreen({ route, navigation }: Props) {
   // The reader wraps to the scroll view's padded box, not the whole window, or
   // wide content lays out past the right edge before it is clipped.
   const bodyWidth = useWindowDimensions().width - 32;
+
+  const { rowPadding } = useAppearance();
+  const { setOverlay } = useChrome();
+  // The inbox's aurora bar is still on screen above this mail, so it keeps
+  // animating rather than freezing on the frame it was focused at.
+  useKeepsBarBeneath(!!route.params.topInset);
   const [opened, setOpened] = useState<OpenedMessage | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
@@ -113,7 +119,27 @@ export function MessageScreen({ route, navigation }: Props) {
     });
   }, [encryptionFor, opened?.links, searchIndex, session?.email, spam, summary]);
 
-  const mark = summary ? spam.marks[summary.id] : undefined;
+  /**
+   * Whether this message is currently filed under Junk — by the engine, by the
+   * provider, or by the user's own mark.
+   *
+   * Through `categorizeMessage`, the same function the inbox row and the drawer
+   * badge use, so the button below cannot offer *Mark as spam* on a message that
+   * is already in Junk. That was the shape of a real dead end: a message the
+   * provider flagged arrived with no mark of its own, so the only button on offer
+   * was the one that agreed with it, and rescuing it meant marking it spam first.
+   */
+  const filedAsJunk = useMemo(
+    () =>
+      summary
+        ? categorizeMessage(summary, encryptionFor(summary).kind === 'encrypted', searchIndex, {
+            model: spam.model,
+            marks: spam.marks,
+            selfAddress: session?.email,
+          }) === 'spam'
+        : false,
+    [encryptionFor, searchIndex, session?.email, spam, summary],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -137,47 +163,25 @@ export function MessageScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.params.id]);
 
-  // Name the sender in the stack header so scrolled-down context is not lost.
-  // The aurora rides behind it the same way it does behind the inbox top bar
-  // — the header's own fill, not a wash over the message body.
-  useEffect(() => {
-    navigation.setOptions({
-      title: summary ? displayName(summary.from.address, summary.from.name) : '',
-      // `active`/`auroraColors` are read here, in the screen itself, and handed
-      // down as props: `headerBackground` is rendered by the native header's
-      // own slot, not as a normal descendant, and a navigation hook called
-      // there directly crashes with a hooks-count mismatch.
-      headerBackground: () => <MessageHeaderBackground active={isFocused} auroraColors={auroraColors} />,
-      // Carries the row's own tag, so Reanimated grows the tapped avatar into
-      // this one instead of a flat push — replaces the default back button,
-      // which is folded in here alongside it.
-      headerLeft: summary
-        ? () => (
-            <View style={{ alignItems: 'center', flexDirection: 'row' }}>
-              <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} />
-              <Animated.View sharedTransitionTag={`mail-avatar-${summary.id}`}>
-                <Avatar
-                  seed={summary.from.address}
-                  label={initials(displayName(summary.from.address, summary.from.name))}
-                  size={30}
-                />
-              </Animated.View>
-            </View>
-          )
-        : undefined,
-    });
-  }, [auroraColors, isFocused, navigation, summary]);
 
   if (!summary) {
     return (
-      <View style={s.screen}>
-        <EmptyState
-          icon="mail"
-          title="Message not available"
-          hint="It is no longer in the list on this device."
-          action={<SecondaryButton title="Back to inbox" icon="back" onPress={() => navigation.goBack()} />}
-        />
-      </View>
+      <ExpandingScreen
+        navigation={navigation}
+        onClosing={() => setOverlay('closing')}
+        origin={route.params.origin}
+        topInset={route.params.topInset}
+      >
+        <View style={s.screen}>
+          <CardBar onBack={() => navigation.goBack()} underBar={!!route.params.topInset} />
+          <EmptyState
+            icon="mail"
+            title="Message not available"
+            hint="It is no longer in the list on this device."
+            action={<SecondaryButton title="Back to inbox" icon="back" onPress={() => navigation.goBack()} />}
+          />
+        </View>
+      </ExpandingScreen>
     );
   }
 
@@ -248,207 +252,231 @@ export function MessageScreen({ route, navigation }: Props) {
   };
 
   return (
-    <View style={s.screen}>
-      <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-        style={s.scroll}
-        showsVerticalScrollIndicator={false}
-      >
-        {!opened && !failure ? (
-          <View style={{ gap: 10 }}>
-            <Skeleton width="72%" height={20} radius={radius.xs} />
-            <Skeleton width={190} height={38} radius={radius.sm} />
-            <View style={{ gap: 8, marginTop: 10 }}>
-              <Skeleton width="100%" height={12} />
-              <Skeleton width="94%" height={12} />
-              <Skeleton width="60%" height={12} />
+    <ExpandingScreen
+      // The row this was opened from, drawn again as the last frame of the
+      // close: the same `MailRowCard` the list draws, at the same density, so
+      // the message shrinks back into its row rather than just leaving.
+      ghost={
+        <MailRowCard
+          summary={summary}
+          encryption={encryptionFor(summary)}
+          padding={rowPadding}
+          // So a mail opened from Sent collapses back onto the row it left —
+          // one that leads with the recipient, not with you.
+          selfAddress={session?.email}
+        />
+      }
+      navigation={navigation}
+      // The bar underneath gets its title, tabs and filter back as the mail
+      // starts collapsing, not when it finally unmounts: the list is on show
+      // for the whole of that, and an empty bar over it reads as broken.
+      onClosing={() => setOverlay('closing')}
+      origin={route.params.origin}
+      topInset={route.params.topInset}
+    >
+      <View style={s.screen}>
+        <CardBar
+          onBack={() => navigation.goBack()}
+          sender={summary.from}
+          title={senderName}
+          underBar={!!route.params.topInset}
+        />
+        <ScrollView
+          // Tighter at the top than the sides: the message follows the card
+          // bar, and 16 there stacked with the bar's own padding into a gap.
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 28 }}
+          style={s.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          {!opened && !failure ? (
+            <View style={{ gap: 10 }}>
+              <Skeleton width="72%" height={20} radius={radius.xs} />
+              <Skeleton width={190} height={38} radius={radius.sm} />
+              <View style={{ gap: 8, marginTop: 10 }}>
+                <Skeleton width="100%" height={12} />
+                <Skeleton width="94%" height={12} />
+                <Skeleton width="60%" height={12} />
+              </View>
             </View>
-          </View>
-        ) : null}
+          ) : null}
 
-        {failure ? <Banner tone="warn" icon="alert">{failure}</Banner> : null}
+          {failure ? <Banner tone="warn" icon="alert">{failure}</Banner> : null}
 
-        {opened ? (
-          <>
-            {/* The authored moment: the message resolves top-down, as if it is
-                decrypting on this device line by line. */}
-            <Reveal delay={0}>
-              <StatusBanner opened={opened} />
-              <SpamNotice verdict={verdict} />
-            </Reveal>
-
-            <Reveal delay={80}>
-              <Text style={s.subject}>{opened.subject}</Text>
-              <Text style={s.timestamp}>{relativeTime(summary.date)}</Text>
-            </Reveal>
-
-            <Reveal delay={160}>
-              <View style={s.sender}>
-                <Avatar seed={summary.from.address} label={initials(senderName)} size={38} />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text numberOfLines={1} style={s.senderName}>
-                    {senderName}
-                  </Text>
-                  <Text numberOfLines={1} style={s.senderAddress}>
-                    {summary.from.address}
-                  </Text>
-                </View>
-              </View>
-
-              {summary.to.length ? (
-                <Text numberOfLines={2} style={s.recipients}>
-                  <Text style={s.recipientsLabel}>To: </Text>
-                  {summary.to.join(', ')}
-                </Text>
-              ) : null}
-
-              <View style={s.keyLine}>
-                <Icon
-                  name={own || key ? 'key' : 'alert'}
-                  size={13}
-                  color={!own && key?.trust === 'changed' ? color.coral : !own && !key ? color.inkFaint : color.mint}
+          {opened ? (
+            <>
+              {/* The authored moment: the message resolves top-down, as if it is
+                  decrypting on this device line by line. */}
+              <Reveal delay={0}>
+                <StatusBanner opened={opened} />
+                <SpamNotice
+                  verdict={verdict}
+                  providerJunk={providerFiledAsJunk(summary.labels)}
+                  encrypted={opened.encryption.kind === 'encrypted'}
                 />
-                {own ? (
-                  <Text style={s.senderKey}>you · key {shortFingerprint(identity?.fingerprint ?? '')}</Text>
-                ) : key ? (
-                  <Text style={[s.senderKey, key.trust === 'changed' && { color: color.coral }]}>
-                    {key.trust} · key {shortFingerprint(key.fingerprint)}
-                  </Text>
-                ) : (
-                  <Text style={[s.senderKey, { color: color.inkFaint }]}>no key on this device</Text>
-                )}
-              </View>
-            </Reveal>
+              </Reveal>
 
-            <Reveal delay={250}>
-              {opened.error ? (
-                <View style={{ marginBottom: 14 }}>
-                  <Banner tone="warn" icon="alert">{opened.error}</Banner>
+              <Reveal delay={80}>
+                <Text style={s.subject}>{opened.subject}</Text>
+                <Text style={s.timestamp}>{relativeTime(summary.date)}</Text>
+              </Reveal>
+
+              <Reveal delay={160}>
+                <View style={s.sender}>
+                  <Avatar seed={summary.from.address} label={initials(senderName)} size={38} />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={s.senderName}>
+                      {senderName}
+                    </Text>
+                    <Text numberOfLines={1} style={s.senderAddress}>
+                      {summary.from.address}
+                    </Text>
+                  </View>
                 </View>
-              ) : (
-                <>
-                  {/* HTML when the message has an HTML part, the flattened text
-                      otherwise. Both routes send a tapped link to the same
-                      confirmation sheet — the reader validates the URL a second
-                      time at the tap before handing it over, so a destination is
-                      never opened without being shown. */}
-                  {opened.html ? (
-                    <HtmlReader
-                      contentWidth={bodyWidth}
-                      html={opened.html}
-                      onLinkPress={setTappedLink}
-                    />
-                  ) : (
-                    <Body text={opened.body} onLinkPress={setTappedLink} />
-                  )}
-                  <AttachmentList
-                    attachments={opened.attachments}
-                    decrypted={opened.encryption.kind === 'encrypted'}
-                    onSave={(a) => void save(a)}
-                    busyId={saving}
+{summary.to.length ? (
+            <Text numberOfLines={2} style={s.recipients}>
+              <Text style={s.recipientsLabel}>To: </Text>
+              {summary.to.join(', ')}
+            </Text>
+          ) : null}
+
+          <View style={s.keyLine}>
+            <Icon
+              name={own || key ? 'key' : 'alert'}
+              size={13}
+              color={!own && key?.trust === 'changed' ? color.coral : !own && !key ? color.inkFaint : color.mint}
+            />
+            {own ? (
+              <Text style={s.senderKey}>you · key {shortFingerprint(identity?.fingerprint ?? '')}</Text>
+            ) : key ? (
+              <Text style={[s.senderKey, key.trust === 'changed' && { color: color.coral }]}>
+                {key.trust} · key {shortFingerprint(key.fingerprint)}
+              </Text>
+            ) : (
+              <Text style={[s.senderKey, { color: color.inkFaint }]}>no key on this device</Text>
+            )}
+          </View>
+        </Reveal>
+
+        <Reveal delay={240}>
+          {opened.html ? (
+            <HtmlReader
+              contentWidth={bodyWidth}
+              html={opened.html}
+              onLinkPress={setTappedLink}
+            />
+          ) : (
+            <Body text={opened.body} onLinkPress={setTappedLink} />
+          )}
+          <AttachmentList
+            attachments={opened.attachments}
+            decrypted={opened.encryption.kind === 'encrypted'}
+            onSave={(a) => void save(a)}
+            busyId={saving}
+          />
+        </Reveal>
+
+        {opened.error ? (
+          <Reveal delay={250}>
+            <View style={{ marginBottom: 14 }}>
+              <Banner tone="warn" icon="alert">{opened.error}</Banner>
+            </View>
+          </Reveal>
+        ) : null}
+              <Reveal delay={340}>
+                <View style={s.actions}>
+                  <SecondaryButton
+                    title={showRaw ? 'Hide provider view' : 'What Gmail sees'}
+                    icon="search"
+                    onPress={() => setShowRaw((v) => !v)}
                   />
-                  {saveError ? (
-                    <View style={{ marginTop: 12 }}>
-                      <Banner tone="warn" icon="alert">{saveError}</Banner>
-                    </View>
-                  ) : null}
-                </>
-              )}
-            </Reveal>
-
-            <Reveal delay={340}>
-              <View style={s.actions}>
-                <SecondaryButton
-                  title={showRaw ? 'Hide provider view' : 'What Gmail sees'}
-                  icon="search"
-                  onPress={() => setShowRaw((v) => !v)}
-                />
-              </View>
-              <View style={s.actions}>
-                <SecondaryButton
-                  title={summary.starred ? 'Starred' : 'Star'}
-                  icon="star"
-                  onPress={() => void toggleStar(summary.id)}
-                />
-                <SecondaryButton
-                  title="Archive"
-                  icon="archive"
-                  onPress={() => {
-                    void archiveMessage(summary.id);
-                    navigation.goBack();
-                  }}
-                />
-                <SecondaryButton
-                  title="Mark unread"
-                  icon="mail"
-                  onPress={() => {
-                    void setUnread(summary.id, true);
-                    navigation.goBack();
-                  }}
-                />
-                {/* One button, because the useful action is always the opposite of
-                    what the filter currently believes. It files the message and
-                    trains the personal model; it deliberately does not archive or
-                    delete — removing mail from the mailbox is a different action
-                    with a different button. */}
-                <SecondaryButton
-                  title={mark === 'spam' ? 'Not spam' : 'Mark as spam'}
-                  icon={mark === 'spam' ? 'check' : 'alert'}
-                  tone={mark === 'spam' ? 'default' : 'danger'}
-                  onPress={() => void (mark === 'spam' ? markNotSpam(summary.id) : markSpam(summary.id))}
-                />
-              </View>
-            </Reveal>
-
-            {showRaw ? (
-              <View style={[s.rawBlockOuter, s.rawBlock]}>
-                <View style={s.rawHead}>
-                  <Icon name="mail" size={13} color={color.inkFaint} />
-                  <Text style={s.rawHeadText}>What Gmail / Outlook shows</Text>
-                  <Pressable
-                    accessibilityLabel="Copy ciphertext"
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => void copyCipher()}
-                    style={({ pressed }) => [s.copyBtn, pressed && { backgroundColor: color.line }]}
-                  >
-                    <Icon name={copied ? 'check' : 'copy'} size={12} color={copied ? color.mint : color.inkDim} />
-                    <Text style={[s.copyText, copied && { color: color.mint }]}>{copied ? 'Copied' : 'Copy'}</Text>
-                  </Pressable>
                 </View>
-                <Text style={s.ghostSubject}>Subject: {summary.subject}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <Text style={s.cipher}>{truncate(opened.raw)}</Text>
-                </ScrollView>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-      </ScrollView>
+                <View style={s.actions}>
+                  <SecondaryButton
+                    title={summary.starred ? 'Starred' : 'Star'}
+                    icon="star"
+                    onPress={() => void toggleStar(summary.id)}
+                  />
+                  <SecondaryButton
+                    title="Archive"
+                    icon="archive"
+                    onPress={() => {
+                      void archiveMessage(summary.id);
+                      navigation.goBack();
+                    }}
+                  />
+                  <SecondaryButton
+                    title="Mark unread"
+                    icon="mail"
+                    onPress={() => {
+                      void setUnread(summary.id, true);
+                      navigation.goBack();
+                    }}
+                  />
+                  {/* One button, because the useful action is always the opposite of
+                      where the message is currently filed. It files the message and
+                      trains the personal model; it deliberately does not archive or
+                      delete — removing mail from the mailbox is a different action
+                      with a different button, and nothing here touches how the
+                      provider has filed the message on its own server. */}
+                  <SecondaryButton
+                    title={filedAsJunk ? 'Not spam' : 'Mark as spam'}
+                    icon={filedAsJunk ? 'check' : 'alert'}
+                    tone={filedAsJunk ? 'default' : 'danger'}
+                    onPress={() => void (filedAsJunk ? markNotSpam(summary.id) : markSpam(summary.id))}
+                  />
+                </View>
+              </Reveal>
 
-      {/* Pinned quick actions, Gmail-style. Shown for any readable message —
-          encrypted or plain. Replying to someone with no key is held and invited
-          by the send path (rule 1), never quietly downgraded to plaintext here. */}
-      {replySource ? (
-        <View style={[s.replybar, s.replybarInner, { paddingBottom: insets.bottom + 14 }]}>
-          <View style={s.replyActions}>
-            <View style={{ flex: 1 }}>
-              <SecondaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
-            </View>
-            {showReplyAll ? (
+              {showRaw ? (
+                <View style={[s.rawBlockOuter, s.rawBlock]}>
+                  <View style={s.rawHead}>
+                    <Icon name="mail" size={13} color={color.inkFaint} />
+                    <Text style={s.rawHeadText}>What Gmail / Outlook shows</Text>
+                    <Pressable
+                      accessibilityLabel="Copy ciphertext"
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={() => void copyCipher()}
+                      style={({ pressed }) => [s.copyBtn, pressed && { backgroundColor: color.line }]}
+                    >
+                      <Icon name={copied ? 'check' : 'copy'} size={12} color={copied ? color.mint : color.inkDim} />
+                      <Text style={[s.copyText, copied && { color: color.mint }]}>{copied ? 'Copied' : 'Copy'}</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={s.ghostSubject}>Subject: {summary.subject}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <Text style={s.cipher}>{truncate(opened.raw)}</Text>
+                  </ScrollView>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+        </ScrollView>
+
+        {/* Pinned quick actions, Gmail-style. Shown for any readable message —
+            encrypted or plain. Replying to someone with no key is held and invited
+            by the send path (rule 1), never quietly downgraded to plaintext here. */}
+        {replySource ? (
+          <View style={[s.replybar, s.replybarInner, { paddingBottom: insets.bottom + 14 }]}>
+            <View style={s.replyActions}>
               <View style={{ flex: 1 }}>
-                <SecondaryButton title="Reply all" icon="reply-all" onPress={() => composeReply('replyAll')} />
+                <SecondaryButton title="Reply" icon="reply" onPress={() => composeReply('reply')} />
               </View>
-            ) : null}
-            <View style={{ flex: 1 }}>
-              <SecondaryButton title="Forward" icon="forward" onPress={() => composeReply('forward')} />
+              {showReplyAll ? (
+                <View style={{ flex: 1 }}>
+                  <SecondaryButton title="Reply all" icon="reply-all" onPress={() => composeReply('replyAll')} />
+                </View>
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <SecondaryButton title="Forward" icon="forward" onPress={() => composeReply('forward')} />
+              </View>
             </View>
           </View>
-        </View>
-      ) : null}
+        ) : null}
 
-      <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
-    </View>
+        <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
+      </View>
+    </ExpandingScreen>
   );
 }
 
@@ -611,10 +639,29 @@ function StatusBanner({ opened }: { opened: OpenedMessage }) {
  * is mail the reader did not ask for, and collapsing them into one scary banner
  * would waste the distinction the engine works to draw.
  *
+ * The provider's own junk verdict is the third thing it can report, and it has to
+ * be reported: a message can sit in Junk on the provider's say-so alone, and a
+ * reader who opened it from there would otherwise find no explanation at all. On
+ * an encrypted message that verdict is *not* acted on — the provider only saw
+ * ciphertext — so the copy says which way the disagreement went rather than
+ * leaving the reader to notice for themselves that their provider hid a message
+ * this app is showing.
+ *
  * An explicit mark short-circuits the engine, so `overridden` is reported as the
- * user's own decision rather than dressed up as a detection.
+ * user's own decision rather than dressed up as a detection — and it is reported
+ * *instead* of the provider's verdict, because the whole point of a mark is that
+ * it wins.
  */
-function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
+function SpamNotice({
+  verdict,
+  providerJunk,
+  encrypted,
+}: {
+  verdict: SpamVerdict | null;
+  /** Whether the provider filed this message in its junk folder. */
+  providerJunk: boolean;
+  encrypted: boolean;
+}) {
   if (!verdict) return null;
 
   if (verdict.overridden) {
@@ -626,17 +673,29 @@ function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
     );
   }
 
-  if (!isUnwanted(verdict)) return null;
+  const flagged = isUnwanted(verdict);
+  if (!flagged && !providerJunk) return null;
+
+  const providerSays = providerJunk
+    ? encrypted
+      ? 'Your mail provider filed this as spam. It could only see the ciphertext, so CryptMail keeps it in your inbox.'
+      : 'Your mail provider filed this as spam.'
+    : null;
 
   const phishing = verdict.classification === 'phishing-suspicious';
-  const why = reasons(verdict, 3);
+  const headline = phishing
+    ? 'This message may be impersonating someone. Do not enter passwords or payment details from it.'
+    : flagged
+      ? 'This looks like spam.'
+      : (providerSays as string);
+  // The provider's sentence becomes a reason only when the headline is this
+  // device's own verdict; otherwise it would be printed twice.
+  const why = [...(flagged && providerSays ? [providerSays] : []), ...reasons(verdict, 3)];
 
   return (
     <View style={{ marginBottom: 15 }}>
       <Banner tone="warn" icon="alert">
-        {phishing
-          ? 'This message may be impersonating someone. Do not enter passwords or payment details from it.'
-          : 'This looks like spam.'}
+        {headline}
       </Banner>
       {why.length > 0 ? (
         <View style={s.spamReasons}>
@@ -652,24 +711,44 @@ function SpamNotice({ verdict }: { verdict: SpamVerdict | null }) {
 }
 
 /**
- * The stack header's fill for this screen: the same aurora band the inbox top
- * bar uses, sized to whatever the header actually renders at. `pointerEvents`
- * stays off and `active` follows focus, same four gates as the inbox one.
+ * The mail's own leading edge: back, the sender, and nothing else.
  *
- * `active` and `auroraColors` are props, not hooks read here: this component
- * is instantiated by `headerBackground`, which the native stack renders in
- * its own header slot rather than as a normal child of the screen — a
- * navigation hook called from inside it crashes with a hooks-count mismatch.
+ * Deliberately *not* an aurora bar. The band belongs to the screen this one
+ * opened over — the inbox keeps drawing its own above the inset, unchanged and
+ * still running — and a second band here would be a different bar arriving where
+ * the reader was told nothing would move. This is the top of the card, so it
+ * carries the card's fill and scales in with the rest of the message.
+ *
+ * `underBar` says the aurora bar above is holding the status bar; standing on
+ * its own (opened from a conversation, from Sent) it has to clear it itself.
  */
-function MessageHeaderBackground({ active, auroraColors }: { active: boolean; auroraColors: AuroraPalette }) {
-  const [height, setHeight] = useState(0);
+function CardBar({
+  onBack,
+  sender,
+  title,
+  underBar,
+}: {
+  onBack: () => void;
+  /** Absent while the message is missing — the bar is then just a way back. */
+  sender?: { address: string; name?: string };
+  title?: string;
+  underBar: boolean;
+}) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View
-      onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
-      pointerEvents="none"
-      style={{ backgroundColor: color.surface, height: '100%', overflow: 'hidden' }}
-    >
-      <Aurora active={active} height={height} palette={auroraColors} />
+    // Sitting under the aurora bar, this row wants almost no lead-in: the band
+    // above is already the top of the screen, and padding under it reads as a
+    // gap rather than as breathing room. Standing alone it clears the status
+    // bar itself and gets the usual space.
+    <View style={[s.cardbar, { paddingTop: underBar ? space.xs : insets.top + space.sm }]}>
+      <IconButton icon="back" label="Back" onPress={onBack} />
+      {sender ? (
+        <Avatar seed={sender.address} label={initials(displayName(sender.address, sender.name))} size={30} />
+      ) : null}
+      <Text numberOfLines={1} style={s.cardbarTitle}>
+        {title ?? ''}
+      </Text>
     </View>
   );
 }
@@ -680,7 +759,21 @@ const truncate = (raw: string, lines = 26) => {
 };
 
 const s = StyleSheet.create({
-  screen: { backgroundColor: 'transparent', flex: 1 },
+  screen: { backgroundColor: color.ground, flex: 1 },
+
+  // The card's own edge: the ground it stands on, with a hairline where the
+  // list used to be. No fill of its own — the surface colour belongs to bars,
+  // and the one bar on this screen is the inbox's, above.
+  cardbar: {
+    alignItems: 'center',
+    borderBottomColor: color.line,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: space.md,
+    paddingBottom: space.xs,
+    paddingHorizontal: space.lg,
+  },
+  cardbarTitle: { ...type.strong, color: color.ink, flex: 1 },
   scroll: { flex: 1 },
 
   subject: { ...type.display, color: color.ink, lineHeight: 28 },
