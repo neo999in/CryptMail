@@ -44,7 +44,14 @@ export type IconName =
   | 'palette'
   | 'signature'
   | 'accessibility'
-  | 'globe';
+  | 'globe'
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'list-ul'
+  | 'list-ol'
+  | 'quote'
+  | 'hr';
 
 type Props = {
   name: IconName;
@@ -341,6 +348,55 @@ function glyph(name: IconName, p: object) {
           <Path d="M12 3c2.5 2.6 3.8 5.7 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z" {...p} />
         </>
       );
+    case 'bold':
+      return (
+        <>
+          <Path d="M7 4h6.5a3.5 3.5 0 0 1 0 7H7z" {...p} />
+          <Path d="M7 11h7.5a3.5 3.5 0 0 1 0 7H7z" {...p} />
+        </>
+      );
+    case 'italic':
+      return (
+        <>
+          <Path d="M10 4h7" {...p} />
+          <Path d="M7 20h7" {...p} />
+          <Path d="m14 4-4 16" {...p} />
+        </>
+      );
+    case 'strike':
+      return (
+        <>
+          <Path d="M16 4H9a3 3 0 0 0-2.8 4.2" {...p} />
+          <Path d="M8 20h7a3 3 0 0 0 2.6-4.5" {...p} />
+          <Path d="M4 12h16" {...p} />
+        </>
+      );
+    case 'list-ul':
+      return (
+        <>
+          <Circle cx={4.5} cy={6} r={1} {...p} />
+          <Circle cx={4.5} cy={12} r={1} {...p} />
+          <Circle cx={4.5} cy={18} r={1} {...p} />
+          <Path d="M9 6h11M9 12h11M9 18h11" {...p} />
+        </>
+      );
+    case 'list-ol':
+      return (
+        <>
+          <Path d="M4 5h1v3M3.5 8h2" {...p} />
+          <Path d="M4 10c1 0 1.5.5 1.5 1.5S4 14 3 15c1 0 2.5.5 2.5 1.5S4.5 18 3.5 18" {...p} />
+          <Path d="M9 6h11M9 12h11M9 18h11" {...p} />
+        </>
+      );
+    case 'quote':
+      return (
+        <>
+          <Path d="M4 20V10a6 6 0 0 1 6-6" {...p} />
+          <Path d="M14 20v-6a6 6 0 0 1 6-6" {...p} />
+        </>
+      );
+    case 'hr':
+      return <Path d="M3 12h18" {...p} />;
     default:
       return <Ellipse cx={12} cy={12} rx={8} ry={8} {...p} />;
   }

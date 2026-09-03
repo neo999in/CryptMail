@@ -343,6 +343,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
       const raw = await mail.current.getRaw(summary.id);
 
       if (!core.looksEncrypted(raw)) {
+        // One scan of the MIME tree, two consumers: the spam engine reads the
+        // anchor pairs out of this markup, and the reader renders it (sanitised
+        // at that point, never here).
+        const html = htmlOf(raw);
         return {
           summary,
           encryption: { kind: 'plain' },
@@ -352,10 +356,14 @@ export function createMailbox(ctx: Ctx): MailboxService {
           // An ordinary email's files are right there in the MIME, in the clear.
           attachments: attachmentsOf(raw),
           raw,
+          // The message as its sender wrote it. Held as the untrusted string it
+          // is — `ui/HtmlReader` sanitises before anything is rendered, so this
+          // field is not a promise that the markup is safe.
+          html: html || undefined,
           // Anchor pairs from the HTML part, if any. Read, never rendered: the
           // scan in `spam/urls.ts` extracts `href`/label pairs and drops
           // anything that is not http(s), so nothing executable is recorded.
-          links: linksIn(htmlOf(raw)),
+          links: linksIn(html),
         };
       }
 

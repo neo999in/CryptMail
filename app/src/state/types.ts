@@ -55,6 +55,17 @@ export type OpenedMessage = {
   /** Raw source — the ciphertext the provider stores. Shown in "what Gmail sees". */
   raw: string;
   /**
+   * The message's `text/html` part, when it had one, for `ui/HtmlReader` to
+   * render instead of the flattened `body` text.
+   *
+   * Attacker-controlled markup, and carried as such: it is sanitised at the
+   * point of render (`html/sanitize.ts`), not here, so whatever reads it treats
+   * it as hostile input rather than trusting a field that looks pre-cleaned.
+   * Same provenance rule as `links` — only ever the readable HTML of a
+   * plaintext message, never the ciphertext of an encrypted one.
+   */
+  html?: string;
+  /**
    * Anchor `href`/label pairs from the message's HTML part, when it had one.
    *
    * Only ever the *readable* HTML: the body of a plaintext message, never the

@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,6 +29,7 @@ import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
+import { HtmlReader } from '../ui/HtmlReader';
 import { useChrome, useKeepsBarBeneath } from '../ui/chrome';
 import { ExpandingScreen } from '../ui/expand';
 import { MailRowCard } from '../ui/mailRow';
@@ -76,6 +78,9 @@ export function MessageScreen({ route, navigation }: Props) {
   } = useApp();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
+  // The reader wraps to the scroll view's padded box, not the whole window, or
+  // wide content lays out past the right edge before it is clipped.
+  const bodyWidth = useWindowDimensions().width - 32;
   const { rowPadding } = useAppearance();
   const accent = useAccent();
   const { setOverlay } = useChrome();
@@ -536,7 +541,21 @@ export function MessageScreen({ route, navigation }: Props) {
                 </View>
               ) : (
                 <>
-                  <Body text={opened.body} onLinkPress={setTappedLink} />
+                  {/* Real mail is mostly HTML, and the plain-text alternative
+                      a sender ships alongside it is usually a worse version of
+                      the same message — a wall of bare URLs where the links
+                      were. So the HTML is preferred when the message carries
+                      it, sanitised in `html/sanitize.ts` before it reaches the
+                      renderer, with the text part as the fallback. */}
+                  {opened.html ? (
+                    <HtmlReader
+                      contentWidth={bodyWidth}
+                      html={opened.html}
+                      onLinkPress={setTappedLink}
+                    />
+                  ) : (
+                    <Body text={opened.body} onLinkPress={setTappedLink} />
+                  )}
                   <AttachmentList
                     attachments={opened.attachments}
                     decrypted={opened.encryption.kind === 'encrypted'}
