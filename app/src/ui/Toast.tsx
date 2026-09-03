@@ -3,10 +3,12 @@ import { Animated, StyleSheet, Text, View, Pressable, Platform, Easing } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { color, radius, shadow, type, font } from '../theme';
 import { useAccent } from './appearance';
-import { Icon } from './Icon';
+import { Icon, IconName } from './Icon';
 
 export type ToastProps = {
   message: string;
+  /** What the toast is about. Defaults to a send, which is what most are. */
+  icon?: IconName;
   actionLabel?: string;
   onAction?: () => void;
   onDismiss: () => void;
@@ -19,6 +21,7 @@ const NATIVE_DRIVER = Platform.OS !== 'web';
 
 export function Toast({
   message,
+  icon = 'send',
   actionLabel,
   onAction,
   onDismiss,
@@ -54,7 +57,7 @@ export function Toast({
     >
       <View style={styles.content}>
         <View style={styles.left}>
-          <Icon name="send" size={16} color={accent} />
+          <Icon name={icon} size={16} color={accent} />
           <Text style={styles.message} numberOfLines={2}>
             {message}
           </Text>

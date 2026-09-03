@@ -72,6 +72,7 @@ describe('snooze pure model', () => {
     const refDate = new Date('2026-09-01T08:00:00.000Z');
     const options = quickSnoozeDates(refDate);
 
+    // A Tuesday: all four intents land on four different moments.
     expect(options.length).toBe(4);
     expect(options.map((o) => o.key)).toEqual(['later_today', 'tomorrow', 'weekend', 'next_week']);
 
@@ -79,6 +80,30 @@ describe('snooze pure model', () => {
       expect(new Date(opt.until).getTime()).toBeGreaterThan(refDate.getTime());
       expect(opt.label).toBeTruthy();
       expect(opt.sublabel).toBeTruthy();
+    }
+  });
+
+  it('drops a preset that repeats a time an earlier one already covers', () => {
+    // Friday: "Tomorrow morning" and "This weekend" are both Saturday 9 AM,
+    // and two rows offering the same moment is a choice with no answer.
+    const friday = new Date(2026, 8, 4, 12, 0, 0);
+    const keys = quickSnoozeDates(friday).map((o) => o.key);
+    expect(keys).toEqual(['later_today', 'tomorrow', 'next_week']);
+
+    // Sunday: the collision moves to "Next week", which is also Monday 9 AM.
+    const sunday = new Date(2026, 8, 6, 12, 0, 0);
+    expect(quickSnoozeDates(sunday).map((o) => o.key)).toEqual([
+      'later_today',
+      'tomorrow',
+      'weekend',
+    ]);
+  });
+
+  it('never offers the same moment twice, on any day of the week', () => {
+    for (let day = 0; day < 7; day += 1) {
+      const options = quickSnoozeDates(new Date(2026, 8, 1 + day, 12, 0, 0));
+      expect(new Set(options.map((o) => o.until)).size).toBe(options.length);
+      expect(options.length).toBeGreaterThanOrEqual(3);
     }
   });
 });

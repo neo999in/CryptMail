@@ -79,6 +79,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {activeToast && (
           <Toast
             message={activeToast.message}
+            icon={activeToast.icon}
             actionLabel={activeToast.actionLabel}
             onAction={handleAction}
             onDismiss={dismissToast}

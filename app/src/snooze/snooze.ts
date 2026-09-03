@@ -74,6 +74,15 @@ export type QuickSnoozeOption = {
  *
  * All times are local-calendar based so "Tomorrow 9 AM" means what the user
  * expects, not a fixed 24-hour offset.
+ *
+ * The list is **not** a fixed four. The presets are named by intent, and on
+ * some days two intents land on the same moment: on a Friday "Tomorrow
+ * morning" and "This weekend" are both Saturday 9 AM, and on a Sunday
+ * "Tomorrow morning" and "Next week" are both Monday 9 AM. Offering both is
+ * worse than offering one — two rows that read as different choices do the
+ * same thing, and picking between them is a decision with no answer. So a
+ * preset that repeats a time an earlier one already covers is dropped, and the
+ * earlier one wins because it is the more specific way to say it.
  */
 export function quickSnoozeDates(now: Date = new Date()): QuickSnoozeOption[] {
   const snap = (d: Date) => d.toISOString();
@@ -111,7 +120,7 @@ export function quickSnoozeDates(now: Date = new Date()): QuickSnoozeOption[] {
   const fmtDate = (d: Date) =>
     d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 
-  return [
+  const all: QuickSnoozeOption[] = [
     {
       key: 'later_today',
       label: 'Later today',
@@ -137,4 +146,11 @@ export function quickSnoozeDates(now: Date = new Date()): QuickSnoozeOption[] {
       until: snap(nextWeek),
     },
   ];
+
+  const seen = new Set<string>();
+  return all.filter((option) => {
+    if (seen.has(option.until)) return false;
+    seen.add(option.until);
+    return true;
+  });
 }
