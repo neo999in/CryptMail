@@ -1,4 +1,5 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useIsFocused } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
