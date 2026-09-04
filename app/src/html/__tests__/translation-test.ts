@@ -174,3 +174,58 @@ describe('shorthand components', () => {
     expect(out('<div style="margin:16px 0 0 0 0 0">x</div>')).not.toContain('margin');
   });
 });
+
+describe('values React Native refuses outright', () => {
+  it('drops font-size:0, which is a spacer trick in CSS and a crash here', () => {
+    // The renderer computes letter spacing as a ratio of the font size and
+    // throws rather than divide by zero, taking the whole screen with it —
+    // a valid, safe, extremely common declaration that crashed the reader.
+    expect(out('<p style="font-size:0;letter-spacing:1px">x</p>')).not.toContain('font-size');
+    expect(out('<td style="font-size:0px;line-height:0">x</td>')).not.toContain('font-size');
+    expect(out('<p style="font-size:0.0em">x</p>')).not.toContain('font-size');
+  });
+
+  it('drops a zero line-height for the same reason', () => {
+    expect(out('<p style="line-height:0">x</p>')).not.toContain('line-height');
+    expect(out('<p style="line-height:0px">x</p>')).not.toContain('line-height');
+  });
+
+  it('keeps a real font-size', () => {
+    expect(out('<p style="font-size:15px">x</p>')).toContain('font-size:15px');
+  });
+
+  it('refuses a negative size but keeps a negative margin', () => {
+    // Negative margins are used deliberately; a negative width is not a width.
+    expect(out('<div style="width:-10px">x</div>')).not.toContain('width');
+    expect(out('<div style="padding:-4px">x</div>')).not.toContain('padding');
+    expect(out('<div style="font-size:-2px">x</div>')).not.toContain('font-size');
+    expect(out('<div style="margin-top:-4px">x</div>')).toContain('margin-top:-4px');
+  });
+
+  it('still allows zero where zero is a real value', () => {
+    expect(out('<div style="padding:0">x</div>')).toContain('padding:0');
+    expect(out('<div style="border-width:0">x</div>')).toContain('border-width:0');
+    expect(out('<div style="width:0">x</div>')).toContain('width:0');
+  });
+
+  it('refuses a bare number that is not zero, since 12 is not 12px', () => {
+    expect(out('<div style="width:12">x</div>')).not.toContain('width');
+  });
+});
+
+describe('desktop widths on a phone', () => {
+  it('reads a pixel width as a maximum, so the message cannot run off the side', () => {
+    // Email is written for a 600px column and says so in a hundred places.
+    // Honoured literally, a Microsoft notification rendered with its banner
+    // and every paragraph cut off at the right edge — and unlike a browser,
+    // the reader has no way to scale.
+    const result = out('<table style="width:600px"><tr><td>x</td></tr></table>');
+    expect(result).toContain('max-width:600px');
+    expect(result).not.toContain('width:600px;');
+  });
+
+  it('leaves a percentage width alone, since it is already relative', () => {
+    expect(out('<div style="width:100%">x</div>')).toContain('width:100%');
+    expect(out('<div style="width:50%">x</div>')).toContain('width:50%');
+  });
+});

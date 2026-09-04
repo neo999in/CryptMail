@@ -52,6 +52,11 @@ function valueOf(result: string | Emit | null): string | null {
 
 const px = length();
 const pxOrPercent = length({ percent: true });
+/** A size the platform will not accept as zero — see `values.Sign`. */
+const positivePx = length({ sign: 'positive' });
+/** A box dimension: zero is a legitimate spacer, negative is not a size. */
+const sizePx = length({ sign: 'non-negative' });
+const sizePxOrPercent = length({ percent: true, sign: 'non-negative' });
 
 /**
  * The absolute-only properties, and why each one is.
@@ -65,7 +70,12 @@ export const PROPERTIES: Record<string, Property> = {
   /* ---------------------------------------------------------------- text ---- */
   color: { read: color('foreground') },
   'font-family': { read: fontFamily },
-  'font-size': { read: px },
+  // Positive, not merely numeric. `font-size: 0` is how a template collapses
+  // the whitespace between inline-blocks, and React Native throws on it:
+  // letter spacing is a ratio of the font size, and the platform will not
+  // divide by zero. The crash surfaces as a blank render error screen with the
+  // message nowhere in sight.
+  'font-size': { read: positivePx },
   'font-style': { read: keyword('normal', 'italic', 'oblique') },
   // Emits its own property: a family when there are faces to name, the weight
   // itself when there are not. See `values.fontWeight`.
@@ -83,10 +93,16 @@ export const PROPERTIES: Record<string, Property> = {
   // box before any of its other declarations mean anything. `none` earns its
   // place separately: it is how every sender hides the preheader line.
   display: { read: displayValue },
-  width: { read: pxOrPercent },
-  'max-width': { read: pxOrPercent },
-  height: { read: px },
-  'max-height': { read: px },
+  // A width in pixels is a *desktop column* measurement — email is written for
+  // 600px and says so in a hundred places — so it is read as a maximum, the
+  // same as the `width` attribute and for the same reason: taken literally it
+  // pushes the message off the side of a phone, and the reader has no way to
+  // scale the way a browser would. A percentage is left as a width, since a
+  // share of the parent is already relative and means what it says.
+  width: { read: widthValue },
+  'max-width': { read: sizePxOrPercent },
+  height: { read: sizePx },
+  'max-height': { read: sizePx },
 
   // `auto` is deliberately absent from the margins. It is how every email
   // centres its body — `max-width:600px;margin:auto` is the standard wrapper —
@@ -101,11 +117,12 @@ export const PROPERTIES: Record<string, Property> = {
   'margin-right': { read: pxOrPercent },
   'margin-bottom': { read: pxOrPercent },
   'margin-left': { read: pxOrPercent },
-  padding: { read: lengths({ percent: true }) },
-  'padding-top': { read: pxOrPercent },
-  'padding-right': { read: pxOrPercent },
-  'padding-bottom': { read: pxOrPercent },
-  'padding-left': { read: pxOrPercent },
+  // Padding, unlike margin, has no negative reading at all.
+  padding: { read: lengths({ percent: true, sign: 'non-negative' }) },
+  'padding-top': { read: sizePxOrPercent },
+  'padding-right': { read: sizePxOrPercent },
+  'padding-bottom': { read: sizePxOrPercent },
+  'padding-left': { read: sizePxOrPercent },
 
   /* ------------------------------------------------------------- borders ---- */
   border: { read: border() },
@@ -118,17 +135,17 @@ export const PROPERTIES: Record<string, Property> = {
   'border-right-color': { read: color('border') },
   'border-bottom-color': { read: color('border') },
   'border-left-color': { read: color('border') },
-  'border-width': { read: px },
-  'border-top-width': { read: px },
-  'border-right-width': { read: px },
-  'border-bottom-width': { read: px },
-  'border-left-width': { read: px },
+  'border-width': { read: sizePx },
+  'border-top-width': { read: sizePx },
+  'border-right-width': { read: sizePx },
+  'border-bottom-width': { read: sizePx },
+  'border-left-width': { read: sizePx },
   'border-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-top-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-right-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-bottom-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-left-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
-  'border-radius': { read: px },
+  'border-radius': { read: sizePx },
 
   /* -------------------------------------------------------- backgrounds ---- */
   'background-color': { read: color('background') },
@@ -183,6 +200,12 @@ function backgroundShorthand(raw: string, ctx: ValueContext): string | null {
  * are: the element gets a box of its own, which is the whole reason a sender
  * reached for inline-block on a button.
  */
+function widthValue(raw: string, ctx: ValueContext): string | Emit | null {
+  const value = sizePxOrPercent(raw, ctx);
+  if (typeof value !== 'string') return null;
+  return value.endsWith('%') ? value : { property: 'max-width', value };
+}
+
 function displayValue(raw: string, ctx: ValueContext): string | null {
   const mode = valueOf(keyword('none', 'block', 'inline', 'inline-block', 'flex')(raw, ctx));
   if (mode === null) return null;

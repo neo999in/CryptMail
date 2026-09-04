@@ -58,18 +58,48 @@ export function keyword(...allowed: string[]): Normalise {
 }
 
 /**
+ * How much of the number line a property will accept.
+ *
+ * Not pedantry: React Native *throws* on some of what CSS permits.
+ * `font-size: 0` is ordinary in mail — it is how a template collapses the
+ * whitespace between inline-blocks — and it takes the renderer down, because
+ * letter spacing is computed as a ratio of the font size and the platform
+ * refuses to divide by zero. A valid, safe, common declaration that crashes
+ * the screen is exactly the failure this module was built to end, so the
+ * domain is stated per property rather than assumed.
+ */
+export type Sign = 'any' | 'non-negative' | 'positive';
+
+/**
  * A length.
  *
  * Percentages are opt-in per property rather than allowed globally, because
  * they translate for some and not others: a percentage *width* is a share of
  * the parent's width, which every parent has, while a percentage *height* is a
  * share of something React Native usually leaves unbounded.
+ *
+ * The magnitude is checked as a *number*, not as text — `0`, `0px` and `0.0em`
+ * are one value wearing three spellings, and a pattern that only knew the
+ * first would let the other two through to the crash.
  */
-export function length(options: { percent?: boolean } = {}): Normalise {
-  const pattern = new RegExp(`^-?(?:0|[0-9]*\\.?[0-9]+(?:${UNIT}${options.percent ? '|%' : ''}))$`);
+export function length(options: { percent?: boolean; sign?: Sign } = {}): Normalise {
+  const unit = options.percent ? UNIT + '|%' : UNIT;
+  const pattern = new RegExp('^-?(?:[0-9]*\\.?[0-9]+)(' + unit + ')?$');
+  const sign = options.sign ?? 'any';
+
   return (raw) => {
     const value = raw.trim().toLowerCase();
-    return pattern.test(value) ? value : null;
+    const match = pattern.exec(value);
+    if (!match) return null;
+
+    const magnitude = Number.parseFloat(value);
+    if (!Number.isFinite(magnitude)) return null;
+    // A bare number is only a length when it is zero: `12` is not `12px`.
+    if (!match[1] && magnitude !== 0) return null;
+
+    if (sign === 'positive' && magnitude <= 0) return null;
+    if (sign === 'non-negative' && magnitude < 0) return null;
+    return value;
   };
 }
 
@@ -80,8 +110,8 @@ export function length(options: { percent?: boolean } = {}): Normalise {
  * several values travelling together, and one unreadable component should cost
  * that component rather than the declaration.
  */
-export function lengths(options: { percent?: boolean } = {}): Normalise {
-  const one = length({ percent: options.percent });
+export function lengths(options: { percent?: boolean; sign?: Sign } = {}): Normalise {
+  const one = length({ percent: options.percent, sign: options.sign });
   return (raw, ctx) => {
     const parts = raw.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0 || parts.length > 4) return null;
@@ -181,13 +211,18 @@ export const lineHeight: Normalise = (raw, ctx) => {
   const value = raw.trim().toLowerCase();
   if (value === 'normal') return null;
 
+  // Zero is checked on every route in, not only the one that reaches the
+  // length check below: a bare `0` and a `0%` are the same collapsed line as
+  // `0px`, and converting them to `em` first would walk them straight past it.
   const unitless = /^[0-9]*\.?[0-9]+$/.exec(value);
-  if (unitless) return `${unitless[0]}em`;
+  if (unitless) return +unitless[0] > 0 ? `${unitless[0]}em` : null;
 
   const percent = /^([0-9]*\.?[0-9]+)%$/.exec(value);
-  if (percent) return `${+percent[1] / 100}em`;
+  if (percent) return +percent[1] > 0 ? `${+percent[1] / 100}em` : null;
 
-  return length()(value, ctx);
+  // Positive for the same reason as font-size: a zero line height is a
+  // spacer-row trick in CSS and a collapsed, unmeasurable line here.
+  return length({ sign: 'positive' })(value, ctx);
 };
 
 /**
@@ -200,7 +235,7 @@ export const lineHeight: Normalise = (raw, ctx) => {
  * cousins kept being the thing that got dropped.
  */
 export function border(): Normalise {
-  const width = length();
+  const width = length({ sign: 'non-negative' });
   const style = keyword(
     'none',
     'hidden',
