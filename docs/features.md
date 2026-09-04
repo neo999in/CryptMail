@@ -259,11 +259,28 @@ attacker-controlled and can exfiltrate plaintext via remote loads.
 
 **Build sketch.** Sanitise in one auditable module (`html/sanitize.ts`) with an
 allowlist of tags/attributes, no scripts, no remote loads without 0.8's consent.
-Extend `parseProtectedInner` to walk `multipart/alternative` and prefer
-`text/plain` when present.
+Extend `parseProtectedInner` to walk `multipart/alternative`, and **prefer
+`text/html` when the sender wrote one**, falling back to `text/plain`.
+
+That preference is the reverse of what this entry said until the reader was
+built, and the reversal is deliberate. A sender's plain-text alternative is not
+the same message in a simpler form — it is a lossy rendering of the HTML one,
+and the loss falls on exactly what mail is for: an anchor becomes a bare URL
+next to its own label, a table becomes a column of fragments, a list loses its
+structure. Preferring it made the app harder to read than the webmail it
+replaces, for no security gain the sanitizer does not already provide. Both
+bodies are parsed either way — the flattened text is still what the search
+index stores, since indexing markup would put tag names in it.
 
 **Done when.** A hostile fixture (script tags, `onerror`, remote CSS, data-URI
 payloads) renders inert, verified by tests over the sanitizer.
+
+**Status.** Reader built: `html/sanitize.ts` + `ui/HtmlReader.tsx`, wired into
+the message screen for plaintext *and* decrypted mail. `parseProtectedInner`
+walks nested multiparts and transfer-decodes them, so a tree sealed by another
+PGP client (Thunderbird, ProtonMail) reads as HTML rather than as nothing.
+Remote images are blocked until 0.8 lands the consent step. Rich-text *compose*
+is not built — `ui/RichTextComposer.tsx` exists but nothing mounts it.
 
 ### 0.10 Privacy-preserving notification policy · Impact M · Effort S
 

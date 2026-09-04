@@ -81,6 +81,17 @@ export type BuildRequest = {
 export type DecryptedMessage = {
   subject: string;
   body: string;
+  /**
+   * The sender's `text/html`, when the sealed tree carried one.
+   *
+   * Attacker-controlled markup that happens to have been encrypted — being
+   * inside the ciphertext says who sent it, not that it is safe — so it is
+   * carried raw and sanitised at the point of render (`html/sanitize.ts`),
+   * exactly like the HTML of an unencrypted message. CryptMail's own
+   * `buildProtectedInner` writes text only, so this is always a foreign
+   * client's markup.
+   */
+  html?: string;
   signature: SignatureStatus;
   /** Fingerprint the signature verified against, when known. */
   signerFingerprint?: string;

@@ -15,8 +15,8 @@
  * (2026-08-08). The demo fixtures are single-part US-ASCII, so nothing here was
  * reachable until real mail arrived.
  */
-import { base64ToBytes, bytesToUtf8 } from '../lib/base64';
 import { Attachment, decodedSize, newAttachmentId } from './attachment';
+import { decodeTransfer } from './transferEncoding';
 
 type Part = { headers: Record<string, string>; body: string };
 
@@ -36,39 +36,8 @@ function split(section: string): Part {
   return { headers, body };
 }
 
-/**
- * `=E2=80=87` is one character in three escapes, so the escapes have to be
- * decoded to bytes and the bytes read as UTF-8 together. Decoding each escape
- * to its own character produces mojibake instead.
- */
-function decodeQuotedPrintable(input: string): string {
-  const withoutSoftBreaks = input.replace(/=\r?\n/g, '');
-  const bytes: number[] = [];
-
-  for (let i = 0; i < withoutSoftBreaks.length; i += 1) {
-    const char = withoutSoftBreaks[i];
-    const hex = withoutSoftBreaks.slice(i + 1, i + 3);
-    if (char === '=' && /^[0-9A-Fa-f]{2}$/.test(hex)) {
-      bytes.push(parseInt(hex, 16));
-      i += 2;
-    } else {
-      // Already-literal text. Anything non-ASCII here is malformed QP, but
-      // passing its UTF-8 bytes through renders better than dropping it.
-      for (const byte of new TextEncoder().encode(char)) bytes.push(byte);
-    }
-  }
-  return bytesToUtf8(Uint8Array.from(bytes));
-}
-
 function decodeBody(part: Part): string {
-  const encoding = (part.headers['content-transfer-encoding'] ?? '').toLowerCase().trim();
-  try {
-    if (encoding === 'quoted-printable') return decodeQuotedPrintable(part.body);
-    if (encoding === 'base64') return bytesToUtf8(base64ToBytes(part.body.replace(/\s+/g, '')));
-  } catch {
-    // A malformed part must still show its raw text rather than an error.
-  }
-  return part.body;
+  return decodeTransfer(part.headers['content-transfer-encoding'], part.body);
 }
 
 /** Crude tag strip, used only when a message offers no text/plain alternative. */

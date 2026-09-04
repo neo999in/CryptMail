@@ -190,12 +190,15 @@ export const demoCore: CryptCore = {
     const rest = decoded.slice(tag.length);
     const sep = rest.indexOf(':');
     const signerFingerprint = rest.slice(0, sep);
-    const { subject, body, attachments } = parseProtectedInner(decodeUtf8Base64(rest.slice(sep + 1)));
+    const { subject, body, html, attachments } = parseProtectedInner(
+      decodeUtf8Base64(rest.slice(sep + 1)),
+    );
 
     const autocrypt = parseRfc822(rfc822).headers['autocrypt'];
     return {
       subject,
       body,
+      html,
       attachments,
       signature: 'valid',
       signerFingerprint: signerFingerprint === 'UNKNOWN' ? undefined : signerFingerprint,

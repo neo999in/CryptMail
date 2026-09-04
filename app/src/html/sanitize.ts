@@ -18,7 +18,13 @@
  *     parser does not evaluate CSS variables. That is what makes "apply CSS
  *     variables for dark/light matching" real — the map comes from the caller,
  *     and this module only ever substitutes known names or their fallback.
- *  3. `react-native-render-html`'s transient render engine applies its own
+ *  3. `<style>` blocks are read by `./css.ts` and merged onto each element's
+ *     own `style` attribute as the sanitizer walks it, so a class-styled
+ *     newsletter keeps its design. Nothing is trusted by that route that would
+ *     not be trusted inline: the merged value goes through `allowedStyles`
+ *     below like any other. The `<style>` tag itself is still discarded whole,
+ *     contents included (`sanitize-html` treats it as a non-text tag).
+ *  4. `react-native-render-html`'s transient render engine applies its own
  *     safe property allowlist when it parses what survives into RN styles —
  *     `position: fixed`, `z-index`, `pointer-events` and friends are dropped a
  *     second time, independently of what is allowed here. `exclusiveFilter`
@@ -28,6 +34,43 @@
  * object, not the library.
  */
 import sanitize from 'sanitize-html';
+
+import { CssRules, emptyRules, extractRules, mergeDeclarations } from './css';
+
+/**
+ * What a positioned element is renamed to before the allowlist runs.
+ *
+ * Not a real tag, and deliberately not one an email could contain: it exists
+ * for the length of one pass, and `nonTextTags` below turns it into a deletion.
+ */
+const EXCLUDED_TAG = 'cryptmail-excluded';
+
+/**
+ * The declarations that mean "render me somewhere the reader did not intend".
+ *
+ * Narrow on purpose, and narrower than it first looks like it should be. None
+ * of `position`, `z-index` or `pointer-events` is in `allowedStyles`, so none
+ * of them can ever reach the renderer — stripping them is automatic and needs
+ * no help. This regex decides something stronger: whether to delete the element
+ * *and its text*, on the grounds that the sender only ever meant it to be seen
+ * through the effect that was stripped.
+ *
+ * Deleting content is the expensive answer, so it is reserved for the two
+ * declarations that have no innocent reading in an email: `position: fixed`,
+ * which is how an overlay is pinned over whatever is beneath it, and
+ * `pointer-events: none`, which is how a tap is passed through to something
+ * else.
+ *
+ * `position: absolute` and `position: relative` are deliberately absent. Both
+ * are ordinary layout — real newsletters position a large share of their
+ * structure, images included — and matching them deleted whole legitimate
+ * sections the moment `<style>` blocks began to be read, which is a worse
+ * failure than the one being defended against. With the property stripped, such
+ * an element simply flows inline, where it is visible and therefore judgeable.
+ * `z-index` is nothing on its own: it orders elements that are already
+ * positioned, and the positioned one is what this catches.
+ */
+const POSITIONING = /(?:^|;)\s*(?:position\s*:\s*fixed|pointer-events\s*:\s*none)/i;
 
 /**
  * A colour: hex, rgb()/hsl(), or a plain CSS keyword.
@@ -122,15 +165,19 @@ export const sanitizeConfig: sanitize.IOptions = {
   // a network load all the same — drop it, matching "http/https only".
   allowProtocolRelative: false,
   disallowedTagsMode: 'discard',
-  // A positioning or pointer-capture declaration excludes its element **whole**,
-  // rather than rendering it at a layer the reader did not intend (the classic
-  // fixed-overlay spam trick). sanitize-html calls this on the *raw* style,
-  // before allowedStyles filters it, so the regex anchors to declaration
-  // boundaries: `position:` at the start or after a `;`, never `-position:`
-  // inside an innocent compound like `background-position`.
+  // Tags whose *contents* go with them. The library's own four, plus the
+  // sentinel `prepare` renames a positioned element to — without it here that
+  // element would be unwrapped and its hidden text would render as body copy,
+  // which is the outcome the exclusion exists to prevent.
+  nonTextTags: ['script', 'style', 'textarea', 'option', EXCLUDED_TAG],
+  // Second line only. `prepare` below is what actually catches a positioned
+  // element, because it is the one place the raw style is still visible: by the
+  // time a frame reaches here, a `style` holding *nothing but* disallowed
+  // properties has already been emptied and dropped, so `position:fixed` on its
+  // own would look like no style at all. This still fires for an element whose
+  // style survived filtering, and costs nothing to keep.
   exclusiveFilter: (frame) =>
-    frame.tag !== 'style' &&
-    /(?:^|;)\s*(position|z-index|pointer-events)\s*:/i.test(frame.attribs.style ?? ''),
+    frame.tag !== 'style' && POSITIONING.test(frame.attribs.style ?? ''),
 };
 
 /**
@@ -138,9 +185,52 @@ export const sanitizeConfig: sanitize.IOptions = {
  *
  * Never throws on malformed markup; `sanitize-html` rebuilds what it can parse
  * and drops the rest.
+ *
+ * `rules` are the declarations from the message's own `<style>` blocks. They are
+ * merged onto each element *before* `allowedStyles` runs, so a stylesheet can
+ * only set what an inline style could — and `class`/`id` are read during that
+ * merge and then dropped, since neither is in `allowedAttributes`.
  */
-export function sanitizeHtml(html: string): string {
-  return sanitize(html, sanitizeConfig);
+export function sanitizeHtml(html: string, rules?: CssRules): string {
+  return sanitize(prepare(html, rules ?? emptyRules()), sanitizeConfig);
+}
+
+/**
+ * Fold the stylesheet into each element, and mark the ones that must not render.
+ *
+ * A separate pass, and it has to be one, for a reason that is easy to miss: the
+ * allowlist below never sees a declaration it does not allow. A `style` holding
+ * only `position: fixed` is emptied and the attribute removed, so by the time
+ * `exclusiveFilter` runs there is nothing left to recognise — the element is
+ * kept, and whatever the sender meant to hide under an overlay renders as
+ * ordinary body copy. A declaration arriving by class is invisible there twice
+ * over, since frames carry the element's *source* attributes.
+ *
+ * This pass is where the raw style still exists, so this is where both are
+ * decided: the stylesheet is merged in, and an element carrying a positioning
+ * declaration by either route is renamed to `EXCLUDED_TAG`, which
+ * `nonTextTags` then deletes along with its contents.
+ *
+ * Nothing is *allowed* here — it permits every tag and attribute precisely
+ * because it decides nothing about safety. Its output is never rendered; it is
+ * input to `sanitizeConfig`, which remains the one gate.
+ */
+function prepare(html: string, rules: CssRules): string {
+  return sanitize(html, {
+    allowedTags: false,
+    allowedAttributes: false,
+    allowVulnerableTags: true,
+    transformTags: {
+      '*': (tagName, attribs) => {
+        const style = mergeDeclarations(tagName, attribs, rules);
+        if (style && POSITIONING.test(style)) return { tagName: EXCLUDED_TAG, attribs: {} };
+        // class and id have done their work; neither survives the real config,
+        // and dropping them here keeps them out of this pass's own output.
+        const { class: _class, id: _id, ...rest } = attribs;
+        return { tagName, attribs: style ? { ...rest, style } : rest };
+      },
+    },
+  });
 }
 
 /** A `var(--name[, fallback])` reference inside a style attribute value. */
@@ -176,5 +266,7 @@ export function resolveCssVars(html: string, vars: Record<string, string>): stri
  */
 export function sanitizePipeline(html: string, vars?: Record<string, string>): string {
   const resolved = vars ? resolveCssVars(html, vars) : html;
-  return sanitizeHtml(resolved);
+  // Rules are read from the resolved markup, so a `var()` written inside a
+  // `<style>` block resolves the same way one written inline does.
+  return sanitizeHtml(resolved, extractRules(resolved));
 }

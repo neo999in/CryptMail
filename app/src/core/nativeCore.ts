@@ -206,10 +206,11 @@ export function getNativeCore(
         await bridge.decryptVerify(block, JSON.stringify(autocryptKey ? [autocryptKey] : [])),
       ) as NativeDecrypted;
 
-      const { subject, body, attachments } = parseProtectedInner(decrypted.plaintext);
+      const { subject, body, html, attachments } = parseProtectedInner(decrypted.plaintext);
       return {
         subject,
         body,
+        html,
         attachments,
         signature: decrypted.signature,
         signerFingerprint: decrypted.signerFingerprint,

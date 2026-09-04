@@ -398,6 +398,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
             encryption: { kind: 'encrypted', trust: 'verified', own: true },
             subject: decrypted.subject,
             body: decrypted.body,
+            // The sender's markup, still unsanitised — see `OpenedMessage.html`.
+            // Encrypted mail earns the same reader as everything else; being
+            // sealed is a fact about who sent it, not about what it contains.
+            html: decrypted.html,
             decrypted,
             attachments: decrypted.attachments,
             raw,
@@ -412,6 +416,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
           },
           subject: decrypted.subject,
           body: decrypted.body,
+          html: decrypted.html,
           decrypted,
           attachments: decrypted.attachments,
           raw,

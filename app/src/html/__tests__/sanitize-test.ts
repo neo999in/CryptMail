@@ -68,6 +68,39 @@ describe('sanitizeHtml — hostile fixtures render inert', () => {
     expect(sanitizeHtml('<div style="pointer-events:none; color:blue">x</div>')).toBe('');
   });
 
+  test('a positioning declaration on its own excludes the element', () => {
+    // Regression. This used to survive while the paired case above was caught,
+    // and the difference was invisible: allowedStyles empties a style holding
+    // *only* disallowed properties and drops the attribute, so the check that
+    // reads `frame.attribs.style` saw an element with no style at all. The
+    // element was then kept and whatever it hid rendered as ordinary text.
+    expect(sanitizeHtml('<div style="position:fixed">hi</div>')).toBe('');
+    expect(sanitizeHtml('<div style="pointer-events:none">hi</div>')).toBe('');
+  });
+
+  test('ordinary layout is not mistaken for an overlay', () => {
+    // `position: relative` is in the stylesheet of essentially every
+    // newsletter. Deleting on the *property* rather than the value threw away
+    // whole sections of legitimate mail once <style> blocks started being read
+    // — the element renders normally here, since `position` is stripped either
+    // way and relative positioning hides nothing.
+    expect(sanitizeHtml('<div style="position:relative; color:red">hi</div>')).toContain('hi');
+    expect(sanitizeHtml('<div style="position:static">hi</div>')).toContain('hi');
+    // Absolute too: it is how newsletters lay out heroes and badges, and the
+    // property is stripped either way, so the element just flows inline.
+    expect(sanitizeHtml('<div style="position:absolute">hi</div>')).toContain('hi');
+    // z-index orders elements that are already positioned; on its own it
+    // neither hides nor moves anything, and it is stripped regardless.
+    expect(sanitizeHtml('<div style="z-index:9999">hi</div>')).toContain('hi');
+  });
+
+  test('a compound property that merely starts with the same word is not a position', () => {
+    // `background-position` must not trip it — the anchor is a declaration
+    // boundary, not a substring.
+    const out = sanitizeHtml('<div style="background-position:center; color:red">hi</div>');
+    expect(out).toContain('hi');
+  });
+
   test('a style that is safe but not allowlisted is stripped without dropping the element', () => {
     // background-position is not a positioning overlay — it must not trip the
     // exclusiveFilter, and since it is not in allowedStyles it is dropped from

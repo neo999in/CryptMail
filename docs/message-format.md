@@ -91,7 +91,17 @@ Implemented by `buildProtectedInner` / `parseProtectedInner` in
   `Content-ID` for an image the body refers to as `cid:`.
 - A `text/plain` part with no filename is the body, not a file; a `text/plain`
   part *with* one is a file. That single rule is what keeps the two apart on the
-  way back in.
+  way back in, and it applies to `text/html` the same way.
+
+**Reading is wider than writing.** The list above specifies the tree CryptMail
+*emits*, and it stays flat. `parseProtectedInner` reads trees sealed by any PGP
+client, and those nest: Thunderbird and ProtonMail put a `multipart/alternative`
+holding `text/plain` and `text/html` inside the mixed part, and transfer-encode
+both. So the reader descends through nested multiparts and decodes each body
+against its own `Content-Transfer-Encoding` — without which an HTML part arrives
+with `=3D` in place of every `=`, and every link in it is malformed. Both bodies
+are returned; the reader renders the HTML (features.md 0.9) and the search index
+stores the text.
 
 **Size.** A message may carry 5 MB of attachments, and a file past it is refused
 before it is read. Two things set that: sizes compound (base64 +33%, then armor

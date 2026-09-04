@@ -14,6 +14,7 @@ import {
   decodedSize,
   newAttachmentId,
 } from '../mail/attachment';
+import { decodeTransfer } from '../mail/transferEncoding';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
@@ -149,9 +150,11 @@ export function buildEncryptedEnvelope(args: {
  * One MIME part: its unfolded headers and its raw, still-encoded body.
  *
  * The envelope this module writes is `multipart/mixed` with one `text/plain`
- * part and one part per attachment, so a flat splitter is all it needs — inbound
- * mail from the rest of the world is `mail/plainBody.ts`'s problem, and it has
- * its own, nested reader for exactly that reason.
+ * part and one part per attachment, so `splitMultipart` is flat. Reading is not
+ * symmetrical with writing: a decrypted tree can come from any PGP client, and
+ * those nest a `multipart/alternative` inside the mixed part — hence
+ * `flattenParts`. Inbound *unencrypted* mail stays `mail/plainBody.ts`'s
+ * problem; this module only ever sees what was sealed.
  */
 export type MimePart = { headers: Headers; body: string };
 
@@ -258,26 +261,85 @@ export function buildProtectedInner(args: {
   ].join('\n');
 }
 
-/** Read back the protected subject, text body and files from a decrypted tree. */
+/**
+ * Every part of a tree, flattened — descending into nested multiparts.
+ *
+ * `buildProtectedInner` writes one flat `multipart/mixed`, so for a message
+ * CryptMail sent this returns the same list `splitMultipart` does. It matters
+ * for mail *other* PGP clients sealed: Thunderbird and ProtonMail put a
+ * `multipart/alternative` inside the mixed part, and a flat split sees that
+ * wrapper as one opaque part — which is how the bodies inside it went missing.
+ */
+function flattenParts(parts: MimePart[]): MimePart[] {
+  const out: MimePart[] = [];
+  for (const part of parts) {
+    const contentType = part.headers['content-type'] ?? 'text/plain';
+    const boundary = /^multipart\//i.test(contentType) ? boundaryOf(contentType) : null;
+    if (boundary) out.push(...flattenParts(splitMultipart(part.body, boundary)));
+    else out.push(part);
+  }
+  return out;
+}
+
+/** A body part — text the reader shows, as opposed to a file hanging off it. */
+function bodyPart(parts: MimePart[], mimeType: RegExp): MimePart | undefined {
+  return parts.find(
+    (p) =>
+      mimeType.test(p.headers['content-type'] ?? 'text/plain') &&
+      !/attachment|inline/i.test(p.headers['content-disposition'] ?? ''),
+  );
+}
+
+/** The newline(s) before a boundary belong to the delimiter, not the part. */
+const TRAILING_NEWLINES = /\n+$/;
+
+/** Decode one part's body against its own transfer encoding. */
+function partText(part: MimePart): string {
+  return decodeTransfer(part.headers['content-transfer-encoding'], part.body);
+}
+
+/**
+ * Read back the protected subject, bodies and files from a decrypted tree.
+ *
+ * Both bodies come back when the sender wrote both, and the caller chooses:
+ * `html` is what the reader renders, `body` is its fallback and what the search
+ * index stores. They are not alternatives *here* because they are not
+ * alternatives to every consumer — indexing markup would put tag names in the
+ * search index, and rendering the flattened text would throw the message away.
+ *
+ * Transfer-decoded, which a foreign client's tree needs and our own does not:
+ * `buildProtectedInner` writes 7-bit text, but everyone else sends
+ * quoted-printable — and an HTML part read undecoded has `=3D` where every one
+ * of its `href=` should be.
+ */
 export function parseProtectedInner(inner: string): {
   subject: string;
   body: string;
+  /** The sender's `text/html`, when they wrote one. Never sanitised here. */
+  html?: string;
   attachments: Attachment[];
 } {
   const { headers, body } = parseRfc822(inner);
   const subject = headers['subject'] ?? PLACEHOLDER_SUBJECT;
   const boundary = boundaryOf(headers['content-type'] ?? '');
-  if (!boundary) return { subject, body: body.trim(), attachments: [] };
+  if (!boundary) {
+    // A single-part tree. It is still allowed to be HTML — some clients seal
+    // one — in which case that markup is both the body and the html.
+    const single = decodeTransfer(headers['content-transfer-encoding'], body).trim();
+    const isHtml = /^text\/html/i.test(headers['content-type'] ?? '');
+    return { subject, body: single, html: isHtml ? single : undefined, attachments: [] };
+  }
 
-  const parts = splitMultipart(body, boundary);
-  const text = parts.find(
-    (p) =>
-      /^text\/plain/i.test(p.headers['content-type'] ?? 'text/plain') &&
-      !/attachment|inline/i.test(p.headers['content-disposition'] ?? ''),
-  );
+  const parts = flattenParts(splitMultipart(body, boundary));
+  const text = bodyPart(parts, /^text\/plain/i);
+  const html = bodyPart(parts, /^text\/html/i);
+
   return {
     subject,
-    body: text ? text.body.replace(/\n+$/, '') : body.trim(),
+    body: text ? partText(text).replace(/\n+$/, '') : body.trim(),
+    // Trailing newlines belong to the boundary that follows the part, not to
+    // the part — same trim the text body gets.
+    html: html ? partText(html).replace(TRAILING_NEWLINES, '') : undefined,
     attachments: attachmentsFromParts(parts),
   };
 }

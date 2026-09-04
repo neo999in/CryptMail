@@ -61,8 +61,10 @@ export type OpenedMessage = {
    * Attacker-controlled markup, and carried as such: it is sanitised at the
    * point of render (`html/sanitize.ts`), not here, so whatever reads it treats
    * it as hostile input rather than trusting a field that looks pre-cleaned.
-   * Same provenance rule as `links` — only ever the readable HTML of a
-   * plaintext message, never the ciphertext of an encrypted one.
+   * Set for encrypted mail too, from the decrypted tree — a sealed message
+   * gets the same reader as any other, since the seal says who sent it, not
+   * that its markup is safe. It is never the *ciphertext*: only content this
+   * device has already decrypted.
    */
   html?: string;
   /**

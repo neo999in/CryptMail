@@ -27,7 +27,7 @@
  * height, so the surrounding screen scrolls the whole message as one unit. The
  * `prev` comparison bails re-renders out when a measurement repeats.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View, ViewStyle, useWindowDimensions } from 'react-native';
 import RenderHTML, { CustomMixedRenderer, defaultSystemFonts } from 'react-native-render-html';
 
@@ -67,6 +67,17 @@ export type HtmlReaderProps = {
    * never fetched. features.md §0.8: a sender's pixels need consent first.
    */
   allowRemoteImages?: boolean;
+  /**
+   * Called with how many remote images this message wanted and did not get.
+   *
+   * The reader is the only thing that knows: the count is taken *after*
+   * sanitising, so an image inside an element the allowlist removed is not
+   * counted and cannot make the caller offer to load something that no longer
+   * exists. Zero when `allowRemoteImages` is on, since nothing is blocked then.
+   *
+   * Must be stable across renders — it is an effect dependency.
+   */
+  onBlockedImages?: (count: number) => void;
   /** Extra CSS variables, merged over the theme's defaults. */
   cssVars?: Record<string, string>;
   /**
@@ -118,7 +129,10 @@ function schemeTheme(scheme: HtmlReaderScheme, accent: string) {
   };
 }
 
-/** A muted, non-fetching stand-in for a remote image the reader is not allowed to load. */
+/** An `<img>` the renderer would have to fetch. Counted, never followed. */
+const REMOTE_IMG = /<img\b[^>]*\bsrc\s*=\s*["']https?:/gi;
+
+/** A muted, non-fetching stand-in for a remote image the reader may not load. */
 function ImagePlaceholder() {
   return (
     <View style={s.imgPlaceholder} accessibilityLabel="Hidden image">
@@ -134,6 +148,7 @@ export function HtmlReader({
   contentWidth,
   onLinkPress,
   allowRemoteImages = false,
+  onBlockedImages,
   cssVars,
   maxHeight,
   style,
@@ -152,6 +167,15 @@ export function HtmlReader({
 
   /** Sanitise + resolve `var()`s once per html change. Attacker input never reaches the renderer unsanitised. */
   const safeHtml = useMemo(() => sanitizePipeline(html, mergedVars), [html, mergedVars]);
+
+  const blockedImages = useMemo(
+    () => (allowRemoteImages ? 0 : (safeHtml.match(REMOTE_IMG) ?? []).length),
+    [safeHtml, allowRemoteImages],
+  );
+
+  useEffect(() => {
+    onBlockedImages?.(blockedImages);
+  }, [blockedImages, onBlockedImages]);
 
   const handleLinkPress = useCallback(
     (url: string) => {
