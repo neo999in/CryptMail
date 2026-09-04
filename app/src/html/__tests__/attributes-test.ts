@@ -82,3 +82,33 @@ describe('precedence', () => {
     expect(result.indexOf('text-align:center')).toBeLessThan(result.indexOf('text-align:right'));
   });
 });
+
+describe('display', () => {
+  it('turns inline-block into block, so a button becomes a box', () => {
+    // The exact span Google wraps every button in. React Native draws no
+    // border, radius or background on a *nested inline* element, so left
+    // inline this arrives as bare blue text with its outline gone.
+    const button =
+      '<a href="https://example.com"><span style="display:inline-block;' +
+      'border:1px solid #dadce0;border-radius:20px;padding:10px 16px">Go</span></a>';
+
+    const result = out(button);
+    expect(result).toContain('display:block');
+    expect(result).toContain('border-radius:20px');
+    expect(result).toContain('border:1px solid #dadce0');
+  });
+
+  it('keeps display:none, which is how a preheader stays hidden', () => {
+    expect(out('<div style="display:none">preview text</div>')).toContain('display:none');
+  });
+
+  it('applies either way, dark or not — it is layout, not colour', () => {
+    const span = '<span style="display:inline-block">x</span>';
+    expect(out(span)).toContain('display:block');
+    expect(dark(span)).toContain('display:block');
+  });
+
+  it('refuses a display value that is not on the list', () => {
+    expect(out('<div style="display:grid">x</div>')).not.toContain('display');
+  });
+});

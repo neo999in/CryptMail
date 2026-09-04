@@ -136,6 +136,13 @@ export const sanitizeConfig: sanitize.IOptions = {
       'text-align': [TEXT_ALIGN],
       'text-decoration': [TEXT_DECORATION],
       'text-transform': [/^\s*(none|uppercase|lowercase|capitalize)\s*$/],
+      // `display` decides whether a box is a box at all. React Native draws no
+      // border, radius or background on a *nested inline* element, so an email
+      // button — invariably a styled <span> inside an <a> — arrived as bare
+      // blue text with its outline silently dropped. `none` matters just as
+      // much: it is how every sender hides the preheader line that would
+      // otherwise be repeated at the top of the message.
+      display: [/^\s*(none|block|inline|inline-block|flex)\s*$/],
       'letter-spacing': [/^\s*-?[0-9.]+(?:px|em|rem)\s*$/],
       margin: [LENGTHS],
       'margin-top': [LENGTHS],
@@ -206,8 +213,7 @@ export function sanitizeHtml(
   faces?: WeightFaces,
   dark = false,
 ): string {
-  let out = prepare(html, rules ?? emptyRules());
-  if (dark) out = adaptColors(out);
+  let out = adaptDeclarations(prepare(html, rules ?? emptyRules()), dark);
   if (faces) out = resolveFontWeights(out, faces);
   return sanitize(out, sanitizeConfig);
 }
@@ -253,11 +259,20 @@ function prepare(html: string, rules: CssRules): string {
         const style = [...presentational, merged].filter(Boolean).join(';') || undefined;
 
         if (style && POSITIONING.test(style)) return { tagName: EXCLUDED_TAG, attribs: {} };
+
+        // A `span` the sender turned into a box becomes one. `display:block`
+        // by itself is not enough: react-native-render-html keeps a span in
+        // the text tree, and React Native draws no border, radius or
+        // background on a nested `Text` — so an email button, which is always
+        // a styled span inside an anchor, rendered as bare coloured text.
+        // Renaming it to a div is what makes the renderer give it a view of
+        // its own, and a view is the only thing here that can have an edge.
+        const boxed = tagName === 'span' && style ? BOX_DISPLAY.test(style) : false;
         // class, id and the presentational attributes have all done their work
         // here; none of them survives the real config, and dropping them keeps
         // them out of this pass's own output.
         const { class: _class, id: _id, align: _a, bgcolor: _b, width: _w, ...rest } = attribs;
-        return { tagName, attribs: style ? { ...rest, style } : rest };
+        return { tagName: boxed ? 'div' : tagName, attribs: style ? { ...rest, style } : rest };
       },
     },
   });
@@ -327,6 +342,15 @@ const PRESENTATIONAL: Record<string, (value: string) => string | null> = {
   },
 };
 
+/**
+ * A `display` that asks for a box rather than a run of text.
+ *
+ * `inline-block` counts, and has to: this is tested during `prepare`, which
+ * runs before `adaptDeclarations` narrows inline-block to block, so matching
+ * only `block` here would never fire on the very markup it exists for.
+ */
+const BOX_DISPLAY = /(?:^|;)\s*display\s*:\s*(?:inline-block|block|flex)/i;
+
 /** `<center>` is not in the allowlist, but what it means is expressible. */
 const CENTER_TAG = /<(\/?)center\b([^>]*)>/gi;
 
@@ -345,28 +369,47 @@ function presentationalStyle(attribs: Record<string, string>): string[] {
 const DECLARATION = /(^|;)\s*([a-zA-Z-]+)\s*:\s*([^;]+)/g;
 
 /**
- * Rewrite the `background` shorthand to `background-color`, and adapt every
- * colour in the declaration to a dark ground.
+ * Rewrite the declarations a native renderer cannot take at face value.
  *
- * The shorthand is converted rather than allowed, which is the point:
- * `background` can carry `url(...)`, so letting it through would open a remote
- * fetch by another name. Only a colour is lifted out of it — including a
- * gradient's first stop, since no native renderer here draws a gradient and a
- * flat band of the sender's colour is far closer to what they drew than the
- * nothing that was rendered before.
+ * Two jobs, and they are here together because both need the parsed
+ * declaration and neither is a safety decision — the allowlist still runs
+ * afterwards and still has the last word.
+ *
+ * The `background` shorthand becomes `background-color`. Converting rather than
+ * allowing is the point: `background` can carry `url(...)`, so letting it
+ * through would open a remote fetch by another name. Only a colour is lifted
+ * out — including a gradient's first stop, since nothing here draws a gradient
+ * and a flat band of the sender's own colour is far closer to what they drew
+ * than the nothing that was rendered before.
+ *
+ * `display: inline-block` becomes `block`, since React Native has no
+ * inline-block and `block` is the closer of the two it does have.
+ *
+ * Colours are adapted only when `dark` is set; everything else applies either
+ * way.
  */
-export function adaptColors(html: string): string {
+export function adaptDeclarations(html: string, dark: boolean): string {
   return html.replace(STYLE_ATTR, (whole, prefix: string, quote: string, style: string) => {
     const resolved = style.replace(
       DECLARATION,
       (match, lead: string, rawProperty: string, value: string) => {
         const property = rawProperty.trim().toLowerCase();
 
+        if (property === 'display') {
+          // React Native has no inline-block. `block` is the closer of the two
+          // it does have: the element gets its own box, which is the whole
+          // reason a sender reached for inline-block on a button.
+          const mode = value.trim().toLowerCase();
+          return mode === 'inline-block' ? `${lead}display:block` : match;
+        }
         if (property === 'background') {
           const color = colorInShorthand(value);
           if (!color) return lead;
-          return `${lead}background-color:${adaptBackground(color) ?? color}`;
+          const resolved = (dark && adaptBackground(color)) || color;
+          return `${lead}background-color:${resolved}`;
         }
+        if (!dark) return match;
+
         if (property === 'background-color') {
           const adapted = adaptBackground(value);
           return adapted ? `${lead}background-color:${adapted}` : match;
