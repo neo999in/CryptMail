@@ -113,6 +113,9 @@ const LENGTHS = /^\s*(0|auto|[0-9.]+(?:px|em|rem|%|pt)(?:\s+[0-9.]+(?:px|em|rem|
 const BORDER = /^\s*(none|hidden|solid|dashed|dotted|double|ridge|groove|inset|outset|[0-9.]+(?:px|em|pt|rem)(?:\s+(?:solid|dashed|dotted|double|ridge|groove|inset|outset|none))?(?:\s+(?:#[0-9a-fA-F]{3,8}|[a-zA-Z][a-zA-Z0-9]*))?)\s*$/;
 
 const FONT_WEIGHT = /^\s*(normal|bold|bolder|lighter|[1-9]00)\s*$/;
+
+/** A border's line style, on its own rather than inside the shorthand. */
+const BORDER_STYLE = /^\s*(none|hidden|solid|dashed|dotted|double|ridge|groove|inset|outset)\s*$/;
 const FONT_STYLE = /^\s*(normal|italic|oblique)\s*$/;
 const TEXT_ALIGN = /^\s*(left|right|center|justify|start|end)\s*$/;
 const TEXT_DECORATION = /^\s*((?:underline|line-through|overline|none)(?:\s+(?:underline|line-through|overline))*)\s*$/;
@@ -143,10 +146,18 @@ export const sanitizeConfig: sanitize.IOptions = {
       color: [COLOR],
       'background-color': [COLOR],
       'font-family': [/^\s*[A-Za-z0-9_ '"(),-]+\s*$/],
-      'font-size': [LENGTH],
+      // Absolute only. React Native takes a number of points for a font size,
+      // so a percentage has nothing to be a percentage *of* — it is not that
+      // `120%` renders wrong, it is that it renders as nothing and the text
+      // silently falls back to the base size.
+      'font-size': [LENGTH_ABS],
       'font-weight': [FONT_WEIGHT],
       'font-style': [FONT_STYLE],
-      'line-height': [/^\s*(normal|[0-9.]+(?:px|em|rem|%)?)\s*$/],
+      // Same, after `adaptDeclarations` has turned the two forms email writes
+      // most — a bare multiplier and a percentage — into `em`, which the
+      // engine does resolve. `normal` is dropped there rather than allowed
+      // here, since React Native has no such value.
+      'line-height': [LENGTH_ABS],
       'text-align': [TEXT_ALIGN],
       'text-decoration': [TEXT_DECORATION],
       'text-transform': [/^\s*(none|uppercase|lowercase|capitalize)\s*$/],
@@ -179,6 +190,15 @@ export const sanitizeConfig: sanitize.IOptions = {
       'border-bottom-color': [COLOR],
       'border-left-color': [COLOR],
       'border-width': [LENGTH],
+      'border-top-width': [LENGTH],
+      'border-right-width': [LENGTH],
+      'border-bottom-width': [LENGTH],
+      'border-left-width': [LENGTH],
+      'border-style': [BORDER_STYLE],
+      'border-top-style': [BORDER_STYLE],
+      'border-right-style': [BORDER_STYLE],
+      'border-bottom-style': [BORDER_STYLE],
+      'border-left-style': [BORDER_STYLE],
       'border-radius': [LENGTH],
       width: [LENGTH],
       height: [LENGTH_ABS],
@@ -195,11 +215,36 @@ export const sanitizeConfig: sanitize.IOptions = {
   // a network load all the same — drop it, matching "http/https only".
   allowProtocolRelative: false,
   disallowedTagsMode: 'discard',
-  // Tags whose *contents* go with them. The library's own four, plus the
-  // sentinel `prepare` renames a positioned element to — without it here that
-  // element would be unwrapped and its hidden text would render as body copy,
-  // which is the outcome the exclusion exists to prevent.
-  nonTextTags: ['script', 'style', 'textarea', 'option', EXCLUDED_TAG],
+  /**
+   * Tags whose *contents* go with them.
+   *
+   * Discarding a tag keeps its text by default, which is right for a `<span>`
+   * and wrong for everything here. `<title>` is the message's subject and
+   * rendered as the first line of the body; `<noscript>` and `<iframe>` carry
+   * fallback copy meant for a client that could not show the real thing;
+   * `<head>` holds `<meta>` content. Each of them put text on screen that no
+   * mail client shows and the sender never meant a reader to see.
+   *
+   * The sentinel is here for the same reason: without it, an element excluded
+   * for positioning would be unwrapped and the copy it was hiding would render
+   * as body text, which is the outcome the exclusion exists to prevent.
+   */
+  nonTextTags: [
+    'script',
+    'style',
+    'textarea',
+    'option',
+    'title',
+    'head',
+    'noscript',
+    'iframe',
+    'object',
+    'embed',
+    'applet',
+    'template',
+    'select',
+    EXCLUDED_TAG,
+  ],
   // Second line only. `prepare` below is what actually catches a positioned
   // element, because it is the one place the raw style is still visible: by the
   // time a frame reaches here, a `style` holding *nothing but* disallowed
@@ -255,9 +300,13 @@ export function sanitizeHtml(
 function prepare(html: string, rules: CssRules): string {
   // `<center>` before the walk, since it is the tag itself that carries the
   // meaning and the allowlist has no room for it.
-  const centred = html.replace(CENTER_TAG, (_m, slash: string) =>
-    slash ? '</div>' : '<div style="text-align:center">',
-  );
+  const centred = html
+    .replace(CENTER_TAG, (_m, slash: string) =>
+      slash ? '</div>' : '<div style="text-align:center">',
+    )
+    // `<font>` becomes a span so its attributes can be read as declarations by
+    // the same walk that reads every other element's.
+    .replace(FONT_TAG, (_m, slash: string, attrs: string) => (slash ? '</span>' : `<span${attrs}>`));
 
   return sanitize(centred, {
     allowedTags: false,
@@ -274,6 +323,17 @@ function prepare(html: string, rules: CssRules): string {
 
         if (style && POSITIONING.test(style)) return { tagName: EXCLUDED_TAG, attribs: {} };
 
+        // An image the renderer cannot fetch is removed rather than emptied.
+        // `allowedSchemes` strips a `cid:` or `data:` src and a path-relative
+        // one has no scheme to strip, and in every case what survives is an
+        // `<img>` with nothing to show — which lays out as a blank gap the
+        // reader has no way to interpret. Note this takes CryptMail's own
+        // inline attachments with it: those are `cid:` references, and
+        // resolving them against the decrypted parts is a separate job.
+        if (tagName === 'img' && !/^https?:\/\//i.test(attribs.src ?? '')) {
+          return { tagName: EXCLUDED_TAG, attribs: {} };
+        }
+
         // A `span` the sender turned into a box becomes one. `display:block`
         // by itself is not enough: react-native-render-html keeps a span in
         // the text tree, and React Native draws no border, radius or
@@ -285,7 +345,17 @@ function prepare(html: string, rules: CssRules): string {
         // class, id and the presentational attributes have all done their work
         // here; none of them survives the real config, and dropping them keeps
         // them out of this pass's own output.
-        const { class: _class, id: _id, align: _a, bgcolor: _b, width: _w, ...rest } = attribs;
+        const {
+          class: _class,
+          id: _id,
+          align: _align,
+          bgcolor: _bgcolor,
+          width: _width,
+          color: _color,
+          face: _face,
+          size: _size,
+          ...rest
+        } = attribs;
         return { tagName: boxed ? 'div' : tagName, attribs: style ? { ...rest, style } : rest };
       },
     },
@@ -348,6 +418,12 @@ const PRESENTATIONAL: Record<string, (value: string) => string | null> = {
     return v === 'center' || v === 'left' || v === 'right' ? `text-align:${v}` : null;
   },
   bgcolor: (value) => (parseColor(value.trim()) ? `background-color:${value.trim()}` : null),
+  // `<font color=… face=…>` predates CSS and has outlived it in mail, because
+  // the templates were written once and never revisited. The tag is not in the
+  // allowlist and its text survives without them, so the visible symptom is
+  // copy that quietly loses its colour rather than copy that disappears.
+  color: (value) => (parseColor(value.trim()) ? `color:${value.trim()}` : null),
+  face: (value) => (/^[A-Za-z0-9_ '",-]+$/.test(value) ? `font-family:${value.trim()}` : null),
   width: (value) => {
     const v = value.trim();
     if (/^[0-9]+%$/.test(v)) return `max-width:${v}`;
@@ -364,6 +440,9 @@ const PRESENTATIONAL: Record<string, (value: string) => string | null> = {
  * only `block` here would never fire on the very markup it exists for.
  */
 const BOX_DISPLAY = /(?:^|;)\s*display\s*:\s*(?:inline-block|block|flex)/i;
+
+/** `<font>`, whose attributes are the only reason it is still written. */
+const FONT_TAG = /<(\/?)font\b([^>]*)>/gi;
 
 /** `<center>` is not in the allowlist, but what it means is expressible. */
 const CENTER_TAG = /<(\/?)center\b([^>]*)>/gi;
@@ -409,6 +488,21 @@ export function adaptDeclarations(html: string, dark: boolean): string {
       (match, lead: string, rawProperty: string, value: string) => {
         const property = rawProperty.trim().toLowerCase();
 
+        if (property === 'line-height') {
+          // CSS's two commonest forms are relative to the font size, and the
+          // renderer wants an absolute number. `em` is the one relative unit
+          // the engine does resolve, so both become that: a bare `1.5` and a
+          // `150%` are the same instruction written twice. `normal` has no
+          // equivalent at all and is dropped, which leaves the tag's own
+          // line-height rather than an invalid one.
+          const lh = value.trim().toLowerCase();
+          if (lh === 'normal') return lead;
+          const unitless = /^([0-9.]+)$/.exec(lh);
+          if (unitless) return `${lead}line-height:${unitless[1]}em`;
+          const percent = /^([0-9.]+)%$/.exec(lh);
+          if (percent) return `${lead}line-height:${+percent[1] / 100}em`;
+          return match;
+        }
         if (property === 'display') {
           // React Native has no inline-block. `block` is the closer of the two
           // it does have: the element gets its own box, which is the whole

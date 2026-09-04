@@ -16,24 +16,38 @@
  *
  * ## What is deliberately not supported
  *
- * Tag, `.class` and `#id` selectors, and comma-separated groups of them. Not
- * descendant or child combinators, not pseudo-classes, not attribute selectors:
- * the merge happens per element as the sanitizer walks it, with no ancestor
- * context to match against. `@media` and `@import` are skipped whole — the
- * first because a rule that depends on viewport is not a rule this renderer can
- * honour, the second because it is a network fetch wearing a stylesheet's
- * clothes.
+ * Simple selectors and compounds of them: `p`, `.lead`, `#hero`, `p.lead`,
+ * `.a.b`, and comma-separated groups. Not descendant or child combinators, not
+ * pseudo-classes, not attribute selectors — the merge happens per element as
+ * the sanitizer walks it, with no ancestor context to match against, so a
+ * `.card h1` cannot be evaluated here at all. `@media` and `@import` are
+ * skipped whole: the first because a rule that depends on viewport is not one
+ * this renderer can honour, the second because it is a network fetch wearing a
+ * stylesheet's clothes.
  */
+
+/**
+ * A selector that names more than one thing at once: `p.lead`, `.a.b`,
+ * `td#total.wide`. Every part has to match the same element.
+ */
+type Compound = {
+  tag: string | null;
+  classes: string[];
+  id: string | null;
+  declarations: string;
+};
 
 /** Declarations by selector name, in source order, per selector kind. */
 export type CssRules = {
   tags: Map<string, string>;
   classes: Map<string, string>;
   ids: Map<string, string>;
+  /** Kept in source order: they are more specific than any single map above. */
+  compounds: Compound[];
 };
 
 export function emptyRules(): CssRules {
-  return { tags: new Map(), classes: new Map(), ids: new Map() };
+  return { tags: new Map(), classes: new Map(), ids: new Map(), compounds: [] };
 }
 
 /** Nothing in here is worth scanning past this much markup. */
@@ -84,11 +98,15 @@ export function extractRules(html: string): CssRules {
       if (trimmed === '') continue;
 
       const target = bucketFor(trimmed, rules);
-      if (!target) continue;
+      if (target) {
+        const [map, name] = target;
+        const existing = map.get(name);
+        map.set(name, existing ? `${existing};${declarations}` : declarations);
+        continue;
+      }
 
-      const [map, name] = target;
-      const existing = map.get(name);
-      map.set(name, existing ? `${existing};${declarations}` : declarations);
+      const compound = parseCompound(trimmed);
+      if (compound) rules.compounds.push({ ...compound, declarations });
     }
   }
   return rules;
@@ -106,6 +124,26 @@ function bucketFor(selector: string, rules: CssRules): [Map<string, string>, str
     return [rules.ids, selector.slice(1)];
   }
   return null;
+}
+
+/** Every part of a compound selector, or null if it is a shape we cannot match. */
+function parseCompound(selector: string): Omit<Compound, 'declarations'> | null {
+  // One optional tag, then any number of .class and #id parts, and nothing
+  // else — a space or a `>` means an ancestor is involved and we are out.
+  if (!/^[a-zA-Z][a-zA-Z0-9]*(?:[.#][a-zA-Z_][\w-]*)+$|^(?:[.#][a-zA-Z_][\w-]*){2,}$/.test(selector)) {
+    return null;
+  }
+
+  const tagMatch = /^[a-zA-Z][a-zA-Z0-9]*/.exec(selector);
+  const tag = tagMatch ? tagMatch[0].toLowerCase() : null;
+  const classes: string[] = [];
+  let id: string | null = null;
+
+  for (const part of selector.slice(tag ? tag.length : 0).match(/[.#][a-zA-Z_][\w-]*/g) ?? []) {
+    if (part[0] === '.') classes.push(part.slice(1));
+    else id = part.slice(1);
+  }
+  return { tag, classes, id };
 }
 
 /**
@@ -137,9 +175,22 @@ export function mergeDeclarations(
     }
   }
 
-  if (attribs.id) {
-    const idRule = rules.ids.get(attribs.id.trim());
+  const elementId = attribs.id?.trim();
+  if (elementId) {
+    const idRule = rules.ids.get(elementId);
     if (idRule) parts.push(idRule);
+  }
+
+  // Compounds last of the stylesheet rules, because naming more things about
+  // an element is what specificity means.
+  if (rules.compounds.length > 0) {
+    const own = new Set(attribs.class ? attribs.class.trim().split(/\s+/) : []);
+    for (const rule of rules.compounds) {
+      if (rule.tag && rule.tag !== tag.toLowerCase()) continue;
+      if (rule.id && rule.id !== elementId) continue;
+      if (!rule.classes.every((name) => own.has(name))) continue;
+      parts.push(rule.declarations);
+    }
   }
 
   if (attribs.style) parts.push(attribs.style);

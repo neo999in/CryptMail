@@ -23,24 +23,48 @@
 
 type Rgb = { r: number; g: number; b: number };
 
-/** The handful of keywords email actually writes. Anything else is left alone. */
-const KEYWORDS: Record<string, Rgb> = {
-  white: { r: 255, g: 255, b: 255 },
-  black: { r: 0, g: 0, b: 0 },
-  silver: { r: 192, g: 192, b: 192 },
-  gray: { r: 128, g: 128, b: 128 },
-  grey: { r: 128, g: 128, b: 128 },
-  lightgray: { r: 211, g: 211, b: 211 },
-  lightgrey: { r: 211, g: 211, b: 211 },
-  whitesmoke: { r: 245, g: 245, b: 245 },
-  gainsboro: { r: 220, g: 220, b: 220 },
+/**
+ * Named colours, as hex.
+ *
+ * Weighted towards the pale end on purpose. A named colour that goes
+ * unrecognised is not adapted, and an unadapted *light* name is a white card
+ * left white on a black page — the one failure that actually shows. A missed
+ * `crimson` would have been left alone anyway for being saturated, so the
+ * greys, off-whites and the handful of dark names are what earn their place
+ * here; the rest of CSS's 148 are omitted rather than pretended at.
+ */
+const KEYWORDS: Record<string, string> = {
+  white: '#ffffff',
+  ivory: '#fffff0',
+  snow: '#fffafa',
+  floralwhite: '#fffaf0',
+  ghostwhite: '#f8f8ff',
+  mintcream: '#f5fffa',
+  azure: '#f0ffff',
+  aliceblue: '#f0f8ff',
+  seashell: '#fff5ee',
+  oldlace: '#fdf5e6',
+  linen: '#faf0e6',
+  cornsilk: '#fff8dc',
+  honeydew: '#f0fff0',
+  lavender: '#e6e6fa',
+  beige: '#f5f5dc',
+  whitesmoke: '#f5f5f5',
+  gainsboro: '#dcdcdc',
+  lightgray: '#d3d3d3',
+  lightgrey: '#d3d3d3',
+  silver: '#c0c0c0',
+  darkgray: '#a9a9a9',
+  darkgrey: '#a9a9a9',
+  gray: '#808080',
+  grey: '#808080',
+  dimgray: '#696969',
+  dimgrey: '#696969',
+  black: '#000000',
 };
 
 export function parseColor(input: string): Rgb | null {
-  const value = input.trim().toLowerCase();
-
-  const keyword = KEYWORDS[value];
-  if (keyword) return keyword;
+  const value = KEYWORDS[input.trim().toLowerCase()] ?? input.trim().toLowerCase();
 
   const hex = /^#([0-9a-f]{3,8})$/.exec(value);
   if (hex) {
@@ -66,7 +90,34 @@ export function parseColor(input: string): Rgb | null {
   if (fn) {
     return { r: Math.round(+fn[1]), g: Math.round(+fn[2]), b: Math.round(+fn[3]) };
   }
+
+  const hsl = /^hsla?\(\s*([0-9.-]+)(?:deg)?[\s,]+([0-9.]+)%[\s,]+([0-9.]+)%/.exec(value);
+  if (hsl) return fromHsl(+hsl[1], +hsl[2] / 100, +hsl[3] / 100);
+
   return null;
+}
+
+/** hsl() is rare in hand-written mail and routine in anything generated. */
+function fromHsl(hue: number, s: number, l: number): Rgb {
+  const h = (((hue % 360) + 360) % 360) / 360;
+  if (s === 0) return { r: l * 255, g: l * 255, b: l * 255 };
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const channel = (t: number) => {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  return {
+    r: Math.round(channel(h + 1 / 3) * 255),
+    g: Math.round(channel(h) * 255),
+    b: Math.round(channel(h - 1 / 3) * 255),
+  };
 }
 
 function toHex({ r, g, b }: Rgb): string {
@@ -172,5 +223,7 @@ export function colorInShorthand(value: string): string | null {
   for (const word of value.toLowerCase().split(/[\s,()]+/)) {
     if (KEYWORDS[word]) return word;
   }
+  const hsl = /hsla?\([^)]*\)/.exec(value);
+  if (hsl) return hsl[0];
   return null;
 }
