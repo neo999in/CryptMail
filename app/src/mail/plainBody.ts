@@ -37,7 +37,13 @@ function split(section: string): Part {
 }
 
 function decodeBody(part: Part): string {
-  return decodeTransfer(part.headers['content-transfer-encoding'], part.body);
+  // The charset is the part's own, and it has to travel with the bytes: a
+  // Windows-1252 part read as UTF-8 loses a character *and* the one after it.
+  return decodeTransfer(
+    part.headers['content-transfer-encoding'],
+    part.body,
+    parameterOf(part.headers['content-type'] ?? '', 'charset'),
+  );
 }
 
 /** Crude tag strip, used only when a message offers no text/plain alternative. */

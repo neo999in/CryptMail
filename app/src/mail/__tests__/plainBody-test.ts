@@ -51,6 +51,49 @@ describe('quoted-printable', () => {
   });
 });
 
+describe('the charset a part declares', () => {
+  it('reads a Windows-1252 part as one byte per character', () => {
+    // `=B7` is a middle dot in Windows-1252 and the *first byte of a pair* in
+    // UTF-8, so the UTF-8 reader ate the space after it as well: a footer
+    // reading `Help · Privacy` came back as one wrong glyph and no space.
+    const raw =
+      'Content-Type: text/html; charset=iso-8859-1\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\n' +
+      'Help =B7 Privacy';
+    expect(htmlOf(raw)).toBe('Help · Privacy');
+  });
+
+  it('reads the range Windows-1252 fills and ISO-8859-1 leaves as controls', () => {
+    // The curly quotes, dashes and bullets a Windows editor puts in a
+    // template. Strict Latin-1 would make each of them a control character.
+    const raw =
+      'Content-Type: text/plain; charset="windows-1252"\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\n' +
+      '=91quoted=92 =96 dash =85 =95';
+    expect(plainBodyOf(raw)).toBe('‘quoted’ – dash … •');
+  });
+
+  it('still reads an unlabelled or UTF-8 part as UTF-8', () => {
+    const utf8 =
+      'Content-Type: text/plain; charset=utf-8\n' +
+      'Content-Transfer-Encoding: quoted-printable\n\nCaf=C3=A9';
+    const unlabelled =
+      'Content-Type: text/plain\nContent-Transfer-Encoding: quoted-printable\n\nCaf=C3=A9';
+
+    expect(plainBodyOf(utf8)).toBe('Café');
+    expect(plainBodyOf(unlabelled)).toBe('Café');
+  });
+
+  it('reads a base64 part in its declared charset too', () => {
+    // `Help · Privacy` with a Windows-1252 middle dot, in literal base64: the
+    // test must not depend on a Node global the React Native runtime lacks.
+    const raw =
+      'Content-Type: text/plain; charset=iso-8859-1\n' +
+      'Content-Transfer-Encoding: base64\n\nSGVscCC3IFByaXZhY3k=';
+    expect(plainBodyOf(raw)).toBe('Help · Privacy');
+  });
+});
+
 describe('multipart', () => {
   const alternative = crlf(
     'Content-Type: multipart/alternative; boundary="b1"\n' +

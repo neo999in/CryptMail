@@ -293,9 +293,19 @@ function bodyPart(parts: MimePart[], mimeType: RegExp): MimePart | undefined {
 /** The newline(s) before a boundary belong to the delimiter, not the part. */
 const TRAILING_NEWLINES = /\n+$/;
 
-/** Decode one part's body against its own transfer encoding. */
+/** Decode one part's body against its own transfer encoding and charset. */
 function partText(part: MimePart): string {
-  return decodeTransfer(part.headers['content-transfer-encoding'], part.body);
+  return decodeTransfer(
+    part.headers['content-transfer-encoding'],
+    part.body,
+    charsetOf(part.headers['content-type']),
+  );
+}
+
+/** The `charset=` off a Content-Type, which decides what its bytes spell. */
+function charsetOf(contentType: string | undefined): string | undefined {
+  const match = /charset\s*=\s*(?:"([^"]*)"|([^;\s]+))/i.exec(contentType ?? '');
+  return match ? (match[1] ?? match[2]) : undefined;
 }
 
 /**
@@ -325,7 +335,11 @@ export function parseProtectedInner(inner: string): {
   if (!boundary) {
     // A single-part tree. It is still allowed to be HTML — some clients seal
     // one — in which case that markup is both the body and the html.
-    const single = decodeTransfer(headers['content-transfer-encoding'], body).trim();
+    const single = decodeTransfer(
+      headers['content-transfer-encoding'],
+      body,
+      charsetOf(headers['content-type']),
+    ).trim();
     const isHtml = /^text\/html/i.test(headers['content-type'] ?? '');
     return { subject, body: single, html: isHtml ? single : undefined, attachments: [] };
   }
