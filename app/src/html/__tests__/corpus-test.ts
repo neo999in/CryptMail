@@ -196,6 +196,102 @@ describe('a hostile message wearing the same skeleton', () => {
   });
 });
 
+/**
+ * The other skeleton: MJML's, which is what a transactional email is built from
+ * now — nested `div`/`table` pairs, a decorative chip drawn entirely in CSS, and
+ * a footer link that takes its colour from the cascade.
+ *
+ * This one is here because it did not survive. Two of its declarations named a
+ * value React Native cannot parse as a colour — `background: url(...)` read for
+ * its first word, and `color: inherit` — and a colour it cannot parse does not
+ * fail alone: everything after it stopped drawing, so the message was a logo
+ * and a screen of black with the sign-in button somewhere inside it.
+ */
+const TRANSACTIONAL = `
+<!doctype html><html lang="und" dir="auto"><head><title></title>
+<!--[if !mso]><!--><meta http-equiv="X-UA-Compatible" content="IE=edge"><!--<![endif]-->
+<style type="text/css">
+  .footer-link { color: inherit; text-decoration: underline }
+</style></head>
+<body style="word-spacing:normal;background-color:#faf9f5">
+  <div style="background-color:#faf9f5">
+    <div style="margin:0px auto;max-width:640px">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%">
+        <tbody><tr><td style="direction:ltr;font-size:0px;padding:20px 0;padding-top:48px;text-align:center">
+          <div style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%">
+            <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"><tbody>
+              <tr><td align="left" style="font-size:0px;padding:0;word-break:break-word">
+                <div aria-hidden="true" style="width:146px;height:146px;margin:0 auto;background:url('https://cdn.example/wave.gif') center / contain no-repeat;border-radius:20px;overflow:hidden"></div>
+              </td></tr>
+              <tr><td align="center" style="font-size:0px;padding:10px 25px;word-break:break-word">
+                <div style="font-family:Helvetica,Arial,sans-serif;font-size:28px;font-weight:bold;line-height:1.2;color:#141413;text-align:center">Sign in to Example</div>
+              </td></tr>
+              <tr><td align="center" style="font-size:0px;padding:10px 25px;word-break:break-word">
+                <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%">
+                  <tr><td align="center" bgcolor="#141413" role="presentation" style="border:none;border-radius:10px;cursor:auto;mso-padding-alt:10px 25px;background:#141413" valign="middle">
+                    <p style="display:inline-block;background:#141413;color:#ffffff;font-family:Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal;line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:0;mso-padding-alt:0px;border-radius:10px">
+                      <a href="https://example.com/magic-link" style="text-decoration:none;line-height:20px;color:white;font-size:18px;display:inline-block;padding:14px 36px">Sign in</a>
+                    </p>
+                  </td></tr>
+                </table>
+              </td></tr>
+              <tr><td align="center" style="font-size:0px;padding:10px 25px;word-break:break-word">
+                <div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:24px;color:#7B7974;text-align:center">
+                  If you didn't request this email, you can safely ignore it.<br>
+                  Need a hand? Contact <a class="footer-link" href="https://example.com/support">Support</a>.
+                </div>
+              </td></tr>
+            </tbody></table>
+          </div>
+        </td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</body></html>
+`;
+
+describe('a transactional message, MJML-shaped', () => {
+  const out = render(TRANSACTIONAL);
+
+  it('keeps every piece of its content', () => {
+    for (const text of [
+      'Sign in to Example',
+      'Sign in',
+      "If you didn't request this email",
+      'Support',
+    ]) {
+      expect(out).toContain(text);
+    }
+  });
+
+  it('emits no colour the renderer cannot parse', () => {
+    // Either of these blanked the body from that point down.
+    expect(out).not.toContain('background-color:url');
+    expect(out).not.toContain(':inherit');
+    expect(out).not.toContain('currentcolor');
+  });
+
+  it('takes the decorative chip away with the picture it was there to show', () => {
+    // A 146-point box holding a GIF this reader cannot draw is a 146-point
+    // hole between the logo and the headline once the GIF is gone.
+    expect(out).not.toContain('146px');
+    expect(out).not.toContain('cdn.example/wave.gif');
+  });
+
+  it('keeps the button its colour, its radius and its link', () => {
+    expect(out).toContain('background-color:#141413');
+    expect(out).toContain('border-radius:10px');
+    expect(out).toContain('https://example.com/magic-link');
+  });
+
+  it('gives the headline a line box taller than its type', () => {
+    // `line-height:1.2` under `font-size:28px` is 33.6px. Resolved as `em`
+    // against the engine's fixed 16px root it was 19.2, and the words in a
+    // two-line headline printed over each other.
+    expect(out).toContain('line-height:33.6px');
+  });
+});
+
 describe('the dropped-declaration tally', () => {
   beforeEach(() => resetDroppedDeclarations());
 

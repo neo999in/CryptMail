@@ -26,6 +26,7 @@ import {
   color,
   Emit,
   fontFamily,
+  fontSizePx,
   fontWeight,
   keyword,
   length,
@@ -46,7 +47,7 @@ import {
 type Property = { read: Normalise; emitAs?: string };
 
 /** Narrow a normaliser's result to a plain value, for the ones that compose. */
-function valueOf(result: string | Emit | null): string | null {
+function valueOf(result: string | Emit | Emit[] | null): string | null {
   return typeof result === 'string' ? result : null;
 }
 
@@ -76,14 +77,21 @@ export const PROPERTIES: Record<string, Property> = {
   // divide by zero. The crash surfaces as a blank render error screen with the
   // message nowhere in sight.
   'font-size': { read: positivePx },
-  'font-style': { read: keyword('normal', 'italic', 'oblique') },
+  // `oblique` is read as `italic`: the engine's own enumeration stops at the
+  // two, so passing it through was a declaration that vanished a layer later.
+  'font-style': { read: obliqueAsItalic },
   // Emits its own property: a family when there are faces to name, the weight
   // itself when there are not. See `values.fontWeight`.
   'font-weight': { read: fontWeight },
   'line-height': { read: lineHeight },
   'letter-spacing': { read: px },
-  'text-align': { read: keyword('left', 'right', 'center', 'justify', 'start', 'end') },
-  'text-decoration': { read: keyword('none', 'underline', 'line-through', 'overline') },
+  // `start` and `end` are the logical pair, and the engine takes neither. RN's
+  // `auto` *is* start — it follows the writing direction — so that is the
+  // faithful reading; `end` has no counterpart and takes the physical side.
+  'text-align': { read: textAlignValue },
+  // No `overline`: React Native draws three of the four, and the engine's own
+  // list stops at the three for that reason.
+  'text-decoration': { read: keyword('none', 'underline', 'line-through') },
   'text-transform': { read: keyword('none', 'uppercase', 'lowercase', 'capitalize') },
 
   /* --------------------------------------------------------------- boxes ---- */
@@ -101,8 +109,14 @@ export const PROPERTIES: Record<string, Property> = {
   // share of the parent is already relative and means what it says.
   width: { read: widthValue },
   'max-width': { read: sizePxOrPercent },
-  height: { read: sizePx },
+  // `auto` is the intrinsic size, which is what both models already do — but
+  // saying so matters on an image: `width:100%;height:auto` is how every
+  // template keeps a hero's aspect ratio, and dropping the second half left
+  // the renderer holding a width with a stale intrinsic height beside it.
+  height: { read: autoOr(sizePx) },
   'max-height': { read: sizePx },
+  'min-width': { read: sizePxOrPercent },
+  'min-height': { read: sizePx },
 
   // `auto` is deliberately absent from the margins. It is how every email
   // centres its body — `max-width:600px;margin:auto` is the standard wrapper —
@@ -112,13 +126,13 @@ export const PROPERTIES: Record<string, Property> = {
   // content, and a wrapper full of stretchy children collapses to a sliver.
   // Dropping it is the faithful reading: what was asked for is "centred,
   // capped at 600", and the cap is the half that survives translation.
-  margin: { read: lengths({ percent: true }) },
+  margin: { read: lengths({ percent: true, property: 'margin' }) },
   'margin-top': { read: pxOrPercent },
   'margin-right': { read: pxOrPercent },
   'margin-bottom': { read: pxOrPercent },
   'margin-left': { read: pxOrPercent },
   // Padding, unlike margin, has no negative reading at all.
-  padding: { read: lengths({ percent: true, sign: 'non-negative' }) },
+  padding: { read: lengths({ percent: true, sign: 'non-negative', property: 'padding' }) },
   'padding-top': { read: sizePxOrPercent },
   'padding-right': { read: sizePxOrPercent },
   'padding-bottom': { read: sizePxOrPercent },
@@ -146,6 +160,13 @@ export const PROPERTIES: Record<string, Property> = {
   'border-bottom-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-left-style': { read: keyword('none', 'hidden', 'solid', 'dashed', 'dotted', 'double', 'ridge', 'groove', 'inset', 'outset') },
   'border-radius': { read: sizePx },
+  // The four corners, which a rounded button or a card with a flat bottom
+  // writes one at a time. Each is its own property in React Native too, so the
+  // translation is the name; without them a pill rendered as a rectangle.
+  'border-top-left-radius': { read: sizePx },
+  'border-top-right-radius': { read: sizePx },
+  'border-bottom-left-radius': { read: sizePx },
+  'border-bottom-right-radius': { read: sizePx },
 
   /* -------------------------------------------------------- backgrounds ---- */
   'background-color': { read: color('background') },
@@ -206,6 +227,27 @@ function widthValue(raw: string, ctx: ValueContext): string | Emit | null {
   return value.endsWith('%') ? value : { property: 'max-width', value };
 }
 
+/** A normaliser that also takes `auto`, the intrinsic size both models have. */
+function autoOr(read: Normalise): Normalise {
+  return (raw, ctx) => (raw.trim().toLowerCase() === 'auto' ? 'auto' : read(raw, ctx));
+}
+
+const fontStyle = keyword('normal', 'italic', 'oblique');
+
+function obliqueAsItalic(raw: string, ctx: ValueContext): string | null {
+  const value = valueOf(fontStyle(raw, ctx));
+  return value === 'oblique' ? 'italic' : value;
+}
+
+const textAlign = keyword('left', 'right', 'center', 'justify', 'start', 'end');
+
+function textAlignValue(raw: string, ctx: ValueContext): string | null {
+  const value = valueOf(textAlign(raw, ctx));
+  if (value === 'start') return 'auto';
+  if (value === 'end') return 'right';
+  return value;
+}
+
 function displayValue(raw: string, ctx: ValueContext): string | null {
   const mode = valueOf(keyword('none', 'block', 'inline', 'inline-block', 'flex')(raw, ctx));
   if (mode === null) return null;
@@ -229,6 +271,13 @@ function firstWord(raw: string): string | null {
  */
 export function readStyle(style: string, ctx: ValueContext): string {
   const out: string[] = [];
+  // What the element's own padding adds to the box it declared. See `padded`.
+  const inset = padded(style);
+  // The element's own size, found before anything is read, because
+  // `line-height` is a ratio of it and the renderer resolves `em` against a
+  // fixed root instead. Declared twice, the last one wins, as CSS says.
+  const declared = declaredFontSize(style);
+  const inner = declared === null ? ctx : { ...ctx, fontSize: declared };
 
   for (const declaration of style.split(';')) {
     const at = declaration.indexOf(':');
@@ -244,16 +293,131 @@ export function readStyle(style: string, ctx: ValueContext): string {
       continue;
     }
 
-    const read = entry.read(raw, ctx);
+    const read = entry.read(raw, inner);
     if (read === null) {
       recordDropped(property);
       continue;
     }
 
+    // One declaration in, one *or more* out: a shorthand that lost a component
+    // comes back as the longhands for the sides that survived.
     const emitted =
-      typeof read === 'string' ? { property: entry.emitAs ?? property, value: read } : read;
-    out.push(`${emitted.property}:${emitted.value}`);
+      typeof read === 'string' ? [{ property: entry.emitAs ?? property, value: read }] : [read].flat();
+    for (const { property: name, value } of emitted) out.push(`${name}:${borderBox(name, value, inset)}`);
   }
 
   return out.join(';');
+}
+
+
+/**
+ * The two models a box is measured in, reconciled.
+ *
+ * CSS measures `width` as the *content* and adds padding outside it; React
+ * Native measures it as the whole box and fits the padding inside. Email is
+ * written in the first, so `width:20px;padding:0 6px` — one social icon, and
+ * the shape of every padded button — asked for a 32-point box around a
+ * 20-point image and got a 20-point box with 12 points of padding eating it.
+ * Four icons in a row came out overlapping each other.
+ *
+ * So a declared size is read as the sender measured it and emitted as the
+ * renderer will read it: the padding on that axis is added back. Only pixels
+ * on both sides can be added — a percentage is a share of something this layer
+ * cannot see — and an element that says `box-sizing:border-box` is already
+ * speaking the renderer's language and is left alone.
+ */
+const HORIZONTAL = new Set(['width', 'max-width', 'min-width']);
+const VERTICAL = new Set(['height', 'max-height', 'min-height']);
+const BORDER_BOX = /box-sizing\s*:\s*border-box/i;
+const PX_VALUE = /^([0-9.]+)px$/;
+
+function borderBox(property: string, value: string, inset: Inset): string {
+  const add = HORIZONTAL.has(property) ? inset.x : VERTICAL.has(property) ? inset.y : 0;
+  if (add === 0) return value;
+
+  const px = PX_VALUE.exec(value);
+  return px ? `${Math.round((Number.parseFloat(px[1]) + add) * 100) / 100}px` : value;
+}
+
+type Inset = { x: number; y: number };
+
+/**
+ * How much padding the element puts inside its own declared size.
+ *
+ * Read off the raw declarations rather than the emitted ones, because the
+ * shorthand may be read into longhands and either spelling has to count. Zero
+ * on every route this cannot measure: a percentage, a border-box element, or
+ * an element with no padding at all.
+ */
+function padded(style: string): Inset {
+  if (BORDER_BOX.test(style)) return NO_INSET;
+
+  const sides = { top: 0, right: 0, bottom: 0, left: 0 };
+  let found = false;
+
+  for (const declaration of style.split(';')) {
+    const at = declaration.indexOf(':');
+    if (at < 0) continue;
+    const property = declaration.slice(0, at).trim().toLowerCase();
+    const raw = declaration.slice(at + 1).replace(/!\s*important/gi, '').trim();
+
+    if (property === 'padding') {
+      const parts = raw.split(/\s+/).filter(Boolean).map(pixels);
+      const expansion = SHORTHAND[parts.length];
+      if (!expansion) continue;
+      SIDE_ORDER.forEach((side, index) => {
+        sides[side] = parts[expansion[index]] ?? 0;
+      });
+      found = true;
+      continue;
+    }
+    const side = PADDING_SIDE[property];
+    if (side) {
+      sides[side] = pixels(raw);
+      found = true;
+    }
+  }
+
+  return found ? { x: sides.left + sides.right, y: sides.top + sides.bottom } : NO_INSET;
+}
+
+const NO_INSET: Inset = { x: 0, y: 0 };
+const SIDE_ORDER = ['top', 'right', 'bottom', 'left'] as const;
+const SHORTHAND: Record<number, [number, number, number, number]> = {
+  1: [0, 0, 0, 0],
+  2: [0, 1, 0, 1],
+  3: [0, 1, 2, 1],
+  4: [0, 1, 2, 3],
+};
+const PADDING_SIDE: Record<string, (typeof SIDE_ORDER)[number] | undefined> = {
+  'padding-top': 'top',
+  'padding-right': 'right',
+  'padding-bottom': 'bottom',
+  'padding-left': 'left',
+};
+
+/** A padding component in pixels, or zero for one this cannot add. */
+function pixels(raw: string): number {
+  const px = PX_VALUE.exec(raw.trim().toLowerCase());
+  if (px) return Number.parseFloat(px[1]);
+  return raw.trim() === '0' ? 0 : 0;
+}
+
+/**
+ * The font size an element sets on itself, in pixels, or null when it sets none.
+ *
+ * Read straight off the declaration text rather than from the emitted style,
+ * because `line-height` may be read before `font-size` is and the ratio needs
+ * the size either way.
+ */
+function declaredFontSize(style: string): number | null {
+  let found: number | null = null;
+  for (const declaration of style.split(';')) {
+    const at = declaration.indexOf(':');
+    if (at < 0) continue;
+    if (declaration.slice(0, at).trim().toLowerCase() !== 'font-size') continue;
+    const px = fontSizePx(declaration.slice(at + 1).replace(/!\s*important/gi, '').trim());
+    if (px !== null) found = px;
+  }
+  return found;
 }

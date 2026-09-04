@@ -21,7 +21,7 @@
  * `url(...)` and `expression(...)` do not survive being read as a colour or a
  * length, because they are not one.
  */
-import { adaptBackground, adaptBorder, adaptForeground, parseColor } from './colors';
+import { adaptBackground, adaptBorder, adaptForeground, COLOR_NAMES, parseColor } from './colors';
 
 /** What a value may need to know about the surroundings it is read into. */
 export type ValueContext = {
@@ -29,6 +29,15 @@ export type ValueContext = {
   dark: boolean;
   /** The loaded face per weight, since React Native synthesizes none. */
   faces?: { regular: string; medium: string; semibold: string; bold: string };
+  /**
+   * The font size this element declares, in pixels, when it declares one.
+   *
+   * Only `line-height` reads it, and it has to: the renderer resolves `em`
+   * against a fixed 16px root rather than against the element's own size, so a
+   * ratio converted to `em` comes out at body scale on a headline. See
+   * `lineHeight`.
+   */
+  fontSize?: number;
 };
 
 /**
@@ -43,10 +52,30 @@ export type ValueContext = {
  */
 export type Emit = { property: string; value: string };
 
-/** Reads one declaration's value: what to emit, or null to drop it. */
-export type Normalise = (raw: string, ctx: ValueContext) => string | Emit | null;
+/**
+ * Reads one declaration's value: what to emit, or null to drop it.
+ *
+ * Several declarations may come back where one went in. That is how a shorthand
+ * survives a component it cannot read — see `lengths`.
+ */
+export type Normalise = (raw: string, ctx: ValueContext) => string | Emit | Emit[] | null;
 
-const UNIT = '(?:px|pt|em|rem)';
+/**
+ * The length units that survive the trip.
+ *
+ * Not a taste list: it is exactly the set `@native-html/css-processor` can turn
+ * into a number of points — the absolute ones by a fixed multiplier, `em`/`ex`
+ * against the root font size. A unit outside it reaches the renderer and is
+ * dropped there instead, which is the silent half of the failure this module
+ * exists to end, so the two lists are kept the same on purpose.
+ *
+ * `ex` earns its place despite looking archaic: it is what Gmail writes into
+ * every reply it quotes (`margin:0 0 0 .8ex;padding-left:1ex`), so leaving it
+ * out cost every quoted thread its indent. `in`, `cm`, `mm` and `pc` are
+ * Word's, which reaches mail through Outlook. `ch`, `vw` and `vh` stay out —
+ * the processor knows the spellings and computes nothing for them.
+ */
+const UNIT = '(?:px|pt|pc|in|cm|mm|em|rem|ex)';
 
 /** One of a fixed set of words, and nothing else. */
 export function keyword(...allowed: string[]): Normalise {
@@ -103,21 +132,56 @@ export function length(options: { percent?: boolean; sign?: Sign } = {}): Normal
   };
 }
 
+/** The sides a one-to-four value shorthand names, by how many values it has. */
+const SIDES = ['top', 'right', 'bottom', 'left'] as const;
+
+/** Which component of the shorthand each side takes, per number of values. */
+const EXPANSION: Record<number, [number, number, number, number]> = {
+  1: [0, 0, 0, 0],
+  2: [0, 1, 0, 1],
+  3: [0, 1, 2, 1],
+  4: [0, 1, 2, 3],
+};
+
 /**
  * One to four lengths — the margin and padding shorthands.
  *
- * Read component by component, which is the whole point: a shorthand is
- * several values travelling together, and one unreadable component should cost
- * that component rather than the declaration.
+ * Read component by component, which is the whole point: a shorthand is several
+ * values travelling together, and one unreadable component should cost that
+ * component rather than the declaration. Where every component reads, the
+ * shorthand is emitted as written. Where some do not, what is left is emitted
+ * as the longhands for the sides that do read, and the rest are dropped.
+ *
+ * `margin: 0 auto` is the case that matters and it is everywhere: the standard
+ * centred body wrapper, and the reset that takes the browser's default margin
+ * off a heading, are the same declaration. Refusing it whole — which is what
+ * happened while a shorthand was all-or-nothing — meant the reset went with the
+ * centring, and every `<p>` and `<h1>` in the message kept a margin its author
+ * had explicitly removed. `auto` itself still has no reading here: Yoga honours
+ * it by shrinking the box to its content, so a wrapper full of stretched
+ * children collapses to a sliver.
  */
-export function lengths(options: { percent?: boolean; sign?: Sign } = {}): Normalise {
+export function lengths(
+  options: { percent?: boolean; sign?: Sign; property?: string } = {},
+): Normalise {
   const one = length({ percent: options.percent, sign: options.sign });
   return (raw, ctx) => {
     const parts = raw.trim().split(/\s+/).filter(Boolean);
-    if (parts.length === 0 || parts.length > 4) return null;
+    const expansion = EXPANSION[parts.length];
+    if (!expansion) return null;
 
     const read = parts.map((part) => one(part, ctx));
-    return read.every((part): part is string => typeof part === 'string') ? read.join(' ') : null;
+    if (read.every((part): part is string => typeof part === 'string')) return read.join(' ');
+    if (!options.property) return null;
+
+    const out: Emit[] = [];
+    expansion.forEach((component, side) => {
+      const value = read[component];
+      if (typeof value === 'string') {
+        out.push({ property: `${options.property}-${SIDES[side]}`, value });
+      }
+    });
+    return out.length > 0 ? out : null;
   };
 }
 
@@ -134,17 +198,21 @@ export function color(role: 'foreground' | 'background' | 'border'): Normalise {
 
   return (raw, ctx) => {
     const value = raw.trim();
-    // Not colours to parse, but meaningful and safe.
-    if (/^(transparent|inherit|currentcolor)$/i.test(value)) return value.toLowerCase();
+    // `transparent` is a colour React Native has. `inherit` and `currentcolor`
+    // are not: they are instructions to a cascade, and they fall through to the
+    // name check below, which refuses them. That is also what they asked for —
+    // an element stating no colour of its own inherits one.
+    if (/^transparent$/i.test(value)) return 'transparent';
 
     if (!parseColor(value)) {
-      // A bare word this module cannot resolve is still passed through: React
-      // Native knows the whole CSS named set and `colors.ts` deliberately does
-      // not, since it only needs the names whose *lightness* it must correct.
+      // A named colour this module does not adapt is still passed through:
+      // `colors.ts` keeps only the names whose *lightness* it must correct, and
       // `crimson` goes to the renderer unadapted, which is where a saturated
-      // colour was going to end up anyway. A word carries no parenthesis, so
-      // there is nothing for a `url()` or an `expression()` to hide in.
-      return /^[a-z]+$/i.test(value) ? value.toLowerCase() : null;
+      // colour was going to end up anyway. It is checked against the full CSS
+      // set rather than against "is a word", because the words in a background
+      // shorthand — `url`, `cover`, `no-repeat` — are not colours, and React
+      // Native given one of those renders nothing from there on.
+      return COLOR_NAMES.has(value.toLowerCase()) ? value.toLowerCase() : null;
     }
     return (ctx.dark && adapt(value)) || value;
   };
@@ -198,14 +266,59 @@ export const fontWeight: Normalise = (raw, ctx) => {
   return { property: 'font-family', value: face };
 };
 
+/** How many pixels one CSS length is, for the units that convert absolutely. */
+const PX_PER_UNIT: Record<string, number> = {
+  px: 1,
+  pt: 4 / 3,
+  pc: 16,
+  in: 96,
+  cm: 96 / 2.54,
+  mm: 9.6 / 2.54,
+  // Against the engine's own 16px root, which is what it resolves them to.
+  em: 16,
+  rem: 16,
+  ex: 16 * 0.63,
+};
+
+/**
+ * A declared font size in pixels, or null when it is not one this can measure.
+ *
+ * Exported for `readStyle`, which reads an element's own `font-size` before it
+ * reads anything else so that `line-height` has something to be a ratio of.
+ */
+export function fontSizePx(raw: string): number | null {
+  const match = new RegExp('^([0-9]*\\.?[0-9]+)' + UNIT + '$').exec(raw.trim().toLowerCase());
+  if (!match) return null;
+  const unit = match[0].slice(match[1].length);
+  const px = Number.parseFloat(match[1]) * (PX_PER_UNIT[unit] ?? 0);
+  return Number.isFinite(px) && px > 0 ? px : null;
+}
+
+/**
+ * A ratio line-height, resolved against the size it is a ratio of.
+ *
+ * The engine computes `em` against a **fixed 16px root**, not against the
+ * element's own font size — so `font-size:38px;line-height:1.1`, the shape
+ * every marketing headline is written in, came out as a 17.6px line under 38px
+ * type and the words printed on top of each other. Where the element states its
+ * size the ratio is resolved here, in pixels, and the engine is handed a number
+ * it cannot misread. Where it does not, `em` still stands: the inherited size
+ * is not visible from this layer, and 16 is within half a point of the reader's
+ * own body text.
+ */
+function ratioLineHeight(ratio: number, ctx: ValueContext): string | null {
+  if (!(ratio > 0)) return null;
+  if (!ctx.fontSize) return `${ratio}em`;
+  return `${Math.round(ratio * ctx.fontSize * 100) / 100}px`;
+}
+
 /**
  * A line height, as an absolute length.
  *
- * CSS's two commonest forms are relative to the font size and the renderer
- * wants a number. `em` is the one relative unit the engine resolves, so a bare
- * `1.5` and a `150%` — the same instruction written twice — both become that.
- * `normal` has no equivalent and is dropped, which leaves the tag's own line
- * height standing rather than an invalid one.
+ * CSS's two commonest forms are ratios of the font size and the renderer wants
+ * a number, so a bare `1.5` and a `150%` — the same instruction written twice —
+ * both go through `ratioLineHeight`. `normal` has no equivalent and is dropped,
+ * which leaves the tag's own line height standing rather than an invalid one.
  */
 export const lineHeight: Normalise = (raw, ctx) => {
   const value = raw.trim().toLowerCase();
@@ -213,12 +326,12 @@ export const lineHeight: Normalise = (raw, ctx) => {
 
   // Zero is checked on every route in, not only the one that reaches the
   // length check below: a bare `0` and a `0%` are the same collapsed line as
-  // `0px`, and converting them to `em` first would walk them straight past it.
+  // `0px`, and resolving them first would walk them straight past it.
   const unitless = /^[0-9]*\.?[0-9]+$/.exec(value);
-  if (unitless) return +unitless[0] > 0 ? `${unitless[0]}em` : null;
+  if (unitless) return ratioLineHeight(+unitless[0], ctx);
 
   const percent = /^([0-9]*\.?[0-9]+)%$/.exec(value);
-  if (percent) return +percent[1] > 0 ? `${+percent[1] / 100}em` : null;
+  if (percent) return ratioLineHeight(+percent[1] / 100, ctx);
 
   // Positive for the same reason as font-size: a zero line height is a
   // spacer-row trick in CSS and a collapsed, unmeasurable line here.

@@ -37,7 +37,12 @@ import RenderHTML, {
 } from 'react-native-render-html';
 
 import { droppedDeclarations, resetDroppedDeclarations } from '../html/properties';
-import { sanitizePipeline } from '../html/sanitize';
+import {
+  INLINE_CLASS,
+  INLINE_ITEM_CLASS,
+  sanitizePipeline,
+  STACK_CLASS,
+} from '../html/sanitize';
 import { ValueContext } from '../html/values';
 import { hostOf } from '../lib/links';
 import { color, font, radius, space, type } from '../theme';
@@ -304,13 +309,60 @@ export function HtmlReader({
         img: { marginVertical: space.sm },
         hr: { backgroundColor: theme.border, height: StyleSheet.hairlineWidth, marginVertical: space.lg },
         table: { marginVertical: space.sm },
-        th: { fontFamily: font.sansSemibold, color: theme.ink },
-        td: { color: theme.body },
+        // A table cell sizes to what is in it, not to an equal share of the
+        // row.
+        //
+        // The engine's own cell style is `flex: 1`, whose flex-basis is zero —
+        // so every cell in a row gets the same width no matter what it holds.
+        // Email is built out of layout tables, and the commonest thing in one
+        // is a *gutter*: `<td width="20">&nbsp;</td>` either side of the
+        // column. At a desktop's 600px that is 3% of the row; under an equal
+        // split on a phone the two empty gutters took two thirds of the
+        // screen, and the message read in a 100-point column down the middle
+        // with words breaking mid-syllable.
+        //
+        // A basis of `auto` makes each cell start from its content: the
+        // gutters stay narrow, the column takes what is left, and a row of
+        // equals still divides evenly because their contents are equal. Grow
+        // and shrink are left as the engine set them, so a cell still fills a
+        // row that has room to spare.
+        //
+        // Its two points of default padding go too. React Native measures a
+        // box including its padding, so a cell told to be 20 wide had 16 left
+        // for a 20-point icon and the icon overflowed into its neighbour —
+        // four of them in a row overlapped each other. Email states the
+        // padding it wants on every cell that wants any, so the default is
+        // only ever a thumb on the scale.
+        th: {
+          fontFamily: font.sansSemibold,
+          color: theme.ink,
+          flexBasis: 'auto' as const,
+          padding: 0,
+        },
+        td: { color: theme.body, flexBasis: 'auto' as const, padding: 0 },
       },
-      // Hooks for a caller that passes classesStyles later; empty for now
-      // because the sanitizer drops `class` and an external stylesheet can
-      // never be honored by a native renderer anyway.
-      classesStyles: {},
+      // Two classes, and the sanitizer wrote both: every class the sender sent
+      // is dropped, and these are added where a group has to be laid out as a
+      // group. `cm-stack` is a table row too crowded to stay one; `cm-inline`
+      // is a run of siblings that asked to share a line — a footer's social
+      // icons, which came down the margin as a ladder without it. See
+      // `STACK_CLASS` and `INLINE_CLASS`.
+      classesStyles: {
+        [STACK_CLASS]: { flexDirection: 'column' as const },
+        [INLINE_CLASS]: {
+          flexDirection: 'row' as const,
+          flexWrap: 'wrap' as const,
+          alignItems: 'center' as const,
+        },
+        // The separation is the reader's, not the sender's. What an email
+        // writes between such elements is a padding two levels inside each
+        // one's own table, and it does not survive being laid out as a flex
+        // item — four social icons came out touching, their glyphs
+        // overlapping. Eight points is the smallest that reads as a row of
+        // icons rather than one smudge, and it reaches nothing but a run this
+        // module gathered itself.
+        [INLINE_ITEM_CLASS]: { marginRight: 8 },
+      },
       systemFonts: [
         ...defaultSystemFonts,
         font.sans,

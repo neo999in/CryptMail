@@ -59,8 +59,28 @@ const STYLE_BLOCK = /<style\b[^>]*>([\s\S]{0,50000}?)<\/style\s*>/gi;
 /** `selector, selector { declarations }` — one rule. */
 const RULE = /([^{}]{1,2000})\{([^{}]{0,5000})\}/g;
 
-/** A comment, or an at-rule and whatever block belongs to it. */
+/** A CSS comment. */
 const COMMENTS = /\/\*[\s\S]*?\*\//g;
+
+/**
+ * The `<!-- -->` a stylesheet is still wrapped in.
+ *
+ * It hid the CSS from browsers that predate the `<style>` tag, which is not a
+ * concern anyone has had for twenty-five years — and Word writes it on every
+ * message it generates all the same, as do most template generators of that
+ * lineage. The markers are not CSS, so the first selector in the block arrives
+ * with `<!--` glued to the front of it, matches no shape this module knows, and
+ * is dropped along with its declarations. In Word's output that first rule is
+ * `p.MsoNormal, li.MsoNormal, div.MsoNormal` — the body font, size and
+ * spacing — so an Outlook message lost its typography while every later rule
+ * applied, which reads as a selector bug and is a two-character one.
+ *
+ * Deleted rather than treated as a comment: these do not delimit a region, they
+ * bracket the whole sheet, and the CSS between them is meant to be read.
+ */
+const CDO_CDC = /<!--|-->/g;
+
+/** An at-rule and whatever block belongs to it. */
 const AT_RULE_BLOCK = /@[a-zA-Z-]+[^{;]{0,500}\{(?:[^{}]|\{[^{}]*\})*\}/g;
 const AT_RULE_STATEMENT = /@[a-zA-Z-]+[^;{]{0,500};/g;
 
@@ -84,6 +104,7 @@ export function extractRules(html: string): CssRules {
 
   css = css
     .replace(COMMENTS, ' ')
+    .replace(CDO_CDC, ' ')
     // Order matters: the block form first, so `@media { … }` goes whole rather
     // than leaving its inner rules behind as though they were unconditional.
     .replace(AT_RULE_BLOCK, ' ')

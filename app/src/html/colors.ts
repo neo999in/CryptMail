@@ -63,6 +63,55 @@ const KEYWORDS: Record<string, string> = {
   black: '#000000',
 };
 
+/**
+ * Every colour name CSS defines, as a set — for deciding whether a bare word is
+ * a colour at all.
+ *
+ * Separate from `KEYWORDS` above and doing a different job. That map exists to
+ * *adapt* a handful of names whose lightness matters on a black ground; this
+ * set exists to *refuse* every word that is not a colour, and it has to be
+ * complete to do it.
+ *
+ * The gap between the two is what let `background: url(...) no-repeat` become
+ * `background-color: url`. A bare word used to be passed through untouched, on
+ * the reasoning that React Native knows the whole named set and this module
+ * only needs the pale end of it — but "any word" is not "any colour name", and
+ * a background shorthand is full of words that are neither: `url`, `cover`,
+ * `center`, `no-repeat`. React Native cannot parse those, and one of them
+ * reaching a style took the rest of the message's body down with it, leaving a
+ * logo and a screen of black. A value this module cannot vouch for is dropped
+ * like any other.
+ */
+export const COLOR_NAMES: ReadonlySet<string> = new Set([
+  'aliceblue', 'antiquewhite', 'aqua', 'aquamarine', 'azure', 'beige', 'bisque',
+  'black', 'blanchedalmond', 'blue', 'blueviolet', 'brown', 'burlywood',
+  'cadetblue', 'chartreuse', 'chocolate', 'coral', 'cornflowerblue', 'cornsilk',
+  'crimson', 'cyan', 'darkblue', 'darkcyan', 'darkgoldenrod', 'darkgray',
+  'darkgreen', 'darkgrey', 'darkkhaki', 'darkmagenta', 'darkolivegreen',
+  'darkorange', 'darkorchid', 'darkred', 'darksalmon', 'darkseagreen',
+  'darkslateblue', 'darkslategray', 'darkslategrey', 'darkturquoise',
+  'darkviolet', 'deeppink', 'deepskyblue', 'dimgray', 'dimgrey', 'dodgerblue',
+  'firebrick', 'floralwhite', 'forestgreen', 'fuchsia', 'gainsboro',
+  'ghostwhite', 'gold', 'goldenrod', 'gray', 'green', 'greenyellow', 'grey',
+  'honeydew', 'hotpink', 'indianred', 'indigo', 'ivory', 'khaki', 'lavender',
+  'lavenderblush', 'lawngreen', 'lemonchiffon', 'lightblue', 'lightcoral',
+  'lightcyan', 'lightgoldenrodyellow', 'lightgray', 'lightgreen', 'lightgrey',
+  'lightpink', 'lightsalmon', 'lightseagreen', 'lightskyblue', 'lightslategray',
+  'lightslategrey', 'lightsteelblue', 'lightyellow', 'lime', 'limegreen',
+  'linen', 'magenta', 'maroon', 'mediumaquamarine', 'mediumblue',
+  'mediumorchid', 'mediumpurple', 'mediumseagreen', 'mediumslateblue',
+  'mediumspringgreen', 'mediumturquoise', 'mediumvioletred', 'midnightblue',
+  'mintcream', 'mistyrose', 'moccasin', 'navajowhite', 'navy', 'oldlace',
+  'olive', 'olivedrab', 'orange', 'orangered', 'orchid', 'palegoldenrod',
+  'palegreen', 'paleturquoise', 'palevioletred', 'papayawhip', 'peachpuff',
+  'peru', 'pink', 'plum', 'powderblue', 'purple', 'rebeccapurple', 'red',
+  'rosybrown', 'royalblue', 'saddlebrown', 'salmon', 'sandybrown', 'seagreen',
+  'seashell', 'sienna', 'silver', 'skyblue', 'slateblue', 'slategray',
+  'slategrey', 'snow', 'springgreen', 'steelblue', 'tan', 'teal', 'thistle',
+  'tomato', 'turquoise', 'violet', 'wheat', 'white', 'whitesmoke', 'yellow',
+  'yellowgreen',
+]);
+
 export function parseColor(input: string): Rgb | null {
   const value = KEYWORDS[input.trim().toLowerCase()] ?? input.trim().toLowerCase();
 

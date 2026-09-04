@@ -55,9 +55,17 @@ describe('width', () => {
     expect(out('<table width="100%"><tr><td>x</td></tr></table>')).toContain('max-width:100%');
   });
 
-  it('drops height, so the renderer keeps the intrinsic ratio', () => {
+  it('keeps both on an image, which is how the renderer sizes it', () => {
+    // The pair is the size the sender drew it at, and the renderer reads the
+    // attributes off the element to lay the image out and to know its ratio.
+    // Left off, it falls back to the file's own pixel dimensions — and a
+    // 20-point icon shipped as a 2x asset came out a third of that size.
     const result = out('<img src="https://cdn.example/a.png" width="600" height="400">');
-    expect(result).not.toContain('height');
+
+    expect(result).toContain('width="600"');
+    expect(result).toContain('height="400"');
+    // Still capped, so a desktop hero cannot push the message off the side.
+    expect(result).toContain('max-width:600px');
   });
 });
 

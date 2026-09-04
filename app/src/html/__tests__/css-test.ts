@@ -65,6 +65,22 @@ describe('extractRules', () => {
     expect(rules.ids.size).toBe(0);
   });
 
+  it('reads a sheet still wrapped in the `<!-- -->` Word writes', () => {
+    // The markers are not CSS, so the first selector arrived as
+    // `<!--\np.MsoNormal` and matched nothing — and in Word's output the first
+    // rule is the one that sets the body font for the whole message.
+    const rules = extractRules(
+      '<style><!--\np.MsoNormal, div.MsoNormal { font-size: 11.0pt; margin: 0in }\n' +
+        '.late { color: #00ff00 }\n--></style>',
+    );
+
+    expect(rules.compounds).toHaveLength(2);
+    expect(rules.compounds[0].declarations).toContain('font-size: 11.0pt');
+    // The rules after it were always read; the failure was first-rule-only,
+    // which is what made it look like a selector problem.
+    expect(rules.classes.get('late')).toContain('color: #00ff00');
+  });
+
   it('reads nothing out of a message with no style block', () => {
     const rules = extractRules('<p style="color: red">hi</p>');
     expect(rules.tags.size + rules.classes.size + rules.ids.size).toBe(0);

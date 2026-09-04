@@ -109,8 +109,20 @@ export const sanitizeConfig: sanitize.IOptions = {
   ],
   allowedAttributes: {
     a: ['href'],
-    img: ['src', 'alt'],
+    // `width` and `height` are the size the sender drew the image at, and the
+    // renderer reads them off the element to lay it out before the bytes
+    // arrive. Without them it falls back to the file's own pixel dimensions,
+    // and a 20-point social icon shipped as a 2x asset came out a third of the
+    // size the sender asked for, with its neighbours touching it.
+    img: ['src', 'alt', 'width', 'height'],
     th: ['colspan', 'rowspan'],
+    // The only classes in the document, and this module wrote both: `prepare`
+    // drops every class the sender sent before adding one of its own. See
+    // STACK_CLASS and INLINE_CLASS.
+    tr: ['class'],
+    div: ['class'],
+    span: ['class'],
+    table: ['class'],
     td: ['colspan', 'rowspan'],
     '*': ['style'],
   },
@@ -171,7 +183,9 @@ export const sanitizeConfig: sanitize.IOptions = {
  * `rules` are the declarations from the message's own `<style>` blocks. They are
  * merged onto each element *before* `allowedStyles` runs, so a stylesheet can
  * only set what an inline style could — and `class`/`id` are read during that
- * merge and then dropped, since neither is in `allowedAttributes`.
+ * merge and then dropped. The one class that reaches the renderer is the one
+ * this module writes itself, on a row it has decided must stack; see
+ * `STACK_CLASS`.
  */
 export function sanitizeHtml(html: string, rules?: CssRules, ctx?: ValueContext): string {
   return sanitize(prepare(html, rules ?? emptyRules(), ctx ?? { dark: false }), sanitizeConfig);
@@ -211,9 +225,20 @@ function prepare(html: string, rules: CssRules, ctx: ValueContext): string {
     )
     // `<font>` becomes a span so its attributes can be read as declarations by
     // the same walk that reads every other element's.
-    .replace(FONT_TAG, (_m, slash: string, attrs: string) => (slash ? '</span>' : `<span${attrs}>`));
+    .replace(FONT_TAG, (_m, slash: string, attrs: string) => (slash ? '</span>' : `<span${attrs}>`))
+    // A box that held nothing but a picture goes with the picture. See
+    // DECORATIVE_BOX.
+    .replace(DECORATIVE_BOX, (whole: string, tag: string, attrs: string) =>
+      HAS_BACKGROUND_IMAGE.test(attrs) ? (CELL_NAME.test(tag) ? `<${tag}></${tag}>` : '') : whole,
+    )
+    // Rows too crowded to stay rows on a phone are marked here, where the
+    // cells are still countable. See STACKED_ROW.
+    .replace(ROW, (whole: string, attrs: string, cells: string) =>
+      crowded(cells) ? `<tr${attrs} ${STACK_MARKER}>${unshare(cells)}</tr>` : whole,
+    );
 
-  return sanitize(centred, {
+  // And the opposite case: siblings that asked to share a line. See INLINE_CLASS.
+  return sanitize(inlineRuns(centred), {
     allowedTags: false,
     allowedAttributes: false,
     allowVulnerableTags: true,
@@ -265,9 +290,15 @@ function prepare(html: string, rules: CssRules, ctx: ValueContext): string {
         const {
           class: _class,
           id: _id,
+          'data-cm-stack': stack,
+          'data-cm-inline': inline,
+          'data-cm-inline-item': inlineItem,
           align: _align,
           bgcolor: _bgcolor,
-          width: _width,
+          // Read as a declaration like the rest — except on an image, where the
+          // renderer wants the attribute itself. See `allowedAttributes`.
+          width: widthAttribute,
+          height: heightAttribute,
           color: _color,
           face: _face,
           size: _size,
@@ -277,7 +308,24 @@ function prepare(html: string, rules: CssRules, ctx: ValueContext): string {
           style: _style,
           ...rest
         } = attribs;
-        return { tagName: boxed ? 'div' : tagName, attribs: style ? { ...rest, style } : rest };
+        const sized =
+          tagName === 'img'
+            ? { ...rest, ...(widthAttribute ? { width: widthAttribute } : {}),
+                ...(heightAttribute ? { height: heightAttribute } : {}) }
+            : rest;
+        const kept = style ? { ...sized, style } : sized;
+        // The only classes in the document, and this module wrote both.
+        const marked = stack
+          ? STACK_CLASS
+          : inline
+            ? INLINE_CLASS
+            : inlineItem
+              ? INLINE_ITEM_CLASS
+              : undefined;
+        return {
+          tagName: boxed ? 'div' : tagName,
+          attribs: marked ? { ...kept, class: marked } : kept,
+        };
       },
     },
   });
@@ -361,6 +409,262 @@ const PRESENTATIONAL: Record<string, (value: string) => string | null> = {
  * only `block` here would never fire on the very markup it exists for.
  */
 const BOX_DISPLAY = /(?:^|;)\s*display\s*:\s*(?:inline-block|block|flex)/i;
+
+
+/** An element with no content of its own, and what it was styled with. */
+const DECORATIVE_BOX = /<(div|span|p|a|td|th|section|article)\b([^>]*)>\s*<\/\1\s*>/gi;
+const HAS_BACKGROUND_IMAGE = /background(?:-image)?\s*:[^;"']*url\s*\(/i;
+const CELL_NAME = /^t[dh]$/i;
+
+/**
+ * An empty box that existed to show a picture, removed along with the picture.
+ *
+ * `<div style="width:146px;height:146px;background:url(hand_wave.gif)"></div>`
+ * is how a template draws a hero, an avatar, an icon or a rule, and this reader
+ * cannot draw any of them: `background` is read for its colour and a URL is not
+ * one. What was left was the *size* — a 146-point hole between the logo and the
+ * headline, with nothing in it and no way for a reader to tell that anything
+ * was ever meant to be there.
+ *
+ * The same call `<img>` already gets, and for the same reason: an image the
+ * renderer cannot fetch is removed rather than emptied, because a blank gap is
+ * not a smaller version of a picture. A cell keeps its place in the row —
+ * removing one would renumber the columns beside it — and loses its sizing.
+ *
+ * Only elements that are *empty* qualify. A box with a background image behind
+ * its own text keeps both its text and its space.
+ */
+
+
+/** An element that asked to sit on a line with its siblings. */
+const INLINE_ELEMENT = /<(table|div|span)\b([^>]*)>/gi;
+/** The same, anchored: is the *next* thing another one of them? */
+const NEXT_SIBLING = /<(table|div|span)\b([^>]*)>/y;
+const INLINE_DISPLAY = /display\s*:\s*inline(?:-block|-table)?/i;
+/** Whitespace, and the conditional comments a template leaves between them. */
+const BETWEEN_SIBLINGS = /(?:\s|<!--[\s\S]*?-->)*/y;
+/** An opening or closing tag of one name, for finding where an element ends. */
+const elementEdges = (tag: string) => new RegExp(`<(/?)${tag}\\b[^>]*>`, 'gi');
+
+/**
+ * How far one element reaches, counting its own kind on the way.
+ *
+ * A social icon is a table inside a table, so the first `</table>` after the
+ * opening one is not its end. Null when the markup does not close what it
+ * opened, or runs past anything worth scanning — a malformed message loses the
+ * rearrangement, not its content.
+ */
+function elementEnd(html: string, tag: string, start: number): number | null {
+  const edges = elementEdges(tag);
+  edges.lastIndex = start;
+  let depth = 0;
+  for (let edge = edges.exec(html); edge; edge = edges.exec(html)) {
+    depth += edge[1] ? -1 : 1;
+    if (depth === 0) return edges.lastIndex;
+    if (edges.lastIndex - start > MAX_ELEMENT) return null;
+  }
+  return null;
+}
+
+/** Nothing laid out inline is worth scanning past this much markup. */
+const MAX_ELEMENT = 20_000;
+
+/**
+ * Siblings that asked to share a line, wrapped in something that gives them one.
+ *
+ * `display:inline-table` is how a footer's social icons are strung together —
+ * each is a table of its own, and the declaration is the only thing keeping
+ * them side by side. React Native has no inline display: every one of them
+ * became a block, and four icons came down the left margin as a ladder.
+ *
+ * A row is not something an element can ask for on its own behalf — the *parent*
+ * has to be told to lay its children out in one — so a run of them is wrapped
+ * in a box this reader styles, which is the smallest thing that can be true of
+ * a group rather than of an element.
+ *
+ * Only short runs qualify, by the same budget `crowded` spends: icons, badges
+ * and buttons fit on a line and were written to be on one, while the other
+ * common inline-block — a template's desktop columns, each holding a paragraph
+ * — does not fit and is better left stacked, which is what a responsive
+ * template asks for at this width anyway.
+ */
+function inlineRuns(html: string): string {
+  const finder = INLINE_ELEMENT;
+  finder.lastIndex = 0;
+  let out = '';
+  let cursor = 0;
+
+  for (let open = finder.exec(html); open; open = finder.exec(html)) {
+    if (open.index < cursor || !INLINE_DISPLAY.test(open[2])) continue;
+
+    let end = elementEnd(html, open[1], open.index);
+    if (end === null) continue;
+
+    // Where each member's opening tag ends, so a run can be spaced from the
+    // inside as well as arranged from the outside.
+    const members = [open.index + open[0].length - 1];
+    for (;;) {
+      BETWEEN_SIBLINGS.lastIndex = end;
+      BETWEEN_SIBLINGS.exec(html);
+      const at = BETWEEN_SIBLINGS.lastIndex;
+
+      NEXT_SIBLING.lastIndex = at;
+      const next = NEXT_SIBLING.exec(html);
+      if (!next || !INLINE_DISPLAY.test(next[2])) break;
+
+      const reach = elementEnd(html, next[1], at);
+      if (reach === null) break;
+      end = reach;
+      members.push(at + next[0].length - 1);
+    }
+
+    const run = html.slice(open.index, end);
+    if (members.length < 2 || textOf(run).length > LINE_BUDGET) continue;
+
+    out += html.slice(cursor, open.index) + `<div ${INLINE_MARKER}>${spaced(html, open.index, members, end)}</div>`;
+    cursor = end;
+    finder.lastIndex = end;
+  }
+  return out + html.slice(cursor);
+}
+
+/**
+ * A run rebuilt with each member marked, so the reader can space them apart.
+ *
+ * The separation an email writes between such elements is a padding two levels
+ * inside each one's own table, and it does not survive being laid out as a flex
+ * item — four social icons came out touching, their glyphs overlapping. The
+ * marker goes on the members rather than the wrapper because the one style that
+ * would do it from outside, `gap`, is not a property the renderer's own
+ * validator knows.
+ */
+function spaced(html: string, start: number, members: number[], end: number): string {
+  let out = '';
+  let cursor = start;
+  for (const at of members) {
+    out += `${html.slice(cursor, at)} ${INLINE_ITEM_MARKER}`;
+    cursor = at;
+  }
+  return out + html.slice(cursor, end);
+}
+
+/**
+ * The class a run of them carries, and what the reader lays it out by.
+ *
+ * Same channel as `STACK_CLASS` and for the same reason: a class is the one
+ * thing `react-native-render-html` styles by name, and the sender's own classes
+ * are gone before either of these is added.
+ */
+export const INLINE_CLASS = 'cm-inline';
+const INLINE_MARKER = `data-cm-inline="1"`;
+
+/** The same, for one member of such a run. See `spaced`. */
+export const INLINE_ITEM_CLASS = 'cm-inline-item';
+const INLINE_ITEM_MARKER = `data-cm-inline-item="1"`;
+
+/**
+ * A row with nothing but cells in it, and the cells inside it.
+ *
+ * Innermost by construction: the body may not contain another `<tr>`, so a row
+ * that wraps a nested table is skipped and the nested rows are matched instead.
+ * That is the right level, because it is the innermost row whose cells are the
+ * columns a reader actually sees.
+ */
+const ROW = /<tr\b([^>]*)>((?:(?!<\/?tr\b)[\s\S]){0,50000}?)<\/tr\s*>/gi;
+
+/** A cell, with whatever it holds — used to decide whether the row is crowded. */
+const CELL_CONTENT = /<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]\s*>/gi;
+const TAGS = /<[^>]*>/g;
+/** Source indentation, which is not text a reader sees. */
+const RUNS_OF_SPACE = /\s+/g;
+
+/**
+ * Roughly how many characters of body text fit across a phone's column.
+ *
+ * Measured rather than reasoned: 15.5px Manrope on the reader's own content
+ * width comes to somewhere in the mid-forties. It does not need to be exact —
+ * it is the line between "these cells share a line" and "these cells cannot",
+ * and everything near it reads acceptably either way.
+ */
+const LINE_BUDGET = 45;
+
+/**
+ * Whether this row is a row of columns rather than a row of cells.
+ *
+ * Two questions, and both have to answer yes. *How many cells* — two are the
+ * label and the figure a statement is made of, and they read correctly side by
+ * side, so three is where a row starts being a layout. And *how much text* —
+ * three cells carrying sentences do not fit across a phone and break words to
+ * get there, while three carrying a social icon each fit easily and stacking
+ * them turns a footer into a ladder. A row of short labels sits below the
+ * budget and is left alone; a row of three call-to-action sentences is three
+ * times over it.
+ */
+function crowded(cells: string): boolean {
+  let count = 0;
+  let text = 0;
+  for (const cell of cells.matchAll(CELL_CONTENT)) {
+    count += 1;
+    text += textOf(cell[1]).length;
+  }
+  return count >= 3 && text > LINE_BUDGET;
+}
+
+/**
+ * The words in a fragment of markup, without its markup or its indentation.
+ *
+ * Collapsed on purpose: the newlines and indentation a template generator
+ * leaves between tags are not width, and counting them called a name and an
+ * amount a crowded row.
+ */
+function textOf(markup: string): string {
+  return markup.replace(TAGS, ' ').replace(RUNS_OF_SPACE, ' ').trim();
+}
+
+
+/** A cell's opening tag, and the two ways it can claim a share of the row. */
+const CELL_TAG = /<t[dh]\b[^>]*>/gi;
+const SHARE_ATTRIBUTE = /\s+width\s*=\s*(?:"[0-9.]+%"|'[0-9.]+%'|[0-9.]+%)/gi;
+const SHARE_DECLARATION = /(["';])\s*width\s*:\s*[0-9.]+%\s*;?/gi;
+
+/**
+ * Take the percentage widths off the cells of a row that is about to stack.
+ *
+ * `width:33%` is a third *of the row*, which is exactly what the sender meant
+ * and exactly what stops meaning anything once the row is read downwards: three
+ * buttons under one another, each a third of the screen wide, in a column down
+ * the left. A share of a row has no reading in a column, so it is dropped and
+ * the cell takes the width it is given. A pixel width is left alone — it is a
+ * measurement rather than a share, and it still says something true.
+ *
+ * Only the cells' own opening tags are touched, and only inside a row already
+ * matched as innermost, so nothing nested can be reached from here.
+ */
+function unshare(cells: string): string {
+  return cells.replace(CELL_TAG, (tag) =>
+    tag.replace(SHARE_ATTRIBUTE, '').replace(SHARE_DECLARATION, '$1'),
+  );
+}
+
+/**
+ * What marks a row that must stack, and what the reader styles it by.
+ *
+ * A `<tr>` lays its cells out in a row and divides the width between them,
+ * which is what a table is for and is wrong for what email uses a table *as*.
+ * Three call-to-action cells written for a 600px column get a third of a phone
+ * each, and "Microsoft Services Agreement" comes out four lines deep with a
+ * word broken across two of them. A responsive template says so itself — in an
+ * `@media` block this reader cannot honour — so the decision is made here
+ * instead, at the only point where the cells can be counted.
+ *
+ * `crowded` above is the threshold, and it asks two questions rather than one:
+ * how many cells, and how much text in them. `class` is the
+ * carrier because it is the one channel `react-native-render-html` styles by
+ * name, and the sender's own classes are dropped a few lines below before this
+ * one is added — so nothing but this can arrive by it.
+ */
+export const STACK_CLASS = 'cm-stack';
+const STACK_MARKER = `data-cm-stack="1"`;
 
 /** `<font>`, whose attributes are the only reason it is still written. */
 const FONT_TAG = /<(\/?)font\b([^>]*)>/gi;
