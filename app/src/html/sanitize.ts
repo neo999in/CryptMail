@@ -106,8 +106,30 @@ const LENGTH = /^\s*(0|[0-9.]+(?:px|em|rem|%|pt))\s*$/;
  */
 const LENGTH_ABS = /^\s*(0|[0-9.]+(?:px|em|rem|pt))\s*$/;
 
-/** One or more space-separated lengths, 0, or auto — margin/padding shorthands. */
-const LENGTHS = /^\s*(0|auto|[0-9.]+(?:px|em|rem|%|pt)(?:\s+[0-9.]+(?:px|em|rem|%|pt))*)\s*$/;
+/**
+ * One or more space-separated lengths, or 0 — the margin and padding shorthands.
+ *
+ * `auto` is deliberately absent. It is how every email centres its body —
+ * `<div style="max-width:600px;margin:auto">` is the standard wrapper — and it
+ * is the one margin value that means something different in the two layout
+ * models. In CSS the block still fills the width available to it, up to the
+ * maximum. In React Native an auto margin makes the box shrink to fit its
+ * content, and a wrapper full of stretchy children collapses to a sliver: a
+ * Splitwise statement rendered as its logo above a narrow vertical bar, with
+ * every balance in the message inside it and invisible.
+ *
+ * Each component may be a bare `0`, which is the other half of this regex
+ * worth stating: `margin: 16px 0` and `padding: 0 40px 60px` are how shorthands
+ * are actually written, and a pattern that demanded a unit on every component
+ * rejected the whole declaration — so those elements lost their spacing
+ * entirely rather than partially.
+ *
+ * Dropping `auto` is the faithful reading rather than a concession. What the author
+ * asked for is "centred, capped at 600" and the cap is the half that
+ * translates — with `max-width` kept and `auto` gone, a column layout stretches
+ * the wrapper to the width available, which is where it was going to be.
+ */
+const LENGTHS = /^\s*(?:0|-?[0-9.]+(?:px|em|rem|%|pt))(?:\s+(?:0|-?[0-9.]+(?:px|em|rem|%|pt))){0,3}\s*$/;
 
 /** A border line: width, optional style, optional colour — never url(). */
 const BORDER = /^\s*(none|hidden|solid|dashed|dotted|double|ridge|groove|inset|outset|[0-9.]+(?:px|em|pt|rem)(?:\s+(?:solid|dashed|dotted|double|ridge|groove|inset|outset|none))?(?:\s+(?:#[0-9a-fA-F]{3,8}|[a-zA-Z][a-zA-Z0-9]*))?)\s*$/;
@@ -301,8 +323,13 @@ function prepare(html: string, rules: CssRules): string {
   // `<center>` before the walk, since it is the tag itself that carries the
   // meaning and the allowlist has no room for it.
   const centred = html
-    .replace(CENTER_TAG, (_m, slash: string) =>
-      slash ? '</div>' : '<div style="text-align:center">',
+    // Its own attributes come along: a `<center style="background:#eee">` is
+    // both the wrapper and the instruction, and dropping the wrapper's half
+    // loses a background that the rest of the pipeline would have adapted.
+    // `align` rather than an inline style, so the centring merges under
+    // whatever the element already said instead of overwriting it.
+    .replace(CENTER_TAG, (_m, slash: string, attrs: string) =>
+      slash ? '</div>' : `<div align="center"${attrs}>`,
     )
     // `<font>` becomes a span so its attributes can be read as declarations by
     // the same walk that reads every other element's.

@@ -119,3 +119,58 @@ describe('compound selectors', () => {
     expect(out('<style>.card h1{color:#00ff00}</style><div class="card"><h1>x</h1></div>')).not.toContain('#00ff00');
   });
 });
+
+describe('auto margins, which centre in CSS and collapse in React Native', () => {
+  it('drops margin:auto but keeps the max-width beside it', () => {
+    // The standard email body wrapper. With `auto` honoured, React Native
+    // shrinks the box to its content and a whole statement renders as a
+    // narrow vertical bar.
+    const result = out('<div style="max-width:600px;margin:auto">content</div>');
+
+    expect(result).not.toContain('margin');
+    expect(result).toContain('max-width:600px');
+    expect(result).toContain('content');
+  });
+
+  it('keeps ordinary margins', () => {
+    expect(out('<div style="margin:16px 0">x</div>')).toContain('margin:16px 0');
+    expect(out('<div style="margin-top:8px">x</div>')).toContain('margin-top:8px');
+  });
+});
+
+describe('<center>', () => {
+  it('keeps its own attributes, not just its meaning', () => {
+    // It is both the wrapper and the instruction; dropping the wrapper's half
+    // loses a background the rest of the pipeline would have adapted.
+    const result = dark('<center style="background:#ffffff">hi</center>');
+
+    expect(result).toContain('text-align:center');
+    expect(result).toContain('background-color');
+    expect(result).not.toContain('#ffffff');
+  });
+
+  it('lets the element own text-align win over the implied centring', () => {
+    const result = out('<center style="text-align:left">hi</center>');
+    expect(result.indexOf('text-align:center')).toBeLessThan(result.indexOf('text-align:left'));
+  });
+});
+
+describe('shorthand components', () => {
+  it('takes a bare 0 among units, which is how shorthands are written', () => {
+    // A pattern demanding a unit on every component rejected the whole
+    // declaration, so these elements lost their spacing entirely.
+    expect(out('<div style="margin:16px 0">x</div>')).toContain('margin:16px 0');
+    expect(out('<div style="padding:0 40px 60px">x</div>')).toContain('padding:0 40px 60px');
+    expect(out('<div style="padding:6px 12px">x</div>')).toContain('padding:6px 12px');
+    expect(out('<div style="margin:0 0 0 0">x</div>')).toContain('margin:0 0 0 0');
+  });
+
+  it('takes a negative margin', () => {
+    expect(out('<div style="margin-top:-4px">x</div>')).toContain('-4px');
+  });
+
+  it('still refuses a value that is not a length', () => {
+    expect(out('<div style="padding:calc(100% - 10px)">x</div>')).not.toContain('padding');
+    expect(out('<div style="margin:16px 0 0 0 0 0">x</div>')).not.toContain('margin');
+  });
+});
