@@ -35,7 +35,13 @@
  */
 import sanitize from 'sanitize-html';
 
-import { adaptBackground, adaptBorder, adaptForeground, colorInShorthand } from './colors';
+import {
+  adaptBackground,
+  adaptBorder,
+  adaptForeground,
+  colorInShorthand,
+  parseColor,
+} from './colors';
 import { CssRules, emptyRules, extractRules, mergeDeclarations } from './css';
 
 /**
@@ -227,17 +233,30 @@ export function sanitizeHtml(
  * input to `sanitizeConfig`, which remains the one gate.
  */
 function prepare(html: string, rules: CssRules): string {
-  return sanitize(html, {
+  // `<center>` before the walk, since it is the tag itself that carries the
+  // meaning and the allowlist has no room for it.
+  const centred = html.replace(CENTER_TAG, (_m, slash: string) =>
+    slash ? '</div>' : '<div style="text-align:center">',
+  );
+
+  return sanitize(centred, {
     allowedTags: false,
     allowedAttributes: false,
     allowVulnerableTags: true,
     transformTags: {
       '*': (tagName, attribs) => {
-        const style = mergeDeclarations(tagName, attribs, rules);
+        // Presentational attributes go *under* the stylesheet and the element's
+        // own style, matching how a browser resolves them: they are a default
+        // the author can override, not an instruction that beats CSS.
+        const presentational = presentationalStyle(attribs);
+        const merged = mergeDeclarations(tagName, attribs, rules);
+        const style = [...presentational, merged].filter(Boolean).join(';') || undefined;
+
         if (style && POSITIONING.test(style)) return { tagName: EXCLUDED_TAG, attribs: {} };
-        // class and id have done their work; neither survives the real config,
-        // and dropping them here keeps them out of this pass's own output.
-        const { class: _class, id: _id, ...rest } = attribs;
+        // class, id and the presentational attributes have all done their work
+        // here; none of them survives the real config, and dropping them keeps
+        // them out of this pass's own output.
+        const { class: _class, id: _id, align: _a, bgcolor: _b, width: _w, ...rest } = attribs;
         return { tagName, attribs: style ? { ...rest, style } : rest };
       },
     },
@@ -271,6 +290,56 @@ export function resolveCssVars(html: string, vars: Record<string, string>): stri
   });
 }
 
+
+/**
+ * The presentational attributes email lays itself out with, as CSS.
+ *
+ * HTML email is table markup from 1999 and means it sincerely: `align="center"`
+ * centres the hero, `bgcolor` paints the card, `width` sets the column. None of
+ * these are in `allowedAttributes` and none of them should be — an attribute
+ * that survives to the renderer is one more thing to reason about. Converting
+ * them to declarations instead means they land in `allowedStyles` with
+ * everything else, get the same colour adaptation, and are validated by regexes
+ * that already exist. A message losing them is not a message with a slightly
+ * different look; it is a centred layout rendered flush left with its cards
+ * gone, which is most of the distance between this reader and a webmail one.
+ *
+ * `width` becomes `max-width`. The attribute is a fixed pixel count written for
+ * a 600px desktop column, and honouring it literally would push every such
+ * message off the side of a phone; as a maximum it still constrains an image
+ * that would otherwise blow up, and lets everything else shrink to fit.
+ *
+ * `height` is dropped rather than converted: paired with a max-width that may
+ * now be smaller than the author assumed, it would squash the image. Leaving it
+ * out lets the renderer keep the intrinsic ratio.
+ */
+const PRESENTATIONAL: Record<string, (value: string) => string | null> = {
+  align: (value) => {
+    const v = value.trim().toLowerCase();
+    return v === 'center' || v === 'left' || v === 'right' ? `text-align:${v}` : null;
+  },
+  bgcolor: (value) => (parseColor(value.trim()) ? `background-color:${value.trim()}` : null),
+  width: (value) => {
+    const v = value.trim();
+    if (/^[0-9]+%$/.test(v)) return `max-width:${v}`;
+    if (/^[0-9]+$/.test(v)) return `max-width:${v}px`;
+    return null;
+  },
+};
+
+/** `<center>` is not in the allowlist, but what it means is expressible. */
+const CENTER_TAG = /<(\/?)center\b([^>]*)>/gi;
+
+function presentationalStyle(attribs: Record<string, string>): string[] {
+  const out: string[] = [];
+  for (const [name, toDeclaration] of Object.entries(PRESENTATIONAL)) {
+    const raw = attribs[name];
+    if (!raw) continue;
+    const declaration = toDeclaration(raw);
+    if (declaration) out.push(declaration);
+  }
+  return out;
+}
 
 /** A single `property: value` declaration inside a style attribute. */
 const DECLARATION = /(^|;)\s*([a-zA-Z-]+)\s*:\s*([^;]+)/g;

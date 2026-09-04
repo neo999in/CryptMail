@@ -1,0 +1,84 @@
+/**
+ * The presentational attributes email lays itself out with.
+ *
+ * HTML email is table markup that means `align="center"` and `bgcolor`
+ * sincerely, and a reader that ignores them renders a centred layout flush
+ * left with its cards gone. The fixtures here come from a Google notification
+ * mail, which is built entirely this way.
+ */
+import { sanitizePipeline } from '../sanitize';
+
+const out = (html: string) => sanitizePipeline(html);
+const dark = (html: string) => sanitizePipeline(html, undefined, undefined, true);
+
+describe('align', () => {
+  it('centres a cell the sender centred', () => {
+    expect(out('<table><tr><td align="center">Hero</td></tr></table>')).toContain('text-align:center');
+  });
+
+  it('takes left and right too, and nothing else', () => {
+    expect(out('<div align="right">x</div>')).toContain('text-align:right');
+    expect(out('<div align="justify-all-wrong">x</div>')).not.toContain('text-align');
+  });
+
+  it('drops the attribute once it has been read', () => {
+    expect(out('<div align="center">x</div>')).not.toContain('align=');
+  });
+});
+
+describe('bgcolor', () => {
+  it('paints the cell', () => {
+    expect(out('<td bgcolor="#d97706">x</td>')).toContain('background-color:#d97706');
+  });
+
+  it('goes through the same dark adaptation as a CSS background', () => {
+    // White by attribute must not stay white just because it arrived as an
+    // attribute rather than a declaration.
+    expect(dark('<td bgcolor="#ffffff">x</td>')).not.toContain('#ffffff');
+  });
+
+  it('ignores a value that is not a colour', () => {
+    expect(out('<td bgcolor="url(https://evil.example/p.png)">x</td>')).not.toContain('evil.example');
+  });
+});
+
+describe('width', () => {
+  it('becomes a maximum, not a fixed size', () => {
+    // 600 is the desktop column every one of these mails is written for.
+    // Honouring it literally pushes the message off the side of a phone.
+    const result = out('<img src="https://cdn.example/hero.png" width="600">');
+    expect(result).toContain('max-width:600px');
+    expect(result).not.toContain('width:600px;');
+  });
+
+  it('keeps a percentage as a percentage', () => {
+    expect(out('<table width="100%"><tr><td>x</td></tr></table>')).toContain('max-width:100%');
+  });
+
+  it('drops height, so the renderer keeps the intrinsic ratio', () => {
+    const result = out('<img src="https://cdn.example/a.png" width="600" height="400">');
+    expect(result).not.toContain('height');
+  });
+});
+
+describe('<center>', () => {
+  it('becomes a centred div, since the tag itself carries the meaning', () => {
+    const result = out('<center><p>Hero</p></center>');
+    expect(result).toContain('text-align:center');
+    expect(result).toContain('Hero');
+    expect(result).not.toContain('<center');
+  });
+});
+
+describe('precedence', () => {
+  it('lets the element own style beat the attribute, as a browser would', () => {
+    const result = out('<td align="center" style="text-align:left">x</td>');
+    // Both present, the author's own declaration last and therefore winning.
+    expect(result.indexOf('text-align:center')).toBeLessThan(result.indexOf('text-align:left'));
+  });
+
+  it('lets a stylesheet rule beat the attribute too', () => {
+    const result = out('<style>.c { text-align:right }</style><td align="center" class="c">x</td>');
+    expect(result.indexOf('text-align:center')).toBeLessThan(result.indexOf('text-align:right'));
+  });
+});
