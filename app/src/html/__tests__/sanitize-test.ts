@@ -177,11 +177,14 @@ describe('resolveCssVars', () => {
 describe('sanitizePipeline — resolve vars, then allowlist', () => {
   test('a var() styled element survives with only its safe props', () => {
     const out = sanitizePipeline(
-      '<p style="color: var(--cm-text); letter-spacing: 2px">hi</p>',
+      '<p style="color: var(--cm-text); animation: spin 2s infinite">hi</p>',
       { '--cm-text': '#F2F2F2' }
     );
     expect(out).toContain('color:#F2F2F2');
-    expect(out).not.toContain('letter-spacing');
+    // `animation` is not in allowedStyles, so it never reaches the renderer —
+    // letter-spacing used to stand in for this and no longer can, since email
+    // uses it constantly and it is now allowed.
+    expect(out).not.toContain('animation');
     expect(out).toContain('hi');
   });
 

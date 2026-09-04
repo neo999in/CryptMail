@@ -36,7 +36,7 @@ import RenderHTML, {
   defaultSystemFonts,
 } from 'react-native-render-html';
 
-import { sanitizePipeline } from '../html/sanitize';
+import { sanitizePipeline, WeightFaces } from '../html/sanitize';
 import { hostOf } from '../lib/links';
 import { color, font, radius, space, type } from '../theme';
 import { useAccent } from './appearance';
@@ -129,6 +129,21 @@ function schemeTheme(scheme: HtmlReaderScheme, accent: string) {
 }
 
 
+/**
+ * Which Manrope file each CSS weight resolves to.
+ *
+ * Manrope has no variable axis here — each weight is its own loaded face, and
+ * React Native will not synthesize one from another. `fontWeight: '600'` over
+ * the regular face therefore renders regular, with no warning, which is why the
+ * app addresses weight by family everywhere else too.
+ */
+const WEIGHT_FACES: WeightFaces = {
+  regular: font.sans,
+  medium: font.sansMedium,
+  semibold: font.sansSemibold,
+  bold: font.sansBold,
+};
+
 /** A muted, non-fetching stand-in for a remote image the reader may not load. */
 function ImagePlaceholder() {
   return (
@@ -162,7 +177,7 @@ export function HtmlReader({
   );
 
   /** Sanitise + resolve `var()`s once per html change. Attacker input never reaches the renderer unsanitised. */
-  const safeHtml = useMemo(() => sanitizePipeline(html, mergedVars), [html, mergedVars]);
+  const safeHtml = useMemo(() => sanitizePipeline(html, mergedVars, WEIGHT_FACES), [html, mergedVars]);
 
   const handleLinkPress = useCallback(
     (url: string) => {

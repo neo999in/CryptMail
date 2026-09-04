@@ -121,7 +121,7 @@ export const sanitizeConfig: sanitize.IOptions = {
     '*': {
       color: [COLOR],
       'background-color': [COLOR],
-      'font-family': [/^\s*[A-Za-z0-9 '"(),-]+\s*$/],
+      'font-family': [/^\s*[A-Za-z0-9_ '"(),-]+\s*$/],
       'font-size': [LENGTH],
       'font-weight': [FONT_WEIGHT],
       'font-style': [FONT_STYLE],
@@ -129,6 +129,7 @@ export const sanitizeConfig: sanitize.IOptions = {
       'text-align': [TEXT_ALIGN],
       'text-decoration': [TEXT_DECORATION],
       'text-transform': [/^\s*(none|uppercase|lowercase|capitalize)\s*$/],
+      'letter-spacing': [/^\s*-?[0-9.]+(?:px|em|rem)\s*$/],
       margin: [LENGTHS],
       'margin-top': [LENGTHS],
       'margin-right': [LENGTHS],
@@ -150,6 +151,7 @@ export const sanitizeConfig: sanitize.IOptions = {
       'border-bottom-color': [COLOR],
       'border-left-color': [COLOR],
       'border-width': [LENGTH],
+      'border-radius': [LENGTH],
       width: [LENGTH],
       height: [LENGTH],
       'max-width': [LENGTH],
@@ -191,8 +193,9 @@ export const sanitizeConfig: sanitize.IOptions = {
  * only set what an inline style could — and `class`/`id` are read during that
  * merge and then dropped, since neither is in `allowedAttributes`.
  */
-export function sanitizeHtml(html: string, rules?: CssRules): string {
-  return sanitize(prepare(html, rules ?? emptyRules()), sanitizeConfig);
+export function sanitizeHtml(html: string, rules?: CssRules, faces?: WeightFaces): string {
+  const merged = prepare(html, rules ?? emptyRules());
+  return sanitize(faces ? resolveFontWeights(merged, faces) : merged, sanitizeConfig);
 }
 
 /**
@@ -260,13 +263,87 @@ export function resolveCssVars(html: string, vars: Record<string, string>): stri
   });
 }
 
+
 /**
- * The one entry point the reader uses: resolve theme CSS variables first, then
- * apply the allowlist.
+ * The loaded face to use for each CSS weight, heaviest key first.
+ *
+ * Supplied by the caller because this module has no business knowing the app's
+ * fonts — it is the same arrangement as `vars`: the renderer cannot evaluate
+ * the thing, so the caller says what it resolves to.
  */
-export function sanitizePipeline(html: string, vars?: Record<string, string>): string {
+export type WeightFaces = {
+  /** 400 and `normal`. */
+  regular: string;
+  /** 500. */
+  medium: string;
+  /** 600. */
+  semibold: string;
+  /** 700 and up, `bold`, `bolder`. */
+  bold: string;
+};
+
+/** A `font-weight: …` declaration inside a style attribute. */
+const FONT_WEIGHT_DECL = /(^|;)\s*font-weight\s*:\s*([^;]+)/gi;
+
+function faceForWeight(value: string, faces: WeightFaces): string | null {
+  const weight = value.trim().toLowerCase();
+  if (weight === 'normal') return faces.regular;
+  if (weight === 'bold' || weight === 'bolder') return faces.bold;
+  if (weight === 'lighter') return faces.regular;
+
+  const numeric = Number(weight);
+  if (!Number.isFinite(numeric)) return null;
+  if (numeric >= 700) return faces.bold;
+  if (numeric >= 600) return faces.semibold;
+  if (numeric >= 500) return faces.medium;
+  return faces.regular;
+}
+
+/**
+ * Rewrite `font-weight` into the concrete face that weight means.
+ *
+ * Manrope ships as separate files per weight, and React Native does not
+ * synthesize: `fontWeight: '600'` over `Manrope_400Regular` renders regular,
+ * silently. The app's own rule is therefore to address a weight by its family
+ * (`font.sansSemibold`), never by `fontWeight` — and an email full of
+ * `font-weight: 600` is exactly the case that rule exists for. Without this,
+ * every bold thing a sender wrote arrives unbolded, which is most of the
+ * difference between a newsletter that looks designed and one that looks like a
+ * dump of its text.
+ *
+ * The declaration is *replaced*, not added to: leaving `font-weight` behind
+ * would have the engine apply a second, conflicting instruction to a face that
+ * cannot honour it. A weight this map does not recognise is left alone.
+ */
+export function resolveFontWeights(html: string, faces: WeightFaces): string {
+  return html.replace(STYLE_ATTR, (whole, prefix: string, quote: string, style: string) => {
+    const resolved = style.replace(FONT_WEIGHT_DECL, (match, lead: string, value: string) => {
+      const face = faceForWeight(value, faces);
+      return face ? `${lead}font-family:${face}` : match;
+    });
+    return `${prefix}${quote}${resolved}${quote}`;
+  });
+}
+
+/**
+ * The one entry point the reader uses.
+ *
+ * Order matters, and each step is there because the renderer cannot do the
+ * thing itself: variables resolve to values, the stylesheet folds into the
+ * elements it selects, weights become the faces they mean, and only then does
+ * the allowlist decide what any of it is allowed to say.
+ *
+ * The weight pass runs *after* the merge, because a `font-weight` is as likely
+ * to arrive from a class as from a `style=`, and before the allowlist, because
+ * what it produces is a `font-family` that still has to be validated.
+ */
+export function sanitizePipeline(
+  html: string,
+  vars?: Record<string, string>,
+  faces?: WeightFaces,
+): string {
   const resolved = vars ? resolveCssVars(html, vars) : html;
   // Rules are read from the resolved markup, so a `var()` written inside a
   // `<style>` block resolves the same way one written inline does.
-  return sanitizeHtml(resolved, extractRules(resolved));
+  return sanitizeHtml(resolved, extractRules(resolved), faces);
 }

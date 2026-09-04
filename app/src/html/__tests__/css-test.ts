@@ -185,3 +185,48 @@ describe('through the pipeline — a stylesheet buys no new powers', () => {
     expect(out).toBe('<p style="color:#ffffff">hi</p>');
   });
 });
+
+describe('font weights resolve to faces, not fontWeight', () => {
+  const FACES = {
+    regular: 'Manrope_400Regular',
+    medium: 'Manrope_500Medium',
+    semibold: 'Manrope_600SemiBold',
+    bold: 'Manrope_700Bold',
+  };
+
+  const out = (html: string) => sanitizePipeline(html, undefined, FACES);
+
+  it('maps a numeric weight from an inline style', () => {
+    // The exact declaration the market-digest newsletter puts on every row
+    // label. React Native will not synthesize 600 from the regular face, so
+    // without this the label arrives unbolded and the table looks flat.
+    expect(out('<p style="font-weight:600">SENSEX</p>')).toContain('font-family:Manrope_600SemiBold');
+  });
+
+  it('maps a weight arriving from a class rule', () => {
+    const html = '<style>.section-title { font-weight: 700 }</style><p class="section-title">Overview</p>';
+    expect(out(html)).toContain('font-family:Manrope_700Bold');
+  });
+
+  it('replaces the weight rather than leaving both instructions', () => {
+    const result = out('<p style="font-weight:600">x</p>');
+    expect(result).not.toContain('font-weight');
+  });
+
+  it('maps the keywords and the whole numeric range', () => {
+    expect(out('<p style="font-weight:normal">x</p>')).toContain('Manrope_400Regular');
+    expect(out('<p style="font-weight:500">x</p>')).toContain('Manrope_500Medium');
+    expect(out('<p style="font-weight:bold">x</p>')).toContain('Manrope_700Bold');
+    expect(out('<p style="font-weight:900">x</p>')).toContain('Manrope_700Bold');
+  });
+
+  it('leaves other declarations on the element untouched', () => {
+    const result = out('<p style="font-weight:600;color:#ff0000">x</p>');
+    expect(result).toContain('Manrope_600SemiBold');
+    expect(result).toContain('color:#ff0000');
+  });
+
+  it('does nothing when the caller supplies no faces', () => {
+    expect(sanitizePipeline('<p style="font-weight:600">x</p>')).toContain('font-weight:600');
+  });
+});
