@@ -18,18 +18,23 @@
  *     lib/links.ts) and only then handed to the caller — or the system browser
  *     by default. A URL that somehow slipped the sanitizer still cannot be
  *     opened, because a non-http(s) scheme has no host.
- *  4. Remote images stay inert unless the caller opts in. The default posture
- *     (features.md §0.8) is that a sender's pixels are not fetched on the
- *     reader's say-so; a muted placeholder takes their place.
+ *  4. Remote images are fetched only when the caller opts in. Left alone, a
+ *     sender's pixels are not loaded and a muted placeholder takes their
+ *     place. The message screen does opt in — see features.md §0.8 for what
+ *     that costs and how to put the block back.
  *
  * Height: the component never scrolls itself. A non-scrolling ScrollView only
  * measures `onContentSizeChange`, and the outer container adopts the measured
  * height, so the surrounding screen scrolls the whole message as one unit. The
  * `prev` comparison bails re-renders out when a measurement repeats.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View, ViewStyle, useWindowDimensions } from 'react-native';
-import RenderHTML, { CustomMixedRenderer, defaultSystemFonts } from 'react-native-render-html';
+import RenderHTML, {
+  CustomMixedRenderer,
+  CustomTagRendererRecord,
+  defaultSystemFonts,
+} from 'react-native-render-html';
 
 import { sanitizePipeline } from '../html/sanitize';
 import { hostOf } from '../lib/links';
@@ -63,21 +68,15 @@ export type HtmlReaderProps = {
    */
   onLinkPress?: (url: string) => void;
   /**
-   * When false (default) remote images render as a muted placeholder and are
-   * never fetched. features.md §0.8: a sender's pixels need consent first.
+   * Whether remote images may be fetched.
+   *
+   * False by default, so a caller that says nothing fetches nothing — a
+   * component handed attacker-controlled markup should not phone out on the
+   * strength of an omitted prop. The message screen opts in explicitly, and
+   * that call site is where the trade-off is written down. When off, each
+   * image renders as a muted placeholder and no request is made.
    */
   allowRemoteImages?: boolean;
-  /**
-   * Called with how many remote images this message wanted and did not get.
-   *
-   * The reader is the only thing that knows: the count is taken *after*
-   * sanitising, so an image inside an element the allowlist removed is not
-   * counted and cannot make the caller offer to load something that no longer
-   * exists. Zero when `allowRemoteImages` is on, since nothing is blocked then.
-   *
-   * Must be stable across renders — it is an effect dependency.
-   */
-  onBlockedImages?: (count: number) => void;
   /** Extra CSS variables, merged over the theme's defaults. */
   cssVars?: Record<string, string>;
   /**
@@ -129,8 +128,6 @@ function schemeTheme(scheme: HtmlReaderScheme, accent: string) {
   };
 }
 
-/** An `<img>` the renderer would have to fetch. Counted, never followed. */
-const REMOTE_IMG = /<img\b[^>]*\bsrc\s*=\s*["']https?:/gi;
 
 /** A muted, non-fetching stand-in for a remote image the reader may not load. */
 function ImagePlaceholder() {
@@ -148,7 +145,6 @@ export function HtmlReader({
   contentWidth,
   onLinkPress,
   allowRemoteImages = false,
-  onBlockedImages,
   cssVars,
   maxHeight,
   style,
@@ -167,15 +163,6 @@ export function HtmlReader({
 
   /** Sanitise + resolve `var()`s once per html change. Attacker input never reaches the renderer unsanitised. */
   const safeHtml = useMemo(() => sanitizePipeline(html, mergedVars), [html, mergedVars]);
-
-  const blockedImages = useMemo(
-    () => (allowRemoteImages ? 0 : (safeHtml.match(REMOTE_IMG) ?? []).length),
-    [safeHtml, allowRemoteImages],
-  );
-
-  useEffect(() => {
-    onBlockedImages?.(blockedImages);
-  }, [blockedImages, onBlockedImages]);
 
   const handleLinkPress = useCallback(
     (url: string) => {
@@ -201,21 +188,24 @@ export function HtmlReader({
   );
 
   /**
-   * The img renderer is the remote-load gate. When the caller has not allowed
-   * remote images — or the src is somehow not http(s) — the element is
-   * replaced with a placeholder and nothing is fetched. Only then does the
-   * default renderer (the native Image) get a chance.
+   * The img renderer is the remote-load gate, and it is all-or-nothing on
+   * purpose.
+   *
+   * When images are allowed there is **no override**, so the library's own
+   * `img` renderer runs. Delegating to `TDefaultRenderer` instead looks like
+   * the same thing and is not: for `img` that is the *generic* element
+   * renderer, not the image one, so it lays out an empty box and never
+   * fetches anything — an image that silently occupies no space and makes no
+   * request, which reads exactly like a network failure.
+   *
+   * When they are not allowed, every `img` becomes a placeholder and nothing
+   * is fetched. The src needs no scheme check here: `allowedSchemes` in the
+   * sanitizer already dropped every `src` that was not http(s), and this
+   * component never sees unsanitised markup.
    */
   const renderers = useMemo(
-    () => ({
-      img: (({ TDefaultRenderer, tnode, ...props }) => {
-        const src = tnode?.attributes?.src ?? '';
-        if (allowRemoteImages && /^https?:\/\//i.test(src)) {
-          return <TDefaultRenderer {...props} tnode={tnode} />;
-        }
-        return <ImagePlaceholder />;
-      }) as CustomMixedRenderer,
-    }),
+    (): CustomTagRendererRecord =>
+      allowRemoteImages ? {} : { img: (() => <ImagePlaceholder />) as CustomMixedRenderer },
     [allowRemoteImages],
   );
 

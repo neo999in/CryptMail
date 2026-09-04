@@ -93,17 +93,6 @@ export function MessageScreen({ route, navigation }: Props) {
   const [copied, setCopied] = useState(false);
   /** The snooze picker, opened from the overflow. */
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  /**
-   * Remote images: how many this message wanted, and whether the reader said
-   * yes to them.
-   *
-   * Per message and not remembered, which is the honest default until the
-   * per-sender allowlist in features.md 0.8 exists: consent given for one
-   * newsletter is not consent for the next one from the same address, and
-   * pretending otherwise would quietly widen what the reader agreed to.
-   */
-  const [blockedImages, setBlockedImages] = useState(0);
-  const [showImages, setShowImages] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
   /**
@@ -558,36 +547,17 @@ export function MessageScreen({ route, navigation }: Props) {
                       were. So the HTML is preferred when the message carries
                       it, sanitised in `html/sanitize.ts` before it reaches the
                       renderer, with the text part as the fallback. */}
-                  {/* Above the body, not in the overflow: a reader who cannot
-                      see that images were withheld cannot decide anything about
-                      them, and a message with a hole in it reads as broken
-                      rather than as protected. It says what was stopped and
-                      why, because "load images" alone sounds like a fix for a
-                      failure instead of a choice about privacy. */}
-                  {blockedImages > 0 && !showImages ? (
-                    <PressableRow
-                      accessibilityHint="Fetches them from the sender's server, which tells the sender you opened this message"
-                      accessibilityLabel={`Load ${blockedImages} blocked ${blockedImages === 1 ? 'image' : 'images'}`}
-                      accessibilityRole="button"
-                      onPress={() => setShowImages(true)}
-                      style={s.imageConsent}
-                    >
-                      <Icon name="image" size={16} color={color.inkDim} />
-                      <Text style={s.imageConsentText}>
-                        {blockedImages === 1 ? '1 image was not loaded' : `${blockedImages} images were not loaded`}
-                        <Text style={s.imageConsentWhy}>
-                          {'  Fetching them tells the sender you opened this.'}
-                        </Text>
-                      </Text>
-                      <Text style={[s.imageConsentAction, { color: accent }]}>Load</Text>
-                    </PressableRow>
-                  ) : null}
                   {opened.html ? (
                     <HtmlReader
-                      allowRemoteImages={showImages}
+                      // Remote images load on open, by the reader's own
+                      // decision (features.md 0.8). It is a real disclosure —
+                      // a per-recipient image URL tells the sender the message
+                      // was opened, when, and from where — and it is the one
+                      // place in this app where convenience was chosen over
+                      // that. Nothing else here phones anyone.
+                      allowRemoteImages
                       contentWidth={bodyWidth}
                       html={opened.html}
-                      onBlockedImages={setBlockedImages}
                       onLinkPress={setTappedLink}
                     />
                   ) : (
@@ -1176,31 +1146,6 @@ const s = StyleSheet.create({
     paddingVertical: 13,
   },
   menuLabel: { ...type.settingsRow, color: color.ink },
-
-  imageConsent: {
-    alignItems: 'center',
-    backgroundColor: color.ground2,
-    borderColor: color.lineSoft,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: space.sm,
-    marginBottom: space.md,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-  },
-  imageConsentText: {
-    color: color.inkDim,
-    flex: 1,
-    fontFamily: font.sans,
-    fontSize: 12.5,
-    lineHeight: 17,
-  },
-  imageConsentWhy: { color: color.inkFaint },
-  imageConsentAction: {
-    fontFamily: font.sansSemibold,
-    fontSize: 13,
-  },
 
   spamReasons: { gap: 3, marginTop: 8, paddingHorizontal: 4 },
   spamReason: { color: color.inkDim, fontFamily: font.sans, fontSize: 12 },

@@ -249,6 +249,26 @@ Pairs with 0.9.
 **Done when.** A message with a tracking pixel issues zero network requests on
 open, and "load images" is an explicit, per-message action.
 
+**Status: not built, and currently decided against.** The reader loads remote
+images on open (`allowRemoteImages` at the `HtmlReader` call site in
+`screens/MessageScreen.tsx`). Both halves of this entry were built and then
+removed on the maintainer's call: blocking by default, and a per-message strip
+saying what had been withheld and offering to load it.
+
+What that costs is worth stating plainly rather than leaving for someone to
+rediscover. A remote image URL is routinely unique per recipient, so opening a
+message now tells its sender that it was opened, when, how often, and from what
+IP — for a client whose premise is that not even the provider can read the mail,
+that is the one disclosure that happens with no action by the reader and no
+indication to them. It is also the only outbound request this app makes on
+another party's say-so.
+
+Reinstating it is small: `HtmlReader` still defaults `allowRemoteImages` to
+false and still renders a non-fetching placeholder for every blocked image, so
+the block is one prop at the call site. The consent strip and its image count
+were deleted and would need rewriting; the per-sender allowlist was never
+built.
+
 ### 0.9 HTML reader + rich-text compose · Impact M · Effort M–L
 
 **What.** Render inbound HTML mail; optionally compose it.
