@@ -35,6 +35,7 @@
  */
 import sanitize from 'sanitize-html';
 
+import { adaptBackground, adaptBorder, adaptForeground, colorInShorthand } from './colors';
 import { CssRules, emptyRules, extractRules, mergeDeclarations } from './css';
 
 /**
@@ -193,9 +194,16 @@ export const sanitizeConfig: sanitize.IOptions = {
  * only set what an inline style could — and `class`/`id` are read during that
  * merge and then dropped, since neither is in `allowedAttributes`.
  */
-export function sanitizeHtml(html: string, rules?: CssRules, faces?: WeightFaces): string {
-  const merged = prepare(html, rules ?? emptyRules());
-  return sanitize(faces ? resolveFontWeights(merged, faces) : merged, sanitizeConfig);
+export function sanitizeHtml(
+  html: string,
+  rules?: CssRules,
+  faces?: WeightFaces,
+  dark = false,
+): string {
+  let out = prepare(html, rules ?? emptyRules());
+  if (dark) out = adaptColors(out);
+  if (faces) out = resolveFontWeights(out, faces);
+  return sanitize(out, sanitizeConfig);
 }
 
 /**
@@ -263,6 +271,51 @@ export function resolveCssVars(html: string, vars: Record<string, string>): stri
   });
 }
 
+
+/** A single `property: value` declaration inside a style attribute. */
+const DECLARATION = /(^|;)\s*([a-zA-Z-]+)\s*:\s*([^;]+)/g;
+
+/**
+ * Rewrite the `background` shorthand to `background-color`, and adapt every
+ * colour in the declaration to a dark ground.
+ *
+ * The shorthand is converted rather than allowed, which is the point:
+ * `background` can carry `url(...)`, so letting it through would open a remote
+ * fetch by another name. Only a colour is lifted out of it — including a
+ * gradient's first stop, since no native renderer here draws a gradient and a
+ * flat band of the sender's colour is far closer to what they drew than the
+ * nothing that was rendered before.
+ */
+export function adaptColors(html: string): string {
+  return html.replace(STYLE_ATTR, (whole, prefix: string, quote: string, style: string) => {
+    const resolved = style.replace(
+      DECLARATION,
+      (match, lead: string, rawProperty: string, value: string) => {
+        const property = rawProperty.trim().toLowerCase();
+
+        if (property === 'background') {
+          const color = colorInShorthand(value);
+          if (!color) return lead;
+          return `${lead}background-color:${adaptBackground(color) ?? color}`;
+        }
+        if (property === 'background-color') {
+          const adapted = adaptBackground(value);
+          return adapted ? `${lead}background-color:${adapted}` : match;
+        }
+        if (property === 'color') {
+          const adapted = adaptForeground(value);
+          return adapted ? `${lead}color:${adapted}` : match;
+        }
+        if (property.startsWith('border') && property.endsWith('color')) {
+          const adapted = adaptBorder(value);
+          return adapted ? `${lead}${property}:${adapted}` : match;
+        }
+        return match;
+      },
+    );
+    return `${prefix}${quote}${resolved}${quote}`;
+  });
+}
 
 /**
  * The loaded face to use for each CSS weight, heaviest key first.
@@ -333,17 +386,19 @@ export function resolveFontWeights(html: string, faces: WeightFaces): string {
  * elements it selects, weights become the faces they mean, and only then does
  * the allowlist decide what any of it is allowed to say.
  *
- * The weight pass runs *after* the merge, because a `font-weight` is as likely
- * to arrive from a class as from a `style=`, and before the allowlist, because
- * what it produces is a `font-family` that still has to be validated.
+ * The colour and weight passes run *after* the merge, because either can as
+ * easily arrive from a class as from a `style=`, and before the allowlist,
+ * because what they produce — a `background-color`, a `font-family` — still has
+ * to be validated like anything else the sender wrote.
  */
 export function sanitizePipeline(
   html: string,
   vars?: Record<string, string>,
   faces?: WeightFaces,
+  dark = false,
 ): string {
   const resolved = vars ? resolveCssVars(html, vars) : html;
   // Rules are read from the resolved markup, so a `var()` written inside a
   // `<style>` block resolves the same way one written inline does.
-  return sanitizeHtml(resolved, extractRules(resolved), faces);
+  return sanitizeHtml(resolved, extractRules(resolved), faces, dark);
 }

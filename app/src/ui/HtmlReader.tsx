@@ -177,7 +177,10 @@ export function HtmlReader({
   );
 
   /** Sanitise + resolve `var()`s once per html change. Attacker input never reaches the renderer unsanitised. */
-  const safeHtml = useMemo(() => sanitizePipeline(html, mergedVars, WEIGHT_FACES), [html, mergedVars]);
+  const safeHtml = useMemo(
+    () => sanitizePipeline(html, mergedVars, WEIGHT_FACES, scheme === 'dark'),
+    [html, mergedVars, scheme],
+  );
 
   const handleLinkPress = useCallback(
     (url: string) => {
