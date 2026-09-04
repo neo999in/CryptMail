@@ -92,6 +92,20 @@ const COLOR = /^\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z][a-z
 /** A length with a unit, or 0. */
 const LENGTH = /^\s*(0|[0-9.]+(?:px|em|rem|%|pt))\s*$/;
 
+/**
+ * A length that may not be a percentage.
+ *
+ * Height only. A percentage width means the same thing in both layout models —
+ * a share of the parent's width, which every parent has — but a percentage
+ * *height* does not: CSS resolves it against a parent whose height is known,
+ * and React Native resolves it against one that here is usually unbounded. An
+ * Xbox promotional mail put `height:100%` on its call-to-action, meaning "fill
+ * this table cell", and got a button several screens tall. The declaration
+ * cannot be honoured faithfully, so it is dropped and the element sizes to its
+ * content — which is what the sender wanted it to look like anyway.
+ */
+const LENGTH_ABS = /^\s*(0|[0-9.]+(?:px|em|rem|pt))\s*$/;
+
 /** One or more space-separated lengths, 0, or auto — margin/padding shorthands. */
 const LENGTHS = /^\s*(0|auto|[0-9.]+(?:px|em|rem|%|pt)(?:\s+[0-9.]+(?:px|em|rem|%|pt))*)\s*$/;
 
@@ -167,9 +181,9 @@ export const sanitizeConfig: sanitize.IOptions = {
       'border-width': [LENGTH],
       'border-radius': [LENGTH],
       width: [LENGTH],
-      height: [LENGTH],
+      height: [LENGTH_ABS],
       'max-width': [LENGTH],
-      'max-height': [LENGTH],
+      'max-height': [LENGTH_ABS],
     },
   },
   // Only http/https ever becomes a navigable or fetchable URL — the same

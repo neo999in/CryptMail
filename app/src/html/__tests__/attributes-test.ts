@@ -112,3 +112,29 @@ describe('display', () => {
     expect(out('<div style="display:grid">x</div>')).not.toContain('display');
   });
 });
+
+describe('percentage heights', () => {
+  it('drops height:100%, which does not survive the translation', () => {
+    // An Xbox promotional mail put this on its call-to-action, meaning "fill
+    // this table cell". CSS resolves the percentage against a parent whose
+    // height is known; React Native resolves it against one that here is
+    // unbounded, and the button came out several screens tall.
+    const result = out('<a href="https://example.com" style="display:block;height:100%;padding:6px 12px">Go</a>');
+
+    expect(result).not.toContain('height:100%');
+    expect(result).toContain('padding:6px 12px');
+    expect(result).toContain('display:block');
+  });
+
+  it('keeps an absolute height, which means the same thing in both models', () => {
+    expect(out('<div style="height:44px">x</div>')).toContain('height:44px');
+  });
+
+  it('keeps a percentage width, which does mean the same thing', () => {
+    expect(out('<div style="width:100%">x</div>')).toContain('width:100%');
+  });
+
+  it('drops a percentage max-height for the same reason', () => {
+    expect(out('<div style="max-height:50%">x</div>')).not.toContain('max-height');
+  });
+});
