@@ -43,6 +43,8 @@ import {
   parseColor,
 } from './colors';
 import { CssRules, emptyRules, extractRules, mergeDeclarations } from './css';
+import { readStyle } from './properties';
+import { ValueContext } from './values';
 
 /**
  * What a positioned element is renamed to before the allowlist runs.
@@ -80,67 +82,16 @@ const EXCLUDED_TAG = 'cryptmail-excluded';
 const POSITIONING = /(?:^|;)\s*(?:position\s*:\s*fixed|pointer-events\s*:\s*none)/i;
 
 /**
- * A colour: hex, rgb()/hsl(), or a plain CSS keyword.
+ * The sender said not to show this.
  *
- * A bare word is how emails write `color:red` — it cannot smuggle anything
- * executable, because `url(...)` and `expression(...)` carry parentheses and
- * neither matches `[a-zA-Z][a-zA-Z0-9]*`. The renderer's own prop allowlist
- * still decides the *property*; this only constrains the value.
+ * Overwhelmingly a preheader: the line a client puts in its list preview,
+ * hidden in the body so it is not read twice. It is deleted with its contents
+ * rather than passed through with `display:none` attached, because those are
+ * only the same thing while the renderer honours the declaration — and a
+ * rendering detail is the wrong thing for "the reader never sees this" to
+ * depend on. Deleting here makes it true of the markup instead.
  */
-const COLOR = /^\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z][a-zA-Z0-9]*)\s*$/;
-
-/** A length with a unit, or 0. */
-const LENGTH = /^\s*(0|[0-9.]+(?:px|em|rem|%|pt))\s*$/;
-
-/**
- * A length that may not be a percentage.
- *
- * Height only. A percentage width means the same thing in both layout models —
- * a share of the parent's width, which every parent has — but a percentage
- * *height* does not: CSS resolves it against a parent whose height is known,
- * and React Native resolves it against one that here is usually unbounded. An
- * Xbox promotional mail put `height:100%` on its call-to-action, meaning "fill
- * this table cell", and got a button several screens tall. The declaration
- * cannot be honoured faithfully, so it is dropped and the element sizes to its
- * content — which is what the sender wanted it to look like anyway.
- */
-const LENGTH_ABS = /^\s*(0|[0-9.]+(?:px|em|rem|pt))\s*$/;
-
-/**
- * One or more space-separated lengths, or 0 — the margin and padding shorthands.
- *
- * `auto` is deliberately absent. It is how every email centres its body —
- * `<div style="max-width:600px;margin:auto">` is the standard wrapper — and it
- * is the one margin value that means something different in the two layout
- * models. In CSS the block still fills the width available to it, up to the
- * maximum. In React Native an auto margin makes the box shrink to fit its
- * content, and a wrapper full of stretchy children collapses to a sliver: a
- * Splitwise statement rendered as its logo above a narrow vertical bar, with
- * every balance in the message inside it and invisible.
- *
- * Each component may be a bare `0`, which is the other half of this regex
- * worth stating: `margin: 16px 0` and `padding: 0 40px 60px` are how shorthands
- * are actually written, and a pattern that demanded a unit on every component
- * rejected the whole declaration — so those elements lost their spacing
- * entirely rather than partially.
- *
- * Dropping `auto` is the faithful reading rather than a concession. What the author
- * asked for is "centred, capped at 600" and the cap is the half that
- * translates — with `max-width` kept and `auto` gone, a column layout stretches
- * the wrapper to the width available, which is where it was going to be.
- */
-const LENGTHS = /^\s*(?:0|-?[0-9.]+(?:px|em|rem|%|pt))(?:\s+(?:0|-?[0-9.]+(?:px|em|rem|%|pt))){0,3}\s*$/;
-
-/** A border line: width, optional style, optional colour — never url(). */
-const BORDER = /^\s*(none|hidden|solid|dashed|dotted|double|ridge|groove|inset|outset|[0-9.]+(?:px|em|pt|rem)(?:\s+(?:solid|dashed|dotted|double|ridge|groove|inset|outset|none))?(?:\s+(?:#[0-9a-fA-F]{3,8}|[a-zA-Z][a-zA-Z0-9]*))?)\s*$/;
-
-const FONT_WEIGHT = /^\s*(normal|bold|bolder|lighter|[1-9]00)\s*$/;
-
-/** A border's line style, on its own rather than inside the shorthand. */
-const BORDER_STYLE = /^\s*(none|hidden|solid|dashed|dotted|double|ridge|groove|inset|outset)\s*$/;
-const FONT_STYLE = /^\s*(normal|italic|oblique)\s*$/;
-const TEXT_ALIGN = /^\s*(left|right|center|justify|start|end)\s*$/;
-const TEXT_DECORATION = /^\s*((?:underline|line-through|overline|none)(?:\s+(?:underline|line-through|overline))*)\s*$/;
+const HIDDEN = /(?:^|;)\s*display\s*:\s*none/i;
 
 /**
  * The allowlist itself.
@@ -162,71 +113,6 @@ export const sanitizeConfig: sanitize.IOptions = {
     th: ['colspan', 'rowspan'],
     td: ['colspan', 'rowspan'],
     '*': ['style'],
-  },
-  allowedStyles: {
-    '*': {
-      color: [COLOR],
-      'background-color': [COLOR],
-      'font-family': [/^\s*[A-Za-z0-9_ '"(),-]+\s*$/],
-      // Absolute only. React Native takes a number of points for a font size,
-      // so a percentage has nothing to be a percentage *of* — it is not that
-      // `120%` renders wrong, it is that it renders as nothing and the text
-      // silently falls back to the base size.
-      'font-size': [LENGTH_ABS],
-      'font-weight': [FONT_WEIGHT],
-      'font-style': [FONT_STYLE],
-      // Same, after `adaptDeclarations` has turned the two forms email writes
-      // most — a bare multiplier and a percentage — into `em`, which the
-      // engine does resolve. `normal` is dropped there rather than allowed
-      // here, since React Native has no such value.
-      'line-height': [LENGTH_ABS],
-      'text-align': [TEXT_ALIGN],
-      'text-decoration': [TEXT_DECORATION],
-      'text-transform': [/^\s*(none|uppercase|lowercase|capitalize)\s*$/],
-      // `display` decides whether a box is a box at all. React Native draws no
-      // border, radius or background on a *nested inline* element, so an email
-      // button — invariably a styled <span> inside an <a> — arrived as bare
-      // blue text with its outline silently dropped. `none` matters just as
-      // much: it is how every sender hides the preheader line that would
-      // otherwise be repeated at the top of the message.
-      display: [/^\s*(none|block|inline|inline-block|flex)\s*$/],
-      'letter-spacing': [/^\s*-?[0-9.]+(?:px|em|rem)\s*$/],
-      margin: [LENGTHS],
-      'margin-top': [LENGTHS],
-      'margin-right': [LENGTHS],
-      'margin-bottom': [LENGTHS],
-      'margin-left': [LENGTHS],
-      padding: [LENGTHS],
-      'padding-top': [LENGTHS],
-      'padding-right': [LENGTHS],
-      'padding-bottom': [LENGTHS],
-      'padding-left': [LENGTHS],
-      border: [BORDER],
-      'border-top': [BORDER],
-      'border-right': [BORDER],
-      'border-bottom': [BORDER],
-      'border-left': [BORDER],
-      'border-color': [COLOR],
-      'border-top-color': [COLOR],
-      'border-right-color': [COLOR],
-      'border-bottom-color': [COLOR],
-      'border-left-color': [COLOR],
-      'border-width': [LENGTH],
-      'border-top-width': [LENGTH],
-      'border-right-width': [LENGTH],
-      'border-bottom-width': [LENGTH],
-      'border-left-width': [LENGTH],
-      'border-style': [BORDER_STYLE],
-      'border-top-style': [BORDER_STYLE],
-      'border-right-style': [BORDER_STYLE],
-      'border-bottom-style': [BORDER_STYLE],
-      'border-left-style': [BORDER_STYLE],
-      'border-radius': [LENGTH],
-      width: [LENGTH],
-      height: [LENGTH_ABS],
-      'max-width': [LENGTH],
-      'max-height': [LENGTH_ABS],
-    },
   },
   // Only http/https ever becomes a navigable or fetchable URL — the same
   // rule lib/links.ts applies to plaintext bodies. javascript:, data:, file:
@@ -267,12 +153,11 @@ export const sanitizeConfig: sanitize.IOptions = {
     'select',
     EXCLUDED_TAG,
   ],
-  // Second line only. `prepare` below is what actually catches a positioned
-  // element, because it is the one place the raw style is still visible: by the
-  // time a frame reaches here, a `style` holding *nothing but* disallowed
-  // properties has already been emptied and dropped, so `position:fixed` on its
-  // own would look like no style at all. This still fires for an element whose
-  // style survived filtering, and costs nothing to keep.
+  // A backstop. `prepare` is what actually catches a positioned element, since
+  // it is the only point where the raw declarations still exist — a frame here
+  // carries the element's *source* attributes, so anything that arrived by
+  // class was never visible to this at all. Kept because it costs nothing and
+  // covers a `sanitizeHtml` called without going through `prepare`'s merge.
   exclusiveFilter: (frame) =>
     frame.tag !== 'style' && POSITIONING.test(frame.attribs.style ?? ''),
 };
@@ -288,15 +173,8 @@ export const sanitizeConfig: sanitize.IOptions = {
  * only set what an inline style could — and `class`/`id` are read during that
  * merge and then dropped, since neither is in `allowedAttributes`.
  */
-export function sanitizeHtml(
-  html: string,
-  rules?: CssRules,
-  faces?: WeightFaces,
-  dark = false,
-): string {
-  let out = adaptDeclarations(prepare(html, rules ?? emptyRules()), dark);
-  if (faces) out = resolveFontWeights(out, faces);
-  return sanitize(out, sanitizeConfig);
+export function sanitizeHtml(html: string, rules?: CssRules, ctx?: ValueContext): string {
+  return sanitize(prepare(html, rules ?? emptyRules(), ctx ?? { dark: false }), sanitizeConfig);
 }
 
 /**
@@ -319,7 +197,7 @@ export function sanitizeHtml(
  * because it decides nothing about safety. Its output is never rendered; it is
  * input to `sanitizeConfig`, which remains the one gate.
  */
-function prepare(html: string, rules: CssRules): string {
+function prepare(html: string, rules: CssRules, ctx: ValueContext): string {
   // `<center>` before the walk, since it is the tag itself that carries the
   // meaning and the allowlist has no room for it.
   const centred = html
@@ -346,9 +224,21 @@ function prepare(html: string, rules: CssRules): string {
         // the author can override, not an instruction that beats CSS.
         const presentational = presentationalStyle(attribs);
         const merged = mergeDeclarations(tagName, attribs, rules);
-        const style = [...presentational, merged].filter(Boolean).join(';') || undefined;
+        const raw = [...presentational, merged].filter(Boolean).join(';');
 
-        if (style && POSITIONING.test(style)) return { tagName: EXCLUDED_TAG, attribs: {} };
+        // Tested against the *raw* declarations, not the read ones: `position`
+        // is not in the property table, so by the time the style has been read
+        // there is nothing left to recognise. This is the only point where the
+        // element still admits what it was trying to do.
+        if (POSITIONING.test(raw) || HIDDEN.test(raw)) {
+          return { tagName: EXCLUDED_TAG, attribs: {} };
+        }
+
+        // Every declaration from every route meets the same table here, which
+        // is what makes "a stylesheet buys nothing an inline style could not"
+        // a fact about the code rather than an intention.
+        const read = readStyle(raw, ctx);
+        const style = read === '' ? undefined : read;
 
         // An image the renderer cannot fetch is removed rather than emptied.
         // `allowedSchemes` strips a `cid:` or `data:` src and a path-relative
@@ -381,6 +271,10 @@ function prepare(html: string, rules: CssRules): string {
           color: _color,
           face: _face,
           size: _size,
+          // Dropped so the *read* style is the only one that can survive. The
+          // property table is the style gate now, and leaving the original
+          // here would route every declaration around it.
+          style: _style,
           ...rest
         } = attribs;
         return { tagName: boxed ? 'div' : tagName, attribs: style ? { ...rest, style } : rest };
@@ -489,143 +383,6 @@ function presentationalStyle(attribs: Record<string, string>): string[] {
 const DECLARATION = /(^|;)\s*([a-zA-Z-]+)\s*:\s*([^;]+)/g;
 
 /**
- * Rewrite the declarations a native renderer cannot take at face value.
- *
- * Two jobs, and they are here together because both need the parsed
- * declaration and neither is a safety decision — the allowlist still runs
- * afterwards and still has the last word.
- *
- * The `background` shorthand becomes `background-color`. Converting rather than
- * allowing is the point: `background` can carry `url(...)`, so letting it
- * through would open a remote fetch by another name. Only a colour is lifted
- * out — including a gradient's first stop, since nothing here draws a gradient
- * and a flat band of the sender's own colour is far closer to what they drew
- * than the nothing that was rendered before.
- *
- * `display: inline-block` becomes `block`, since React Native has no
- * inline-block and `block` is the closer of the two it does have.
- *
- * Colours are adapted only when `dark` is set; everything else applies either
- * way.
- */
-export function adaptDeclarations(html: string, dark: boolean): string {
-  return html.replace(STYLE_ATTR, (whole, prefix: string, quote: string, style: string) => {
-    const resolved = style.replace(
-      DECLARATION,
-      (match, lead: string, rawProperty: string, value: string) => {
-        const property = rawProperty.trim().toLowerCase();
-
-        if (property === 'line-height') {
-          // CSS's two commonest forms are relative to the font size, and the
-          // renderer wants an absolute number. `em` is the one relative unit
-          // the engine does resolve, so both become that: a bare `1.5` and a
-          // `150%` are the same instruction written twice. `normal` has no
-          // equivalent at all and is dropped, which leaves the tag's own
-          // line-height rather than an invalid one.
-          const lh = value.trim().toLowerCase();
-          if (lh === 'normal') return lead;
-          const unitless = /^([0-9.]+)$/.exec(lh);
-          if (unitless) return `${lead}line-height:${unitless[1]}em`;
-          const percent = /^([0-9.]+)%$/.exec(lh);
-          if (percent) return `${lead}line-height:${+percent[1] / 100}em`;
-          return match;
-        }
-        if (property === 'display') {
-          // React Native has no inline-block. `block` is the closer of the two
-          // it does have: the element gets its own box, which is the whole
-          // reason a sender reached for inline-block on a button.
-          const mode = value.trim().toLowerCase();
-          return mode === 'inline-block' ? `${lead}display:block` : match;
-        }
-        if (property === 'background') {
-          const color = colorInShorthand(value);
-          if (!color) return lead;
-          const resolved = (dark && adaptBackground(color)) || color;
-          return `${lead}background-color:${resolved}`;
-        }
-        if (!dark) return match;
-
-        if (property === 'background-color') {
-          const adapted = adaptBackground(value);
-          return adapted ? `${lead}background-color:${adapted}` : match;
-        }
-        if (property === 'color') {
-          const adapted = adaptForeground(value);
-          return adapted ? `${lead}color:${adapted}` : match;
-        }
-        if (property.startsWith('border') && property.endsWith('color')) {
-          const adapted = adaptBorder(value);
-          return adapted ? `${lead}${property}:${adapted}` : match;
-        }
-        return match;
-      },
-    );
-    return `${prefix}${quote}${resolved}${quote}`;
-  });
-}
-
-/**
- * The loaded face to use for each CSS weight, heaviest key first.
- *
- * Supplied by the caller because this module has no business knowing the app's
- * fonts — it is the same arrangement as `vars`: the renderer cannot evaluate
- * the thing, so the caller says what it resolves to.
- */
-export type WeightFaces = {
-  /** 400 and `normal`. */
-  regular: string;
-  /** 500. */
-  medium: string;
-  /** 600. */
-  semibold: string;
-  /** 700 and up, `bold`, `bolder`. */
-  bold: string;
-};
-
-/** A `font-weight: …` declaration inside a style attribute. */
-const FONT_WEIGHT_DECL = /(^|;)\s*font-weight\s*:\s*([^;]+)/gi;
-
-function faceForWeight(value: string, faces: WeightFaces): string | null {
-  const weight = value.trim().toLowerCase();
-  if (weight === 'normal') return faces.regular;
-  if (weight === 'bold' || weight === 'bolder') return faces.bold;
-  if (weight === 'lighter') return faces.regular;
-
-  const numeric = Number(weight);
-  if (!Number.isFinite(numeric)) return null;
-  if (numeric >= 700) return faces.bold;
-  if (numeric >= 600) return faces.semibold;
-  if (numeric >= 500) return faces.medium;
-  return faces.regular;
-}
-
-/**
- * Rewrite `font-weight` into the concrete face that weight means.
- *
- * Manrope ships as separate files per weight, and React Native does not
- * synthesize: `fontWeight: '600'` over `Manrope_400Regular` renders regular,
- * silently. The app's own rule is therefore to address a weight by its family
- * (`font.sansSemibold`), never by `fontWeight` — and an email full of
- * `font-weight: 600` is exactly the case that rule exists for. Without this,
- * every bold thing a sender wrote arrives unbolded, which is most of the
- * difference between a newsletter that looks designed and one that looks like a
- * dump of its text.
- *
- * The declaration is *replaced*, not added to: leaving `font-weight` behind
- * would have the engine apply a second, conflicting instruction to a face that
- * cannot honour it. A weight this map does not recognise is left alone.
- */
-export function resolveFontWeights(html: string, faces: WeightFaces): string {
-  return html.replace(STYLE_ATTR, (whole, prefix: string, quote: string, style: string) => {
-    const resolved = style.replace(FONT_WEIGHT_DECL, (match, lead: string, value: string) => {
-      const face = faceForWeight(value, faces);
-      return face ? `${lead}font-family:${face}` : match;
-    });
-    return `${prefix}${quote}${resolved}${quote}`;
-  });
-}
-
-/**
  * The one entry point the reader uses.
  *
  * Order matters, and each step is there because the renderer cannot do the
@@ -641,11 +398,11 @@ export function resolveFontWeights(html: string, faces: WeightFaces): string {
 export function sanitizePipeline(
   html: string,
   vars?: Record<string, string>,
-  faces?: WeightFaces,
+  faces?: ValueContext['faces'],
   dark = false,
 ): string {
   const resolved = vars ? resolveCssVars(html, vars) : html;
   // Rules are read from the resolved markup, so a `var()` written inside a
   // `<style>` block resolves the same way one written inline does.
-  return sanitizeHtml(resolved, extractRules(resolved), faces, dark);
+  return sanitizeHtml(resolved, extractRules(resolved), { dark, faces });
 }

@@ -28,7 +28,7 @@
  * height, so the surrounding screen scrolls the whole message as one unit. The
  * `prev` comparison bails re-renders out when a measurement repeats.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Text, View, ViewStyle, useWindowDimensions } from 'react-native';
 import RenderHTML, {
   CustomMixedRenderer,
@@ -36,7 +36,9 @@ import RenderHTML, {
   defaultSystemFonts,
 } from 'react-native-render-html';
 
-import { sanitizePipeline, WeightFaces } from '../html/sanitize';
+import { droppedDeclarations, resetDroppedDeclarations } from '../html/properties';
+import { sanitizePipeline } from '../html/sanitize';
+import { ValueContext } from '../html/values';
 import { hostOf } from '../lib/links';
 import { color, font, radius, space, type } from '../theme';
 import { useAccent } from './appearance';
@@ -137,7 +139,7 @@ function schemeTheme(scheme: HtmlReaderScheme, accent: string) {
  * the regular face therefore renders regular, with no warning, which is why the
  * app addresses weight by family everywhere else too.
  */
-const WEIGHT_FACES: WeightFaces = {
+const WEIGHT_FACES: NonNullable<ValueContext['faces']> = {
   regular: font.sans,
   medium: font.sansMedium,
   semibold: font.sansSemibold,
@@ -176,11 +178,43 @@ export function HtmlReader({
     [theme, cssVars],
   );
 
-  /** Sanitise + resolve `var()`s once per html change. Attacker input never reaches the renderer unsanitised. */
-  const safeHtml = useMemo(
-    () => sanitizePipeline(html, mergedVars, WEIGHT_FACES, scheme === 'dark'),
-    [html, mergedVars, scheme],
-  );
+  /**
+   * Sanitise + resolve `var()`s once per html change. Attacker input never
+   * reaches the renderer unsanitised.
+   *
+   * The dropped-declaration tally is read here rather than in an effect, and
+   * has to be: sanitising happens during render and effects run after it, so
+   * anything resetting the tally afterwards would clear the very record it
+   * was meant to report.
+   */
+  const { safeHtml, unreadable } = useMemo(() => {
+    if (__DEV__) resetDroppedDeclarations();
+    const sanitised = sanitizePipeline(html, mergedVars, WEIGHT_FACES, scheme === 'dark');
+    return { safeHtml: sanitised, unreadable: __DEV__ ? droppedDeclarations() : [] };
+  }, [html, mergedVars, scheme]);
+
+  /**
+   * What this message asked for and did not get.
+   *
+   * Every gap in the property table used to be found the same way: someone
+   * opened a message, saw it render wrong, and asked why. That is a slow and
+   * unreliable way to learn about a class of failure that is invisible by
+   * construction — a dropped declaration looks exactly like one the sender
+   * never wrote. The reader now says so itself, naming the properties it could
+   * not read, so the next gap is a line in a log rather than a screenshot.
+   *
+   * Development only, and property names with counts only: a *value* can carry
+   * the content of the message, and no diagnostic is worth putting a body into
+   * a log for.
+   */
+  useEffect(() => {
+    if (!__DEV__ || unreadable.length === 0) return;
+    console.log(
+      `[HtmlReader] declarations this message wanted and the table cannot read: ${unreadable
+        .map(({ property, count }) => `${property} x${count}`)
+        .join(', ')}`,
+    );
+  }, [unreadable]);
 
   const handleLinkPress = useCallback(
     (url: string) => {

@@ -98,8 +98,11 @@ describe('display', () => {
     expect(result).toContain('border:1px solid #dadce0');
   });
 
-  it('keeps display:none, which is how a preheader stays hidden', () => {
-    expect(out('<div style="display:none">preview text</div>')).toContain('display:none');
+  it('deletes a hidden element outright, contents and all', () => {
+    // A preheader passed through with `display:none` attached is only hidden
+    // while the renderer honours the declaration, and "the reader never sees
+    // this" is the wrong thing to hang on a rendering detail.
+    expect(out('<div style="display:none">preview text</div>')).toBe('');
   });
 
   it('applies either way, dark or not — it is layout, not colour', () => {
