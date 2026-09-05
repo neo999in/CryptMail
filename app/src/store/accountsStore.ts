@@ -41,12 +41,20 @@ export async function saveAccounts(state: AccountsState): Promise<AccountsState>
   return next;
 }
 
-/** Add an account, or refresh what is known about one already listed (pure). */
-export function upsertAccount(state: AccountsState, ref: AccountRef): AccountsState {
+/**
+ * Add an account, or refresh what is known about one already listed (pure).
+ *
+ * `activate` is not a convenience. Boot restores the mailbox the user left in
+ * front, paints it, and then registers the rest in the background — and a
+ * background restore that marked itself active would yank the front out from
+ * under whatever the user is already reading. Adding a mailbox by hand still
+ * activates it, which is what the user just asked for.
+ */
+export function upsertAccount(state: AccountsState, ref: AccountRef, activate = true): AccountsState {
   const accounts = state.accounts.some((a) => a.id === ref.id)
     ? state.accounts.map((a) => (a.id === ref.id ? { ...a, ...ref } : a))
     : [...state.accounts, ref];
-  return normalise({ ...state, accounts, active: ref.id });
+  return normalise({ ...state, accounts, active: activate ? ref.id : state.active });
 }
 
 /**

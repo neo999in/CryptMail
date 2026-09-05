@@ -47,8 +47,16 @@ export type SessionService = {
   signOut(): Promise<void>;
   /** Load everything one account owns on this device and put it in front. */
   attach(session: Session): Promise<void>;
-  /** Drop a session the provider will no longer honour. True if that is what happened. */
-  handleAuthLoss(e: unknown): boolean;
+  /**
+   * Drop a session the provider will no longer honour. True if that is what
+   * happened.
+   *
+   * `account` names whose grant died, defaulting to the active one. It matters
+   * because the answer is different for the last mailbox than for one of
+   * several: the last one returns the app to the connect screen, while one of
+   * several is flagged and stepped over, leaving the others signed in.
+   */
+  handleAuthLoss(e: unknown, account?: AccountId): boolean;
 };
 
 export type MailboxService = {
@@ -126,12 +134,31 @@ export type AccountsService = {
   requireActive(): AccountId;
   /** The session for one connected account, whichever is in front. */
   sessionFor(id: AccountId): Session | undefined;
-  switchAccount(id: AccountId): Promise<void>;
+  /**
+   * Put one mailbox in front, optionally changing the merged lens at the same
+   * time — the rail's "this account alone" tap is both at once, and doing them
+   * as two calls would sync the mailbox twice.
+   */
+  switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
   addAccount(): Promise<void>;
   removeAccount(id: AccountId): Promise<void>;
   setUnified(on: boolean): Promise<void>;
-  /** Remember a connected account and mark it active. Returns its id. */
-  register(session: Session): Promise<AccountId>;
+  /**
+   * Remember a connected account. Returns its id.
+   *
+   * Active by default. `activate: false` is for boot's background restores,
+   * which must not move the mailbox the user is already reading.
+   */
+  register(session: Session, options?: { activate?: boolean }): Promise<AccountId>;
+  /**
+   * Record that a listed account can no longer be reached without a new
+   * sign-in, and step off it if it was in front.
+   *
+   * Its stores are left alone: a dead access token says nothing about whether
+   * the keyring and decrypted mail on this device are still the user's. Only
+   * `removeAccount` erases those, and only because the user asked.
+   */
+  markReauth(id: AccountId, reason?: string): Promise<void>;
 };
 
 export type DraftsService = {

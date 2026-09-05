@@ -134,6 +134,18 @@ export type State = {
   activeAccount: AccountId | null;
   /** Whether the inbox lists every account at once. Reading only. */
   unified: boolean;
+  /**
+   * Connected mailboxes this device can no longer reach, by id.
+   *
+   * A revoked or expired grant used to sign the user out of *everything*,
+   * which with one account was indistinguishable from the truth and with two
+   * is simply wrong. The account stays listed and keeps its keyring, drafts
+   * and decrypted mail — none of that is invalidated by a dead token — but it
+   * cannot be switched to or synced until the user signs in again, and the
+   * drawer says so. Held in memory only: the next launch discovers it again by
+   * failing to restore the account.
+   */
+  needsReauth: AccountId[];
   /** True while a switch is loading the other account's stores. */
   switchingAccount: boolean;
   identity: Identity | null;
@@ -251,7 +263,8 @@ export type Actions = {
   /** Connect another mailbox alongside the ones already here, and switch to it. */
   addAccount(): Promise<void>;
   /** Put another connected mailbox in front, loading everything it owns. */
-  switchAccount(id: AccountId): Promise<void>;
+  /** Put a mailbox in front; `unified: false` also leaves the merged view. */
+  switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
   /** Disconnect one mailbox and erase every local store belonging to it. */
   removeAccount(id: AccountId): Promise<void>;
   /** Show every account's mail in one list, or just the active one's. */

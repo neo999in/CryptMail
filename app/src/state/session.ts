@@ -99,6 +99,77 @@ export function createSession(ctx: Ctx): SessionService {
     };
   }
 
+  /**
+   * The first of these mailboxes the provider will actually hand back.
+   *
+   * Each address is asked for on its own so one dead grant does not decide the
+   * launch: the account the user left in front is tried first, and if its grant
+   * is gone the next mailbox opens instead of the connect screen. Whatever was
+   * skipped is flagged by `restoreRest`, which sees it again.
+   */
+  async function firstRestorable(
+    addresses: string[],
+  ): Promise<{ session: Session | null; error: unknown }> {
+    let error: unknown = null;
+    for (const address of addresses) {
+      try {
+        const [session] = await auth.restoreAll([address]);
+        if (session) return { session, error: null };
+      } catch (e) {
+        // Kept, not thrown: the next mailbox may open fine, and only if none
+        // of them does has the user actually lost the app. Reporting the first
+        // failure then is better than the last, which on a mixed launch would
+        // describe whichever account happened to be tried last.
+        error ??= e;
+      }
+    }
+    return { session: null, error };
+  }
+
+  /**
+   * Bring back every other connected mailbox, after the first paint.
+   *
+   * Registered without activating: the user is already reading the mailbox that
+   * arrived first, and a background restore must not move it. Each one gets its
+   * provider up front so the merged inbox can list it without a sign-in round
+   * trip mid-scroll.
+   *
+   * An address that will not restore is **flagged, not dropped**. Silently
+   * omitting it is what made a revoked second mailbox invisible — present in the
+   * switcher, contributing nothing to the merged inbox, with nothing on screen
+   * saying why.
+   */
+  async function restoreRest(addresses: string[], isCancelled: () => boolean) {
+    let arrived = false;
+
+    for (const address of addresses) {
+      if (isCancelled()) return;
+      const id = accountIdFor('gmail', address);
+      try {
+        const [session] = await auth.restoreAll([address]);
+        if (!session) {
+          await ctx.services.accounts.markReauth(id);
+          continue;
+        }
+        await ctx.services.accounts.register(session, { activate: false });
+        clientFor(session, id);
+        arrived = true;
+      } catch {
+        // Transient or permanent, the answer on a background restore is the
+        // same: this mailbox is not reachable right now and says so. No error
+        // banner — the user asked for the account in front, not this one.
+        await ctx.services.accounts.markReauth(id);
+      }
+    }
+
+    // A merged inbox drawn before these arrived is missing their mail, so it is
+    // re-collected now that their providers exist. An unmerged one already
+    // shows everything it claims to.
+    if (arrived && !isCancelled() && store.get().unified) {
+      await ctx.services.mailbox.refreshInbox();
+    }
+  }
+
   service = {
     /**
      * Everything this account owns, in front.
@@ -112,39 +183,56 @@ export function createSession(ctx: Ctx): SessionService {
       store.patch({ session, ...(await load(session, account)) });
     },
 
+    /**
+     * Restore the mailbox that was in front, paint it, then bring the rest back
+     * behind it.
+     *
+     * The two phases are the point. Restoring an account is a Play-services
+     * round trip that the provider takes one at a time (`auth/googleAuth.ts`),
+     * so putting all of them in front of the first paint would make a second
+     * mailbox cost every launch — the user waiting on a mailbox they are not
+     * looking at. The rest arrive in the switcher and in the merged inbox a
+     * moment later.
+     */
     async boot(isCancelled) {
       try {
         // Before anything reads a store. Every local store is encrypted at rest
         // and none of them can be decrypted until the device key is loaded.
         await initStorage();
 
-        const sessions = await auth.restoreAll();
-        if (sessions.length === 0) {
-          if (!isCancelled()) store.patch({ booting: false });
+        // Which mailboxes this device has, and which was in front. Read first
+        // now, not last: the provider cannot enumerate the grants it holds, so
+        // this registry is what tells it which addresses to ask for.
+        const stored = await loadAccounts();
+        const ordered = [
+          ...stored.accounts.filter((a) => a.id === stored.active),
+          ...stored.accounts.filter((a) => a.id !== stored.active),
+        ];
+
+        // Nothing stored means a first launch, or an install from before the
+        // registry existed — both of which want whoever Play services has.
+        const { session: wanted, error } = ordered.length
+          ? await firstRestorable(ordered.map((a) => a.email))
+          : { session: (await auth.restoreAll())[0] ?? null, error: null };
+
+        if (!wanted) {
+          // No mailbox opened. Whether that is "signed out" or "something went
+          // wrong" is the difference between a connect screen the user
+          // understands and one that silently lost their accounts.
+          if (!isCancelled()) store.patch({ booting: false, error: error ? message(error) : null });
           return;
         }
 
-        // Which mailbox was in front when the app was last closed. Read
-        // *before* registering anything: `register` marks each account active
-        // as it goes, so asking afterwards would only ever name whichever
-        // session happened to be restored last.
-        const stored = await loadAccounts();
-        const wanted =
-          sessions.find((s) => accountIdFor(s.provider, s.email) === stored.active) ?? sessions[0];
-
-        // Register every session, so the switcher and the merged inbox know
-        // about all of them even though only one is loaded — and build each
-        // provider up front for the same reason. `wanted` goes last, which is
-        // what leaves it active.
-        for (const session of sessions) {
-          const id = accountIdFor(session.provider, session.email);
-          await clientFor(session, id);
-          if (session !== wanted) await ctx.services.accounts.register(session);
-        }
-
         const account = await ctx.services.accounts.register(wanted);
+        clientFor(wanted, account);
         const attached = await load(wanted, account);
-        if (!isCancelled()) store.patch({ booting: false, session: wanted, ...attached });
+        if (isCancelled()) return;
+        store.patch({ booting: false, session: wanted, ...attached });
+
+        void restoreRest(
+          ordered.filter((a) => a.id !== account).map((a) => a.email),
+          isCancelled,
+        );
       } catch (e) {
         // A grant revoked while the app was closed shows up here. Land on the
         // sign-in screen with the reason, not on a broken inbox.
@@ -193,8 +281,21 @@ export function createSession(ctx: Ctx): SessionService {
      * error the user has no way to act on. `signOut` has already cleared the
      * stored tokens by the time this runs.
      */
-    handleAuthLoss(e) {
+    handleAuthLoss(e, account) {
       if (!needsReauth(e)) return false;
+
+      // One of several mailboxes: flag it, step off it, and leave the others
+      // signed in. Clearing everything here was correct only while there could
+      // be just one account — with two it signs the user out of a mailbox that
+      // is working because a different one's grant expired.
+      const { accounts, activeAccount } = store.get();
+      const failed = account ?? activeAccount;
+      const survivor = accounts.find((a) => a.id !== failed && ctx.services.accounts.sessionFor(a.id));
+      if (failed && survivor) {
+        void ctx.services.accounts.markReauth(failed, message(e));
+        return true;
+      }
+
       mail.current = null;
       mail.clients.clear();
       store.patch({

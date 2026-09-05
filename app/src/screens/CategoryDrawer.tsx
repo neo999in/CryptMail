@@ -41,7 +41,7 @@ import { color, font, radius, space, tint, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
 import { useAccent } from '../ui/appearance';
 import { Icon, IconName } from '../ui/Icon';
-import { Avatar, PressableRow } from '../ui/primitives';
+import { AllAccountsAvatar, Avatar, PressableRow } from '../ui/primitives';
 import { Destination, useDestination } from '../ui/destination';
 
 const CATEGORY_ICON: Record<string, IconName> = {
@@ -70,6 +70,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     session,
     accounts,
     activeAccount,
+    needsReauth,
     unified,
     switchAccount,
     addAccount,
@@ -135,28 +136,97 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     <View style={[s.drawer, { paddingTop: insets.top }]}>
       {/* ------------------------------------------------------------ rail -- */}
       <View style={s.rail}>
+        {/* Merged reading is the top of the rail rather than a toggle buried in
+            the panel, because it is the same *kind* of choice as picking a
+            mailbox: it answers "whose mail am I looking at". It only exists
+            with something to merge — one account is already all of them.
+
+            It does not change which account is *active*: composing, sending and
+            decrypting still use one identity, and the bar says which. That is
+            why the mailbox in front keeps a ring here even while Home is lit —
+            two different questions, answered at once. */}
+        {accounts.length > 1 ? (
+          <>
+            <Pressable
+              accessibilityLabel="Show every account in one inbox"
+              accessibilityRole="button"
+              accessibilityState={{ selected: unified }}
+              onPress={() => {
+                if (!unified) void setUnified(true);
+                navigation.closeDrawer();
+              }}
+              // No tinted slot behind it: the filled circle already carries the
+              // selection, and stacking a wash under it only muddies the one
+              // mark on the rail that is not a photograph.
+              style={({ pressed }) => [s.railItem, pressed && { opacity: 0.7 }]}
+            >
+              <AllAccountsAvatar active={unified} size={40} tone={unified ? accent : color.inkFaint} />
+            </Pressable>
+            <View style={s.railDivider} />
+          </>
+        ) : null}
+
         {accounts.map((account) => {
           const active = account.id === activeAccount;
+          // A mailbox whose grant died is still listed — it keeps its keyring
+          // and its mail — but tapping it can only mean "sign in again", and
+          // the rail has to say that before the tap rather than after. The
+          // label carries it too: a dimmed avatar with a dot on it is not
+          // something a screen reader can convey, and this is the one control
+          // that explains why an account stopped syncing.
+          const stale = needsReauth.includes(account.id);
           return (
             <Pressable
-              accessibilityLabel={`Switch to ${account.email}`}
+              accessibilityLabel={
+                stale ? `Sign in again to ${account.email}` : `Switch to ${account.email}`
+              }
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
               key={account.id}
               onLongPress={() => confirmRemove(account)}
               onPress={() => {
-                if (!active) void switchAccount(account.id);
+                // A mailbox whose grant died can only be reached by signing in
+                // again, and that is a Google picker — so it happens here, on a
+                // deliberate tap, and never as a side effect of a switch.
+                if (stale) void addAccount();
+                // "This mailbox, on its own" — leaving the merged view is part
+                // of picking one, and both land in a single sync.
+                else if (!active || unified) void switchAccount(account.id, { unified: false });
                 navigation.closeDrawer();
               }}
               // A tinted squircle behind the active avatar, not a ring around
               // it — the same soft-selection language as a chosen drawer row.
               style={({ pressed }) => [
                 s.railItem,
-                { backgroundColor: active ? tint(accent, 0.18) : 'transparent' },
+                { backgroundColor: active && !unified ? tint(accent, 0.18) : 'transparent' },
                 pressed && { opacity: 0.7 },
               ]}
             >
-              <Avatar seed={account.email} label={initials(account.email)} size={40} />
+              <View
+                style={[
+                  stale && s.railStale,
+                  // Merged, but still the identity everything is composed and
+                  // decrypted with. A ring rather than the filled tint: it is
+                  // the subordinate of the two answers on screen.
+                  active && unified && { borderColor: accent, ...s.railIdentity },
+                ]}
+              >
+                <Avatar
+                  label={initials(account.name ?? account.email)}
+                  photo={account.photo}
+                  seed={account.email}
+                  size={40}
+                />
+              </View>
+              {stale ? (
+                // Not `color.coral`: coral is trust vocabulary — a blocked
+                // recipient, a changed fingerprint — and a mailbox that needs a
+                // new token is not a trust failure. Borrowing the colour here
+                // would make the one that matters mean less.
+                <View style={s.railFlag}>
+                  <Icon name="lock" size={11} color={color.ink} />
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -176,23 +246,24 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
       {/* ----------------------------------------------------------- panel -- */}
       <View style={s.panel}>
         <DrawerContentScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-          {/* Merging is a reading convenience only — composing, sending and
-              decrypting stay bound to whichever account the rail has in front. */}
-          <Pressable
-            accessibilityLabel={unified ? 'Show only the account in front' : 'Show all accounts in one inbox'}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: unified }}
-            disabled={accounts.length < 2}
-            onPress={() => void setUnified(!unified)}
-            style={({ pressed }) => [s.panelHead, pressed && { backgroundColor: color.rowPress }]}
-          >
+          {/* A label, not a control. Merging moved to the rail, where it reads
+              as one of the mailboxes to choose between; leaving a second switch
+              here would be two controls for one setting, and the accent
+              swatches already taught this codebase what that costs.
+
+              Merging is still a reading convenience only — composing, sending
+              and decrypting stay bound to whichever account the rail has in
+              front — but this is not where that is said. The rail beside this
+              rings the active account in the accent for precisely the merged
+              case, and that is now the only place it is stated: an address
+              spelled out under this title, and again under the mail bar's,
+              was a fact that changes about once a session taking a permanent
+              line on two screens. */}
+          <View style={s.panelHead}>
             <Text numberOfLines={1} style={s.panelTitle}>
               {unified ? 'All Accounts' : (session?.email ?? 'Mailbox')}
             </Text>
-            {accounts.length > 1 ? (
-              <Icon name={unified ? 'check' : 'inbox'} size={17} color={unified ? accent : color.inkFaint} />
-            ) : null}
-          </Pressable>
+          </View>
 
           <View style={s.list}>
             <DrawerItem
@@ -298,7 +369,29 @@ const s = StyleSheet.create({
   drawer: { backgroundColor: '#141414', flexDirection: 'row', flex: 1 },
 
   rail: { alignItems: 'center', gap: space.md, paddingTop: space.lg, width: 72 },
+  railDivider: {
+    backgroundColor: color.border,
+    borderRadius: 1,
+    height: 1,
+    marginVertical: space.xs,
+    width: 28,
+  },
+  railIdentity: { borderRadius: radius.pill, borderWidth: 2 },
   railItem: { borderRadius: radius.pill, padding: 5 },
+  railFlag: {
+    alignItems: 'center',
+    backgroundColor: color.inkFaint,
+    borderColor: color.surface,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    bottom: 2,
+    height: 18,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 2,
+    width: 18,
+  },
+  railStale: { opacity: 0.45 },
   railAdd: {
     alignItems: 'center',
     borderColor: color.border,
@@ -311,19 +404,19 @@ const s = StyleSheet.create({
 
   panel: { borderLeftColor: color.line, borderLeftWidth: 1, flex: 1 },
   content: { gap: space.lg, paddingBottom: space.lg, paddingHorizontal: space.lg, paddingTop: space.sm },
+  // A stacked label since the toggle left: the mailbox being read, and — only
+  // while merged, when it is genuinely ambiguous — the one being sent as.
   panelHead: {
-    alignItems: 'center',
     borderBottomColor: color.line,
     borderBottomWidth: 1,
-    flexDirection: 'row',
-    gap: space.sm,
+    gap: 2,
     marginHorizontal: -space.lg,
     marginTop: -space.sm,
     paddingBottom: space.lg,
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
   },
-  panelTitle: { ...type.heading, color: color.ink, flex: 1 },
+  panelTitle: { ...type.heading, color: color.ink },
 
   list: { gap: space.xs },
   item: {

@@ -1,6 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   Platform,
@@ -30,12 +31,23 @@ import {
 } from '../mail/attachment';
 import { RootStackParamList } from '../navigation';
 import { RecipientState, useApp } from '../state/AppState';
-import { color, font, glass, radius, shadow, type } from '../theme';
+import { AccountId } from '../store/accountScope';
+import { color, font, radius, shadow, type } from '../theme';
+import { useAccent } from '../ui/appearance';
 import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
-import { Icon } from '../ui/Icon';
-import { Avatar, Badge, Field, Input, PrimaryButton, SecondaryButton, useFocus } from '../ui/primitives';
+import { Icon, IconName } from '../ui/Icon';
+import {
+  Avatar,
+  Badge,
+  IconButton,
+  Input,
+  PressableRow,
+  SecondaryButton,
+  Sheet,
+  useFocus,
+} from '../ui/primitives';
 import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
@@ -62,6 +74,22 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
  *
  * While the screen is in plaintext mode it makes no key lookups and reads no
  * recipient key state: there is no decision here that could depend on one.
+ *
+ * ## The shape of it
+ *
+ * A top bar this screen draws itself (`headerShown: false` on the route), then
+ * the mode choice, then hairline-separated rows on the ground — To, Subject,
+ * the message — and a status bar under them. The bar holds who this leaves as
+ * and the send arrow, which is the *only* send control on the screen; the strip
+ * at the bottom is the sentence that says what will happen to the message and
+ * the ways out of the states that stop it. Nothing about the gating moved: what
+ * used to be a labelled button is now the arrow's `accessibilityLabel` and its
+ * tint, and the coral/accent split is the same one the mode tabs make.
+ *
+ * The bar's overflow holds the two actions that are neither writing the message
+ * nor sending it — schedule and discard. Scheduling is only ever the encrypted
+ * send on a timer, so it is not offered in plaintext mode; discard is the only
+ * way to be rid of a draft from here, since closing the screen keeps it.
  */
 type SendMode = 'encrypted' | 'plain';
 
@@ -80,11 +108,16 @@ export function ComposeScreen({ route, navigation }: Props) {
     deleteDraft,
     scheduleSend,
     cancelScheduled,
+    accounts,
+    activeAccount,
+    switchAccount,
+    session,
   } = useApp();
   const contacts = useContacts();
   const { setDestination } = useDestination();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
+  const accent = useAccent();
 
   // Resume an existing draft, or mint a fresh id for this compose session.
   const existing = route.params?.draftId ? drafts[route.params.draftId] : undefined;
@@ -111,6 +144,40 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [mode, setMode] = useState<SendMode>('encrypted');
   /** Set when the message was held for a key rather than delivered. */
   const [queued, setQueued] = useState<string[] | null>(null);
+  /** The From picker, opened from the address under the title. */
+  const [showAccounts, setShowAccounts] = useState(false);
+  /** The overflow: schedule and discard, which are not bar icons. */
+  const [showMore, setShowMore] = useState(false);
+  /**
+   * What the top bar calls this message — fixed when the screen opens.
+   *
+   * Derived from what it was *opened as*, not from the live subject: a reply
+   * whose "Re:" the user deletes is still a reply, and a title that changed
+   * while they typed would be the one thing on the bar that moved.
+   */
+  const openedAs = useRef(
+    existing?.inReplyTo ?? route.params?.inReplyTo
+      ? 'Reply'
+      : /^fwd:/i.test(existing?.subject ?? route.params?.subject ?? '')
+        ? 'Forward'
+        : existing
+          ? 'Draft'
+          : 'New message',
+  ).current;
+  /**
+   * Where the caret lands.
+   *
+   * A message with nobody on it needs a recipient before anything else can
+   * happen, so it opens in To — a new message, and a forward, which deliberately
+   * carries none. Anything that already knows who it is for opens in the
+   * message instead, that being the only part of it still to write. Opening
+   * with no caret at all makes every compose cost a tap that had exactly one
+   * sensible target.
+   *
+   * Read once: `autoFocus` is honoured at mount, and a value that tracked `to`
+   * would suggest the caret moves when a chip is added, which it does not.
+   */
+  const startInBody = useRef(to.length > 0).current;
   const toFocus = useFocus();
   const subjectFocus = useFocus();
   const bodyFocus = useFocus();
@@ -126,7 +193,6 @@ export function ComposeScreen({ route, navigation }: Props) {
   // Set while leaving after a send or schedule, so a late autosave tick can't
   // resurrect a message that has already left the drafts.
   const closingRef = useRef(false);
-  const [showSchedule, setShowSchedule] = useState(false);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -168,7 +234,10 @@ export function ComposeScreen({ route, navigation }: Props) {
     if (plain) return;
     if (addressKey.length === 0) return;
     void discoverRef.current(addressKey.split(','));
-  }, [addressKey, plain]);
+    // `activeAccount` is a dependency because the keyring these keys land in is
+    // that account's: sending the same message from another mailbox has to ask
+    // again, against the trust that mailbox holds.
+  }, [addressKey, plain, activeAccount]);
 
   // Files too large to ride in the autosaved draft: held for this session only.
   // Read from the draft on resume (they are gone, and it says which), and from
@@ -210,6 +279,102 @@ export function ComposeScreen({ route, navigation }: Props) {
   // recipient who has yet to install anything, is not a warning — an
   // unencrypted message is, for as long as it is on screen.
   const alarming = plain || changed.length > 0 || !gate.allowed;
+
+  /* ------------------------------------------------------------- from ---- */
+
+  // Who this leaves as. The registry is the source; `session` is the fallback
+  // for the frame after a connect, before the account has been restored into it.
+  const from = accounts.find((a) => a.id === activeAccount);
+  const fromEmail = from?.email ?? session?.email ?? '';
+  const fromName = displayName(fromEmail, from?.name ?? session?.name);
+  const fromPhoto = from?.photo ?? session?.photo;
+  const canSwitchAccount = accounts.length > 1;
+
+  /**
+   * Move this compose session to another mailbox.
+   *
+   * A draft is per-account storage, so the message cannot simply be left where
+   * it is: it is taken out of the mailbox being left first, and the autosave
+   * below writes it into the new one. Without that, switching would strand a
+   * copy of a half-written message in an account that is no longer writing it.
+   */
+  const switchTo = async (id: AccountId) => {
+    setShowAccounts(false);
+    if (id === activeAccount || sending) return;
+    await deleteDraft(draftId);
+    await switchAccount(id, { unified: false });
+  };
+
+  /* ------------------------------------------------------- the one send ---- */
+
+  // The send arrow in the top bar is the only send control on the screen, so it
+  // carries every branch the bottom bar's button used to. Its label is the
+  // wording that used to sit on that button: an arrow cannot say which of these
+  // it is, and in plaintext mode that sentence is the warning.
+  const sendIcon: IconName = queued ? 'check' : !plain && missing.length > 0 ? 'clock' : 'send';
+  const sendLabel = plain
+    ? `Send unencrypted${to.length > 1 ? ` to ${to.length} recipients` : ''}`
+    : queued
+      ? 'Done'
+      : missing.length > 0
+        ? 'Encrypt and queue'
+        : `Send encrypted${to.length > 1 ? ` to ${to.length} recipients` : ''}`;
+  // Coral for the plaintext send and nothing else — the one action on this
+  // screen that must never wear the app's endorsed colour.
+  const sendTint = plain ? color.coral : queued ? color.mint : accent;
+  const onSend = plain
+    ? () => void sendUnencrypted()
+    : queued
+      ? () => navigation.goBack()
+      : () => void send();
+
+  /** The rule under the To row, which is where its state reads now. */
+  const toRule = !plain && changed.length > 0 ? color.coral : toFocus.focused ? accent : color.line;
+
+  /* ------------------------------------------------------- the overflow ---- */
+
+  /**
+   * Scheduling is an encrypted send on a timer — `scheduleSend` takes no mode
+   * and leaves through the encrypted path — so it is not offered in plaintext
+   * mode, where taking it would silently encrypt a message the user chose to
+   * write in the clear. It is also not offered for a send that cannot happen
+   * yet: a message held for a missing key already has a time it goes, and it is
+   * "when they have a key", not a Tuesday.
+   */
+  const canSchedule = !plain && !queued && !blocked && missing.length === 0;
+
+  /**
+   * Throw the message away.
+   *
+   * Closing the screen keeps it — that is what the autosave is for — so this is
+   * the only way to be rid of a draft from where it is written, and it asks
+   * first, because nothing else on the screen destroys anything. `closingRef`
+   * stops the debounced autosave from writing the message back out after the
+   * delete on its way to the exit.
+   */
+  const discard = () => {
+    setShowMore(false);
+    confirmDialog(
+      'Discard this message?',
+      isDraftEmpty({ to, subject, body, attachments })
+        ? 'There is nothing in it yet.'
+        : 'It is deleted from this device. Nothing was sent.',
+      [
+        { label: 'Keep writing' },
+        {
+          label: 'Discard',
+          tone: 'destructive',
+          onPress: () => {
+            closingRef.current = true;
+            void (async () => {
+              await deleteDraft(draftId);
+              navigation.goBack();
+            })();
+          },
+        },
+      ],
+    );
+  };
 
   /**
    * Change mode, asking before the one direction that costs the user something.
@@ -306,6 +471,9 @@ export function ComposeScreen({ route, navigation }: Props) {
    * it is not an error.
    */
   const attach = async () => {
+    // The paperclip is a bar icon now, with no disabled state of its own — so
+    // the guard against opening two pickers lives here.
+    if (attaching) return;
     setAttaching(true);
     try {
       const picked = await pickFiles();
@@ -459,82 +627,163 @@ export function ComposeScreen({ route, navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={s.screen}
-      keyboardVerticalOffset={90}
-    >
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.screen}>
+      {/*
+        The top bar carries the whole identity of the message — who it is from,
+        what it is, and the one action that sends it. It is drawn here rather
+        than by the navigator (`headerShown: false` on the Compose route)
+        because a native header can hold a title and nothing else: not the
+        account face, not the address under it, and not a send arrow whose
+        colour is the message's state.
+      */}
+      <View style={[s.topbar, { paddingTop: insets.top + 8 }]}>
+        <IconButton icon="close" label="Close" onPress={() => navigation.goBack()} size={38} glyph={22} />
+
+        <View style={s.identity}>
+          <View style={s.identityTop}>
+            <Avatar seed={fromEmail} label={initials(fromName)} photo={fromPhoto} size={26} />
+            <Text numberOfLines={1} style={s.title}>
+              {openedAs}
+            </Text>
+          </View>
+
+          {/*
+            The From line. It is a control only when there is somewhere to go:
+            with one mailbox connected a chevron would promise a choice that
+            does not exist. And the choice is a real switch — exactly one
+            account is active at a time, and this message's keyring, signing key
+            and outgoing mailbox all come from that one.
+          */}
+          <Pressable
+            accessibilityLabel={canSwitchAccount ? `From ${fromEmail}. Change account` : `From ${fromEmail}`}
+            accessibilityRole={canSwitchAccount ? 'button' : 'text'}
+            disabled={!canSwitchAccount || sending}
+            hitSlop={8}
+            onPress={() => setShowAccounts(true)}
+            style={({ pressed }) => [s.fromRow, pressed && { opacity: 0.55 }]}
+          >
+            <Text numberOfLines={1} style={s.fromText}>
+              {fromEmail}
+            </Text>
+            {canSwitchAccount ? (
+              <View style={s.caret}>
+                <Icon name="chevron" size={13} color={color.inkDim} strokeWidth={2.2} />
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+
+        <IconButton
+          icon="paperclip"
+          label={attaching ? 'Reading file…' : 'Attach a file'}
+          onPress={() => void attach()}
+          size={38}
+          glyph={21}
+          tint={attaching ? color.inkFaint : color.inkDim}
+        />
+        {/* Schedule and discard: the two things that happen to a message that
+            are neither writing it nor sending it. In a menu rather than on the
+            bar because one of them destroys the message, and a bar icon a
+            thumb can reach on the way to the send arrow is the wrong home for
+            that. */}
+        <IconButton
+          icon="more"
+          label="More options"
+          onPress={() => setShowMore(true)}
+          size={38}
+          glyph={21}
+        />
+        {/*
+          The send arrow *is* the send button — there is no second one at the
+          bottom of the screen any more. Its label spells out which send it is,
+          because the arrow cannot, and its tint follows: the accent for an
+          encrypted send, coral for the plaintext mode, never one mark for both.
+        */}
+        <SendAction
+          busy={sending}
+          disabled={blocked && !queued}
+          icon={sendIcon}
+          label={sendLabel}
+          onPress={onSend}
+          tint={sendTint}
+        />
+      </View>
+
+      {/*
+        Still above everything the message is written into, because it decides
+        what the rest of the screen means. Hidden once a message has been
+        queued: that one is already encrypted and waiting, and offering to
+        rewrite it in the clear at that point is the downgrade this control is
+        arranged to avoid.
+      */}
+      {queued ? null : (
+        <View style={s.modes}>
+          <ModeTab active={!plain} icon="lock" label="Encrypted" onPress={() => chooseMode('encrypted')} />
+          <ModeTab
+            active={plain}
+            icon="alert"
+            label="Not encrypted"
+            onPress={() => chooseMode('plain')}
+            tone="warn"
+          />
+        </View>
+      )}
+
       <ScrollView
         // `flexGrow` so the message below can take whatever height the header
         // and the attachment row leave, rather than the screen ending in a
         // void with the body a 120px box at the top of it.
-        contentContainerStyle={{ flexGrow: 1, padding: 16, paddingBottom: 24 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/*
-          Above everything, because it decides what the rest of the screen means.
-          Hidden once a message has been queued: that one is already encrypted
-          and waiting, and offering to rewrite it in the clear at that point is
-          the downgrade this control is arranged to avoid.
+          The fields are hairline-separated rows on the ground rather than
+          bordered cards stacked on it: a compose screen is one continuous sheet
+          of writing, and boxing each part of it made the message look like the
+          third of three settings. The rule under a row is what tracks state now
+          — the accent while the caret is in it, coral when a recipient on it
+          blocks the send — so nothing that the border said is lost with it.
         */}
-        {queued ? null : (
-          <View style={s.modes}>
-            <ModeTab
-              active={!plain}
-              icon="lock"
-              label="Encrypted"
-              onPress={() => chooseMode('encrypted')}
-            />
-            <ModeTab
-              active={plain}
-              icon="alert"
-              label="Not encrypted"
-              onPress={() => chooseMode('plain')}
-              tone="warn"
+        <View style={[s.row, s.rowStacked, { borderBottomColor: toRule }]}>
+          <Text style={s.rowLabel}>To</Text>
+          <View style={s.rowBody}>
+            {recipients.length > 0 ? (
+              <View style={s.chips}>
+                {recipients.map((r) => (
+                  <RecipientChip
+                    key={r.email}
+                    state={r}
+                    // No key badge in plaintext mode: it is not consulted, it does
+                    // not change what happens, and showing it would invite reading
+                    // "they have no key" as a reason to send in the clear.
+                    showKeyState={!plain}
+                    onRemove={() => setTo(to.filter((t) => t !== r.email))}
+                  />
+                ))}
+              </View>
+            ) : null}
+            <Input
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus={!startInBody}
+              blurOnSubmit={false}
+              keyboardType="email-address"
+              onChangeText={onChangeTo}
+              onKeyPress={onKeyPress}
+              onSubmitEditing={commitDraft}
+              placeholder="name@example.com"
+              returnKeyType="done"
+              style={s.rowInput}
+              value={draft}
+              {...toFocus.bind}
+              onBlur={() => {
+                commitDraft();
+                toFocus.bind.onBlur();
+              }}
             />
           </View>
-        )}
-
-        <Field
-          label="To"
-          focused={toFocus.focused}
-          style={s.headField}
-          tone={changed.length > 0 && !plain ? 'warn' : 'default'}
-        >
-          {recipients.length > 0 ? (
-            <View style={s.chips}>
-              {recipients.map((r) => (
-                <RecipientChip
-                  key={r.email}
-                  state={r}
-                  // No key badge in plaintext mode: it is not consulted, it does
-                  // not change what happens, and showing it would invite reading
-                  // "they have no key" as a reason to send in the clear.
-                  showKeyState={!plain}
-                  onRemove={() => setTo(to.filter((t) => t !== r.email))}
-                />
-              ))}
-            </View>
-          ) : null}
-          <Input
-            autoCapitalize="none"
-            autoCorrect={false}
-            blurOnSubmit={false}
-            keyboardType="email-address"
-            onChangeText={onChangeTo}
-            onKeyPress={onKeyPress}
-            onSubmitEditing={commitDraft}
-            placeholder="name@example.com"
-            returnKeyType="done"
-            value={draft}
-            {...toFocus.bind}
-            onBlur={() => {
-              commitDraft();
-              toFocus.bind.onBlur();
-            }}
-          />
-        </Field>
+        </View>
 
         {/*
           The address book, offered as you type — and with each contact's trust
@@ -566,33 +815,37 @@ export function ComposeScreen({ route, navigation }: Props) {
         ) : null}
 
         {/* The placeholders describe what will actually happen to this text.
-            Left unchanged they would promise privacy to a plaintext message. */}
-        <Field label="Subject" focused={subjectFocus.focused} style={s.headField}>
+            Left unchanged they would promise privacy to a plaintext message.
+            They carry the field's name as well now that the rows have no
+            labels: "Subject" has to be on screen, and the empty field is the
+            only place left for it. */}
+        <View style={[s.row, { borderBottomColor: subjectFocus.focused ? accent : color.line }]}>
           <Input
             onChangeText={setSubject}
-            placeholder={plain ? 'Sent in the clear, like any email' : 'Encrypted inside the payload'}
+            placeholder={plain ? 'Subject — sent in the clear' : 'Subject — encrypted in the payload'}
+            style={s.rowInput}
             value={subject}
             {...subjectFocus.bind}
           />
-        </Field>
+        </View>
 
         {/*
-          No "Message" label. To and Subject need theirs — two single-line boxes
-          are otherwise indistinguishable — but the body is the one field on the
-          screen that cannot be mistaken for anything else, and its placeholder
-          already says what will happen to the text. Dropping it gives the
-          writing back a line and breaks the three-identical-slabs stack.
+          The message. No rule under it and no box around it — it is the one
+          field on the screen that cannot be mistaken for anything else, its
+          placeholder already says what will happen to the text, and the writing
+          wants the whole sheet.
 
           It opens taller than the primitive's 120px floor so a short message
           does not sit in a box a third the size of the empty screen under it —
           but it still grows with its text and the page scrolls, rather than
           taking a fixed share and scrolling inside itself. A body that scrolls
           within a page that also scrolls puts the attachment row behind a
-          nested gesture, which is how "Attach a file" ends up unreachable on a
+          nested gesture, which is how an attachment ends up unreachable on a
           forwarded message.
         */}
-        <Field focused={bodyFocus.focused} style={s.bodyField}>
+        <View style={s.bodyWrap}>
           <Input
+            autoFocus={startInBody}
             big
             multiline
             onChangeText={setBody}
@@ -601,61 +854,67 @@ export function ComposeScreen({ route, navigation }: Props) {
             value={body}
             {...bodyFocus.bind}
           />
-        </Field>
+        </View>
 
         {/* Takes up whatever the message does not, so the attachment row rests
-            just above the send bar instead of floating in the middle of an
+            just above the status bar instead of floating in the middle of an
             empty screen. It collapses to nothing as the message grows. */}
         <View style={s.spacer} />
 
-        <View style={s.attachments}>
-          <View style={s.attachHead}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={attaching}
-              onPress={() => void attach()}
-              style={s.attachButton}
-            >
-              <Icon name="paperclip" size={14} color={color.inkDim} />
-              <Text style={s.attachButtonText}>{attaching ? 'Reading file…' : 'Attach a file'}</Text>
-            </Pressable>
+        {/*
+          Attaching is the paperclip in the top bar, so what is left here is
+          only ever the result of it: what is on the message, what it costs, and
+          the two things about a file that may not be left unsaid. With nothing
+          attached and nothing lost there is nothing here, and the screen is the
+          message.
+        */}
+        {attaching || attachments.length > 0 || lost.length > 0 ? (
+          <View style={s.attachments}>
             {attachments.length > 0 ? (
-              <Text style={s.attachTotal}>{formatBytes(totalBytes(attachments))}</Text>
+              <>
+                <View style={s.attachHead}>
+                  <Text style={s.attachCount}>
+                    {attachments.length} {attachments.length > 1 ? 'attachments' : 'attachment'}
+                  </Text>
+                  <Text style={s.attachTotal}>{formatBytes(totalBytes(attachments))}</Text>
+                </View>
+                <View style={s.attachChips}>
+                  {attachments.map((a) => (
+                    <AttachmentChip key={a.id} attachment={a} onRemove={() => detach(a.id)} />
+                  ))}
+                </View>
+                {/* Said of the files on the message, not after one is refused. */}
+                <Text style={s.attachNote}>
+                  {plain
+                    ? `These travel in the clear, filenames included. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`
+                    : `Sealed inside the message with the subject and body — even their names. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`}
+                </Text>
+              </>
+            ) : null}
+
+            {/* Said whatever is already on the message: reading a 20 MB file
+                off disk takes long enough that the paperclip greying out is
+                not, on its own, an answer to "did that work?". */}
+            {attaching ? <Text style={s.attachNote}>Reading file…</Text> : null}
+
+            {/* Two different facts, and neither may be left unsaid: a file that
+                will not survive leaving this screen, and one that already did
+                not. Both name the file — "some attachments" would be useless. */}
+            {lost.length > 0 ? (
+              <Text style={[s.attachNote, s.attachWarn]}>
+                {lost.join(', ')} {lost.length > 1 ? 'were' : 'was'} attached to this draft but too
+                large to save with it. Attach {lost.length > 1 ? 'them' : 'it'} again before sending.
+              </Text>
+            ) : null}
+            {unsaved.length > 0 ? (
+              <Text style={[s.attachNote, s.attachWarn]}>
+                {unsaved.join(', ')} {unsaved.length > 1 ? 'are' : 'is'} too large to keep in a saved
+                draft. Send this message before leaving, or {unsaved.length > 1 ? 'they' : 'it'} will
+                need attaching again.
+              </Text>
             ) : null}
           </View>
-
-          {attachments.length > 0 ? (
-            <View style={s.attachChips}>
-              {attachments.map((a) => (
-                <AttachmentChip key={a.id} attachment={a} onRemove={() => detach(a.id)} />
-              ))}
-            </View>
-          ) : null}
-
-          {/* Said once, before a file is picked rather than after one is refused. */}
-          <Text style={s.attachNote}>
-            {plain
-              ? `Attachments on an unencrypted message travel in the clear, filenames included. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`
-              : `Files are sealed inside the message with the subject and body — even their names. Up to ${formatBytes(MAX_ATTACHMENT_BYTES)} a message.`}
-          </Text>
-
-          {/* Two different facts, and neither may be left unsaid: a file that
-              will not survive leaving this screen, and one that already did
-              not. Both name the file — "some attachments" would be useless. */}
-          {lost.length > 0 ? (
-            <Text style={[s.attachNote, s.attachWarn]}>
-              {lost.join(', ')} {lost.length > 1 ? 'were' : 'was'} attached to this draft but too
-              large to save with it. Attach {lost.length > 1 ? 'them' : 'it'} again before sending.
-            </Text>
-          ) : null}
-          {unsaved.length > 0 ? (
-            <Text style={[s.attachNote, s.attachWarn]}>
-              {unsaved.join(', ')} {unsaved.length > 1 ? 'are' : 'is'} too large to keep in a saved
-              draft. Send this message before leaving, or {unsaved.length > 1 ? 'they' : 'it'} will
-              need attaching again.
-            </Text>
-          ) : null}
-        </View>
+        ) : null}
 
         {error ? (
           <View style={s.errorRow}>
@@ -665,41 +924,38 @@ export function ComposeScreen({ route, navigation }: Props) {
         ) : null}
       </ScrollView>
 
-      <View
-        style={[
-          s.sendbar,
-          alarming && s.sendbarWarn,
-          s.sendbarInner,
-          { paddingBottom: insets.bottom + 14 },
-        ]}
-      >
+      {/*
+        What used to be the send bar is a status bar: the button moved into the
+        top bar, and what is left is the sentence saying what will happen to
+        this message, plus the ways out of the states that stop it. That
+        sentence is the point of the strip — an arrow at the top of the screen
+        can say "send", but only this can say "their key changed".
+      */}
+      <View style={[s.statusbar, alarming && s.statusbarWarn, { paddingBottom: insets.bottom + 12 }]}>
         <View style={s.status}>
           <Icon
             name={alarming ? 'alert' : queued || missing.length > 0 ? 'clock' : 'lock'}
-            size={17}
+            size={16}
             color={alarming ? color.coral : color.mint}
           />
-          <Text style={[s.statusText, { color: alarming ? color.coral : color.mintInk }]}>{statusLine()}</Text>
+          <Text style={[s.statusText, { color: alarming ? color.coral : color.mintInk }]}>
+            {statusLine()}
+          </Text>
         </View>
 
-        {plain ? (
-          <PrimaryButton
-            busy={sending}
-            disabled={blocked}
-            icon="mail"
-            onPress={() => void sendUnencrypted()}
-            title={`Send unencrypted${to.length > 1 ? ` to ${to.length}` : ''}`}
-          />
-        ) : queued ? (
+        {queued ? (
           <View style={s.fallbacks}>
-            <SecondaryButton title="Done" icon="check" onPress={() => navigation.goBack()} />
-            <SecondaryButton title="See queued messages" icon="clock" onPress={() => {
-                  // A destination on the home screen, not a screen of its own.
-                  setDestination('scheduled');
-                  navigation.navigate('Home');
-                }} />
+            <SecondaryButton
+              title="See queued messages"
+              icon="clock"
+              onPress={() => {
+                // A destination on the home screen, not a screen of its own.
+                setDestination('scheduled');
+                navigation.navigate('Home');
+              }}
+            />
           </View>
-        ) : changed.length > 0 ? (
+        ) : !plain && changed.length > 0 ? (
           <View style={s.fallbacks}>
             <SecondaryButton title="Check their key" icon="key" onPress={() => navigation.navigate('Keys')} />
             <SecondaryButton
@@ -707,49 +963,107 @@ export function ComposeScreen({ route, navigation }: Props) {
               onPress={() => setTo(to.filter((t) => t !== changed[0].email))}
             />
           </View>
-        ) : (
-          <>
-            <PrimaryButton
-              busy={sending}
-              disabled={blocked}
-              icon={missing.length > 0 ? 'clock' : 'send'}
-              onPress={() => void send()}
-              title={
-                missing.length > 0
-                  ? 'Encrypt and queue'
-                  : `Send encrypted${to.length > 1 ? ` to ${to.length}` : ''}`
-              }
-            />
-            {!blocked && missing.length === 0 ? (
-              <View style={s.schedule}>
-                <Pressable accessibilityRole="button" onPress={() => setShowSchedule((v) => !v)} style={s.scheduleToggle}>
-                  <Icon name="clock" size={14} color={color.inkDim} />
-                  <Text style={s.scheduleToggleText}>
-                    {showSchedule ? 'Hide schedule options' : 'Schedule for later'}
-                  </Text>
-                </Pressable>
-                {showSchedule ? (
-                  <View style={s.presets}>
-                    {SCHEDULE_PRESETS.map((preset) => (
-                      <SecondaryButton
-                        key={preset.label}
-                        title={preset.label}
-                        icon="clock"
-                        onPress={() => void schedule(preset.at())}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-          </>
-        )}
+        ) : null}
 
         {/* The demo-crypto note describes what happens to an *encrypted* send.
             A plaintext one is not encoded-instead-of-encrypted; it is exactly
             what it says, in demo mode and live alike. */}
         {gate.reason && gate.allowed && !plain ? <Text style={s.gateNote}>{gate.reason}</Text> : null}
       </View>
+
+      {/*
+        The From picker. It says what a switch actually changes, because "from"
+        on this screen is not a display name on an envelope: it is which keyring
+        the recipients are trusted against, which key signs the message, and
+        which mailbox it leaves from.
+      */}
+      <Sheet
+        visible={showAccounts}
+        onClose={() => setShowAccounts(false)}
+        title="Send from"
+        bottomInset={insets.bottom}
+      >
+        <Text style={s.sheetNote}>
+          The message is signed with the chosen account's key and leaves from its mailbox, and its
+          recipients are trusted against its keyring. Switching brings this draft with you.
+        </Text>
+        {accounts.map((account) => (
+          <PressableRow
+            accessibilityLabel={`Send from ${account.email}`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: account.id === activeAccount }}
+            key={account.id}
+            onPress={() => void switchTo(account.id)}
+            style={s.accountRow}
+          >
+            <Avatar
+              label={initials(account.name ?? account.email)}
+              photo={account.photo}
+              seed={account.email}
+              size={34}
+            />
+            <View style={{ flex: 1 }}>
+              <Text numberOfLines={1} style={s.accountName}>
+                {displayName(account.email, account.name)}
+              </Text>
+              <Text numberOfLines={1} style={s.accountEmail}>
+                {account.email}
+              </Text>
+            </View>
+            {account.id === activeAccount ? <Icon name="check" size={18} color={accent} /> : null}
+          </PressableRow>
+        ))}
+      </Sheet>
+
+      {/*
+        The overflow. Discard is always here — a message can always be thrown
+        away — while scheduling appears only for a send that could happen right
+        now, since it is that same encrypted send on a timer. When it cannot,
+        the row says why rather than vanishing: a control that is simply absent
+        is indistinguishable from one this app does not have.
+      */}
+      <Sheet
+        visible={showMore}
+        onClose={() => setShowMore(false)}
+        title="Message options"
+        bottomInset={insets.bottom}
+      >
+        {canSchedule ? (
+          <>
+            <Text style={s.sheetHeading}>Schedule send</Text>
+            <View style={s.presets}>
+              {SCHEDULE_PRESETS.map((preset) => (
+                <SecondaryButton
+                  key={preset.label}
+                  title={preset.label}
+                  icon="clock"
+                  onPress={() => {
+                    setShowMore(false);
+                    void schedule(preset.at());
+                  }}
+                />
+              ))}
+            </View>
+          </>
+        ) : (
+          <Text style={s.sheetNote}>
+            {plain
+              ? 'Scheduling sends through the encrypted path, so it is not offered for a message you chose to write in the clear.'
+              : queued
+                ? 'This message is already waiting. It sends itself the moment there is a key to send it to.'
+                : missing.length > 0
+                  ? 'This message already has a time it goes: when its recipients have a key.'
+                  : 'Scheduling needs a message that could be sent right now.'}
+          </Text>
+        )}
+
+        <View style={s.sheetRule} />
+
+        <PressableRow accessibilityRole="button" onPress={discard} style={s.moreRow}>
+          <Icon name="trash" size={19} color={color.coral} />
+          <Text style={s.moreDestructive}>Discard message</Text>
+        </PressableRow>
+      </Sheet>
     </KeyboardAvoidingView>
   );
 
@@ -948,10 +1262,79 @@ function RecipientChip({
   );
 }
 
+/**
+ * The send arrow in the top bar — the screen's only send control.
+ *
+ * A local component rather than `IconButton` for two reasons it does not have:
+ * it must be able to be *disabled* (a blocked send has to look unavailable, not
+ * fail silently when tapped), and it must be able to show that a send is in
+ * flight, which is what the bottom button's `busy` state used to do.
+ */
+function SendAction({
+  busy,
+  disabled,
+  icon,
+  label,
+  onPress,
+  tint,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  icon: IconName;
+  /** Says which send this is — the arrow on its own cannot. */
+  label: string;
+  onPress: () => void;
+  tint: string;
+}) {
+  const off = disabled || busy;
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: off }}
+      disabled={off}
+      hitSlop={10}
+      onPress={onPress}
+      style={({ pressed }) => [s.send, pressed && { backgroundColor: color.iconPress }]}
+    >
+      {busy ? (
+        <ActivityIndicator color={tint} size="small" />
+      ) : (
+        <Icon name={icon} size={23} color={disabled ? color.inkFaint : tint} strokeWidth={2} />
+      )}
+    </Pressable>
+  );
+}
+
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  modes: { flexDirection: 'row', gap: 7, marginBottom: 14 },
+  /* ------------------------------------------------------------ top bar ---- */
+
+  // A bar, so it lifts off the true-black ground on `surface` like every other
+  // one in the app — the fields below it are on the ground itself.
+  topbar: {
+    alignItems: 'center',
+    backgroundColor: color.surface,
+    borderBottomColor: color.line,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    paddingBottom: 10,
+    paddingHorizontal: 8,
+  },
+  identity: { flex: 1, gap: 1, paddingHorizontal: 4 },
+  identityTop: { alignItems: 'center', flexDirection: 'row', gap: 9 },
+  title: { ...type.heading, color: color.ink, flexShrink: 1 },
+  fromRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  fromText: { color: color.inkDim, flexShrink: 1, fontFamily: font.mono, fontSize: 11 },
+  // The chevron glyph points right; the affordance under a title points down.
+  caret: { transform: [{ rotate: '90deg' }] },
+  send: { alignItems: 'center', borderRadius: 19, height: 38, justifyContent: 'center', width: 38 },
+
+  /* -------------------------------------------------------------- modes ---- */
+
+  modes: { flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingVertical: 11 },
   mode: {
     alignItems: 'center',
     backgroundColor: color.panel,
@@ -970,26 +1353,40 @@ const s = StyleSheet.create({
   modeText: { fontFamily: font.sansSemibold, fontSize: 12.5 },
   modeTextActive: { fontFamily: font.sansBold },
 
+  /* ------------------------------------------------------------- fields ---- */
+
+  // One rule under each row and nothing around it. `borderBottomColor` is set
+  // inline at every use — it is the row's state, and half of what it can be is
+  // the runtime accent, which a `StyleSheet.create` at module scope cannot read.
+  row: {
+    borderBottomWidth: 1,
+    justifyContent: 'center',
+    minHeight: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  // The To row, which grows with its chips: label beside the column rather than
+  // centred against a box whose height it does not know.
+  rowStacked: { alignItems: 'flex-start', flexDirection: 'row', gap: 12, paddingVertical: 10 },
+  rowLabel: { color: color.inkDim, fontFamily: font.sans, fontSize: 14.5, paddingTop: 9 },
+  rowBody: { flex: 1 },
+  rowInput: { paddingVertical: 8 },
+
   suggestions: {
     backgroundColor: color.panel,
-    borderColor: color.line,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    marginBottom: 14,
-    marginTop: -6,
+    borderBottomColor: color.line,
+    borderBottomWidth: 1,
     overflow: 'hidden',
   },
-  suggestion: { alignItems: 'center', flexDirection: 'row', gap: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  suggestion: { alignItems: 'center', flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 8 },
   suggestionName: { color: color.ink, fontFamily: font.sansSemibold, fontSize: 13.5 },
   suggestionEmail: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
 
-  // The two single-line fields, kept lighter than the body they sit above.
-  headField: { marginBottom: 8, paddingVertical: 9 },
-  bodyField: { marginBottom: 14 },
+  bodyWrap: { paddingHorizontal: 16, paddingTop: 10 },
   bodyInput: { minHeight: 200 },
   spacer: { flexGrow: 1 },
 
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 9 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6, marginTop: 4 },
   chip: {
     alignItems: 'center',
     backgroundColor: color.panel2,
@@ -1012,43 +1409,58 @@ const s = StyleSheet.create({
     width: 20,
   },
 
-  attachments: { gap: 10, marginTop: 4, marginBottom: 14 },
+  /* -------------------------------------------------------- attachments ---- */
+
+  attachments: { gap: 10, marginTop: 4, paddingHorizontal: 16, paddingTop: 14 },
   attachHead: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between' },
-  attachButton: {
-    alignItems: 'center',
-    backgroundColor: color.panel,
-    borderColor: color.line,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  attachButtonText: { color: color.ink, fontFamily: font.sansSemibold, fontSize: 13 },
+  attachCount: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 12.5 },
   attachTotal: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11.5 },
   attachChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   attachNote: { color: color.inkFaint, fontFamily: font.sans, fontSize: 12, lineHeight: 17 },
   attachWarn: { color: color.coral },
 
-  errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 4 },
+  errorRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 10, paddingHorizontal: 16 },
   error: { color: color.coral, flex: 1, fontFamily: font.sans, fontSize: 13 },
 
-  sendbar: {
+  /* --------------------------------------------------------- status bar ---- */
+
+  statusbar: {
     backgroundColor: color.surface,
     borderTopColor: color.line,
     borderTopWidth: 1,
+    paddingHorizontal: 16,
+    paddingTop: 13,
     ...shadow.sheet,
   },
-  sendbarInner: { paddingHorizontal: 16, paddingTop: 15 },
-  sendbarWarn: { borderTopColor: color.coralLine },
-  status: { alignItems: 'flex-start', flexDirection: 'row', gap: 9, marginBottom: 12 },
+  statusbarWarn: { borderTopColor: color.coralLine },
+  status: { alignItems: 'flex-start', flexDirection: 'row', gap: 9 },
   statusText: { flex: 1, fontFamily: font.sansMedium, fontSize: 13, lineHeight: 18 },
-  fallbacks: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  fallbacks: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   gateNote: { ...type.eyebrow, color: color.inkFaint, marginTop: 10, textAlign: 'center', textTransform: 'none' },
 
-  schedule: { marginTop: 10 },
-  scheduleToggle: { alignItems: 'center', alignSelf: 'center', flexDirection: 'row', gap: 6, paddingVertical: 6 },
-  scheduleToggleText: { ...type.meta, color: color.inkDim },
-  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 8 },
+  /* ------------------------------------------------------------- sheets ---- */
+
+  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  sheetHeading: { ...type.strong, color: color.ink, marginBottom: 10 },
+  sheetNote: { color: color.inkFaint, fontFamily: font.sans, fontSize: 12.5, lineHeight: 18, marginBottom: 12 },
+  sheetRule: { backgroundColor: color.line, height: 1, marginVertical: 12 },
+  moreRow: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 12,
+  },
+  moreDestructive: { ...type.settingsRow, color: color.coral },
+  accountRow: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+  },
+  accountName: { color: color.ink, fontFamily: font.sansSemibold, fontSize: 14.5 },
+  accountEmail: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
 });

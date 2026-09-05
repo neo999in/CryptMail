@@ -42,6 +42,7 @@ export function initialState(): State {
     accounts: [],
     activeAccount: null,
     unified: false,
+    needsReauth: [],
     switchingAccount: false,
     identity: null,
     recovery: { backedUpAt: null, fingerprint: null },

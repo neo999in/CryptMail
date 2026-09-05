@@ -341,8 +341,28 @@ keeps off a server.
 `activeAccount`, `unified`, and the four actions that change them. Each account
 gets its own `MailClient`, cached in `mail.clients`.
 
+**The switcher.** The drawer's left rail is the account list: a Home circle on
+top for the merged inbox, then one avatar per mailbox, then `+`. Tapping Home
+merges; tapping a mailbox means "this one, on its own", which changes the active
+account and the merged lens together — `switchAccount(id, { unified: false })`
+does both in one write and one sync, because doing them as two calls fetched a
+full merged page and then a full unmerged one for a single tap.
+
+Merging deliberately has **one** control. It used to also be a toggle on the
+drawer panel header; that header is now a label, because two controls for one
+setting is the mistake the accent swatches already taught this codebase.
+
+Each avatar is the account's own Google profile picture, with initials as the
+fallback — `Session` carries `name` and `photo` because the sign-in response
+already contains them, so it costs no extra call and no extra scope. Message
+senders keep initials: loading a remote image because mail arrived is a tracking
+pixel with extra steps.
+
 **The rule that keeps them apart: exactly one account is active at a time**,
-including while the inbox is merged. Merging is a *reading* convenience — rows
+including while the inbox is merged. The rail says so even while merged — Home
+carries the accent fill, and the mailbox in front keeps a ring, because "what am
+I reading" and "who am I sending as" are two questions and the merged view
+answers them differently. Merging is a *reading* convenience — rows
 are tagged with the mailbox they came from, flag changes go to that mailbox's
 provider, and opening a row from another account **switches to it first**.
 Composing, sending and decrypting always use the active account, because each
@@ -357,15 +377,32 @@ An install that predates this keeps its data: `loadScopedJson` reads the old
 global key once, **moves** it under the first account signed in, and deletes it,
 so the second account starts empty rather than inheriting the first one's mail.
 
-**The single-account limit lives in the provider, not in the state layer.**
-[`googleAuth.restoreAll`](../app/src/auth/googleAuth.ts) can only return one
-session, because Play services holds a single signed-in user — so a build today
-reaches one mailbox. Everything above that line handles N, and a second provider
-(Outlook, IMAP) needs no change here.
+**Two Gmail accounts, through a one-user API.** Play services holds a single
+*signed-in user*, which is why this said for a while that the limit lived in the
+provider. But the **grant** is per Google account and survives `signOut()`, so
+[`googleAuth`](../app/src/auth/googleAuth.ts) serves N mailboxes by re-pointing
+Play services with `accountName` and silently signing in again between them: one
+user in front at any instant, several reachable. Every call runs on one FIFO
+queue, and the address that comes back is checked against the one asked for
+before any token is handed out — a mismatch fails rather than returning another
+mailbox's token. See
+[the design](superpowers/specs/2026-09-05-multi-gmail-design.md), which also
+records what is still unverified on a device.
 
-This used to be demonstrable at runtime, because `demoAuth` connected two
-fixture mailboxes. The demo mailbox was removed on 2026-08-31, so the two-account
-path is now exercised by fakes in the test rather than by a mode of the app.
+Boot restores the mailbox that was in front, paints it, and brings the rest back
+behind it — a second account costs no launch time on the screen the user is
+actually looking at.
+
+A revoked grant is now **one account's problem**. It is flagged
+(`State.needsReauth`), stepped off if it was in front, and shown in the drawer's
+account rail as "sign in again"; its keyring, drafts and decrypted mail are kept,
+because a dead token says nothing about whether the data on this device is still
+the user's. Clearing every account was correct only while there could be one.
+
+Everything above the provider handles N and always did, so a second provider
+(Outlook, IMAP) needs no change here. The two-account path is exercised by fakes
+in the test rather than by a mode of the app — `demoAuth` used to connect two
+fixture mailboxes and was removed with demo mail on 2026-08-31.
 
 **Done when.** Two accounts coexist, each with its own keyring and drafts, and
 switching never leaks state between them. Covered end to end against the real

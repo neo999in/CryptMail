@@ -22,6 +22,7 @@ export type IconName =
   | 'chevron'
   | 'signout'
   | 'inbox'
+  | 'home'
   | 'user'
   | 'users'
   | 'edit'
@@ -173,6 +174,23 @@ function glyph(name: IconName, p: object) {
           <Rect x={3} y={4} width={18} height={16} rx={2} {...p} />
           <Path d="M3 13h4l2 3h6l2-3h4" {...p} />
         </>
+      );
+    // The account rail's "everything at once". A house rather than another
+    // envelope: the rail is a list of *places to be*, and the mailbox glyph is
+    // already spoken for by the Inbox destination one panel to the right —
+    // two envelopes side by side read as two inboxes rather than as a home for
+    // all of them.
+    //
+    // One closed path, so it reads the same stroked or filled — which is the
+    // whole point here: the rail draws it solid when the merged inbox is the
+    // one in front and outlined when it is not. No door and no chimney; at
+    // 20px inside a 40px circle a second detail stops being a detail.
+    case 'home':
+      return (
+        <Path
+          d="M10.9 3.4 3.9 9a2.4 2.4 0 0 0-.9 1.9v7.7A2.4 2.4 0 0 0 5.4 21h13.2a2.4 2.4 0 0 0 2.4-2.4v-7.7A2.4 2.4 0 0 0 20.1 9l-7-5.6a2.4 2.4 0 0 0-2.2 0z"
+          {...p}
+        />
       );
     case 'user':
       return (

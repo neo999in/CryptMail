@@ -85,7 +85,6 @@ export type MailBarSearch = {
 
 export function MailTopBar({
   title,
-  subtitle,
   leading,
   actions,
   search,
@@ -94,8 +93,6 @@ export function MailTopBar({
   onBarHeight,
 }: {
   title: string;
-  /** Second line under the title — used only when the mailbox is ambiguous. */
-  subtitle?: string;
   /** The account avatar that opens the drawer — the same on every body. */
   leading?: React.ReactNode;
   /** Trailing buttons, before the search one this bar adds itself. */
@@ -117,8 +114,8 @@ export function MailTopBar({
   /** Covered by an open mail — but not while it is on its way back. */
   const covered = overlay === 'open';
   // Measured rather than assumed: the bar grows with the safe area, and again
-  // when the demo strip or the subtitle is up. The band is sized from it so it
-  // ends exactly where the bar does and the true-black ground is never lit.
+  // when the demo strip is up. The band is sized from it so it ends exactly
+  // where the bar does and the true-black ground is never lit.
   const [barHeight, setBarHeight] = useState(0);
   const [searching, setSearching] = useState(false);
   const focus = useFocus();
@@ -188,11 +185,6 @@ export function MailTopBar({
                 <Text numberOfLines={1} style={s.headerTitle}>
                   {title}
                 </Text>
-                {subtitle ? (
-                  <Text numberOfLines={1} style={s.headerSub}>
-                    {subtitle}
-                  </Text>
-                ) : null}
               </View>
               {actions}
               {search ? (
@@ -229,7 +221,6 @@ const s = StyleSheet.create({
   },
   titleWrap: { flex: 1 },
   headerTitle: { ...type.display, color: color.ink },
-  headerSub: { ...type.small, color: color.inkDim, marginTop: 1 },
 
   searchField: { flex: 1, marginBottom: 0, paddingVertical: 9 },
   searchRow: { alignItems: 'center', flexDirection: 'row', gap: space.sm },

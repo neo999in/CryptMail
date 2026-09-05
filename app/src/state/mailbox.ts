@@ -1,6 +1,7 @@
 /**
  * Reading the mailbox: syncing it, opening a message, and flag changes.
  */
+import { needsReauth } from '../auth/types';
 import { providerFiledAsJunk, spamInputFor } from '../categorizer/categorizer';
 import { core, PLACEHOLDER_SUBJECT } from '../core';
 import { harvestAutocrypt } from '../keys';
@@ -147,6 +148,11 @@ export function createMailbox(ctx: Ctx): MailboxService {
           return await page(account, client);
         } catch (e) {
           if (account === activeAccount) throw e;
+          // A mailbox that is merely offline contributes nothing and will be
+          // back on the next refresh. One whose grant is gone will not, and
+          // used to sit in the switcher silently adding no mail — so it is
+          // flagged here, which is the only place the failure is seen.
+          if (needsReauth(e)) ctx.services.session.handleAuthLoss(e, account);
           return [];
         }
       }),

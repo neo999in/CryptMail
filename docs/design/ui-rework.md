@@ -86,8 +86,12 @@ acceptable, cut the Light radio instead of shipping a lying one.
 lines) is the biggest change. Target, matching shot 2:
 
 - **Top bar**: flat grey, avatar-button on the left (opens the drawer), title,
-  search icon on the right. The current header's account subtitle moves into the
-  drawer, where the reference puts it.
+  search icon on the right. No account subtitle under the title, on this bar or
+  in the drawer's panel head: which mailbox is active is the drawer rail's job,
+  where the one in front is ringed in the accent even while the inbox is merged,
+  and the bar's leading avatar wears that account's face. Spelling the address
+  out in words as well put a line that appears and vanishes — moving the list
+  under it — under a fact that changes about once a session.
 - **Segmented control**: two tabs on the left, `Filter` pill on the right. This
   replaces the current `All / Encrypted / Attention` filter pills — those move
   *into* the Filter sheet, which is the reference's own pattern, so nothing is
@@ -173,8 +177,32 @@ strip. Both screens are stack pushes; `navigation.ts` gains `Settings` and
 Message, Conversation, Compose, Keys, Drafts, Scheduled get the new surfaces:
 flat headers, accent buttons, row hairlines, and the sans type scale. This is
 mostly token-swap plus removing `Glass`/`Glow` wrappers. Compose is the one with
-real layout change (the recipient chips and the send bar adopt the accent), and
-its send-gating logic is not touched.
+real layout change, and its send-gating logic is not touched.
+
+Compose has since gone further, to the shape every mail client the user already
+has: it draws its own top bar (`headerShown: false` on the route) carrying the
+account face, the From address under the title with a chevron when more than one
+mailbox is connected, a paperclip, an overflow, and **the send arrow — the
+screen's only send control**. The fields below it are hairline-separated rows on
+the ground rather than bordered `Field` cards, and the rule under a row is what
+carries its state: the accent while the caret is in it, `color.coral` when a
+recipient on it blocks the send. What was the send bar is now a status bar: the
+sentence saying what will happen to this message, plus the ways out of the
+states that stop it (check their key, remove them, see the queue). The caret
+opens in To, or in the message when the recipient is already known.
+
+The overflow holds the two things that are neither writing the message nor
+sending it: **schedule send**, offered only when the send could happen right now
+(`scheduleSend` takes no mode and leaves through the encrypted path, so it is
+not a way to time a plaintext message), and **discard**, which is the only way
+to be rid of a draft from where it is written — closing keeps it, that being
+what the autosave is for.
+
+None of that moves a decision. The encrypted / not-encrypted choice still sits
+above everything the message is written into, because `encryption.md` requires it
+be made up front; the arrow's `accessibilityLabel` still spells out which send
+it is, since an arrow cannot; and its tint is coral in plaintext mode and the
+accent otherwise, so the one unencrypted action never wears the endorsed colour.
 
 ## Primitives
 

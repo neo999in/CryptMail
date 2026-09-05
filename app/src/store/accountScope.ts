@@ -25,14 +25,33 @@ export type AccountRef = {
   email: string;
   /** What to call it in the switcher. Falls back to the address. */
   name?: string;
+  /**
+   * The provider's avatar URL, when it has one.
+   *
+   * Stored rather than re-fetched so the switcher can draw a face on the first
+   * frame after launch, before any account has been restored. It is a URL, not
+   * image bytes: this store is read on every boot and is not a place to put a
+   * blob. A row whose photo fails to load falls back to initials.
+   */
+  photo?: string;
 };
 
 export function accountIdFor(provider: Provider, email: string): AccountId {
   return `${provider}:${email.trim().toLowerCase()}`;
 }
 
-export function accountRefFor(provider: Provider, email: string, name?: string): AccountRef {
-  return { id: accountIdFor(provider, email), provider, email: email.trim().toLowerCase(), name };
+export function accountRefFor(
+  provider: Provider,
+  email: string,
+  profile?: { name?: string; photo?: string },
+): AccountRef {
+  return {
+    id: accountIdFor(provider, email),
+    provider,
+    email: email.trim().toLowerCase(),
+    name: profile?.name,
+    photo: profile?.photo,
+  };
 }
 
 /**

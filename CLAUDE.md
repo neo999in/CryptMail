@@ -143,8 +143,15 @@ platform's file APIs. Inbound *unencrypted* mail is read by `attachmentsOf` in
 [app/src/mail/plainBody.ts](app/src/mail/plainBody.ts) — that file reads what the
 world sends, `mime.ts` writes what we send, and the two stay separate.
 
-Several mailboxes can be connected at once — the state layer handles N, though
-`googleAuth` reaches one, since Play services holds a single signed-in user.
+Several mailboxes can be connected at once, Gmail included. Play services holds
+a single signed-in *user*, but the *grant* is per account and survives
+`signOut()`, so `googleAuth` serves N by re-pointing it with `accountName` —
+behind one FIFO queue, and never handing back a token until the address that
+came back matches the one asked for. Both of those are load-bearing: the
+configured account is global mutable state, and getting it wrong reads the wrong
+inbox. See
+[the design](docs/superpowers/specs/2026-09-05-multi-gmail-design.md), including
+what is still unverified on a device.
 Every per-account store is keyed
 `cryptmail.<store>.v1@<provider>:<address>`
 ([app/src/store/accountScope.ts](app/src/store/accountScope.ts)); the registry

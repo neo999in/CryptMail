@@ -17,7 +17,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { Session } from '../../auth';
+import { AuthError, Session } from '../../auth';
 import { MailClient, MailSummary } from '../../mail/types';
 import { accountIdFor, scopedKey } from '../../store/accountScope';
 import { DRAFTS_STORE_KEY, loadDrafts } from '../../store/draftsStore';
@@ -66,12 +66,28 @@ jest.mock('../../auth', () => {
           email: next,
           accessToken: 'test-token',
           expiresAt: Date.now() + 3_600_000,
+          // The provider returns a display name and avatar alongside the
+          // address. Only the first mailbox has a picture here, so the tests
+          // cover both an account that has one and one that does not.
+          name: next === 'you@gmail.com' ? 'You Personal' : 'You At Work',
+          ...(next === 'you@gmail.com' ? { photo: 'https://example.invalid/you.png' } : {}),
         };
         mockConnected.push(session);
         return session;
       },
-      async restoreAll() {
-        return [...mockConnected];
+      /**
+       * Honours `known`, the way the real provider must: Play services cannot
+       * enumerate its grants, so boot names the addresses it wants and asks for
+       * them one at a time. A fake that ignored the argument and handed back
+       * everything would make the two-phase boot untestable — and would hide
+       * the case that matters, where one named mailbox is gone and the others
+       * are not.
+       */
+      async restoreAll(known?: string[]) {
+        if (!known?.length) return [...mockConnected];
+        const found = mockConnected.filter((s) => known.includes(s.email));
+        if (found.length === 0) throw new actual.AuthError('Not signed in.', 'reauth-required');
+        return found;
       },
       async signOut(email?: string) {
         const keep = email === undefined ? [] : mockConnected.filter((s) => s.email !== email);
@@ -95,6 +111,9 @@ jest.mock('../../auth', () => {
 // Built from char codes so no escape sequence has to survive being written
 // into this file; RFC 5322 wants CRLF between header lines.
 const CRLF = String.fromCharCode(13, 10);
+
+/** Every `list` any fake mailbox has served — how a redundant sync is caught. */
+const mockListCalls: string[] = [];
 
 function mockMailboxFor(address: string): MailClient {
   const tag = address.replace(/[^a-z0-9]+/gi, '-');
@@ -134,6 +153,7 @@ function mockMailboxFor(address: string): MailClient {
     kind: 'gmail',
     address,
     async list(box, { limit = 20 } = {}) {
+      mockListCalls.push(`${address}:${box}`);
       // One page holds every row this fake has, so it hands back no cursor.
       return { messages: box === 'inbox' ? rows.slice(0, limit) : [] };
     },
@@ -170,6 +190,7 @@ async function connectBoth(h: ReturnType<typeof harness>) {
 beforeEach(async () => {
   await AsyncStorage.clear();
   mockConnected.length = 0;
+  mockListCalls.length = 0;
 });
 
 describe('connecting a second mailbox', () => {
@@ -357,5 +378,316 @@ describe('the merged inbox', () => {
     await h.services.mailbox.openMessage(other!);
 
     expect(h.get().activeAccount).toBe(ONE);
+  });
+});
+
+/**
+ * Launching with two mailboxes already connected.
+ *
+ * Boot restores the one that was in front, paints it, and brings the rest back
+ * behind it — so these assert both halves, and that the background half never
+ * moves the account the user is already looking at.
+ */
+/**
+ * Let work that a synchronous entry point deliberately does not await finish —
+ * boot's background restores, and the switch `handleAuthLoss` starts behind its
+ * boolean return.
+ */
+const settle = async () => {
+  // `setImmediate`, not a zero timer: a timer still pending when a test ends
+  // is exactly what jest reports as a leaked handle.
+  for (let i = 0; i < 6; i += 1) await new Promise<void>((resolve) => setImmediate(() => resolve()));
+};
+
+describe('booting with two mailboxes', () => {
+  /**
+   * Boot, then let the background restores land — and then tell them to stop,
+   * the way an unmounted provider would. Leaving them running past the end of
+   * a test is a leaked handle, and jest is right to complain about it.
+   */
+  const boot = async (h: ReturnType<typeof harness>) => {
+    let cancelled = false;
+    await h.services.session.boot(() => cancelled);
+    await settle();
+    cancelled = true;
+  };
+
+  it('restores both, with the one that was in front still in front', async () => {
+    const first = harness();
+    await connectBoth(first);
+    await first.services.accounts.switchAccount(ONE);
+
+    // A fresh provider over the same storage: a relaunch.
+    const next = harness();
+    await boot(next);
+    expect(next.get().activeAccount).toBe(ONE);
+    expect(next.get().session?.email).toBe(FIRST);
+    expect(next.get().accounts.map((a) => a.id).sort()).toEqual([ONE, TWO].sort());
+    // Still ONE: a background restore that activated itself would pull the
+    // mailbox out from under whatever the user had already started reading.
+    expect(next.get().activeAccount).toBe(ONE);
+  });
+
+  it('opens the next mailbox when the one in front will no longer restore', async () => {
+    const first = harness();
+    await connectBoth(first);
+    await first.services.accounts.switchAccount(ONE);
+
+    // ONE's grant is gone; TWO's is not.
+    const [gone] = mockConnected.splice(
+      mockConnected.findIndex((s) => s.email === FIRST),
+      1,
+    );
+    expect(gone.email).toBe(FIRST);
+
+    const next = harness();
+    await boot(next);
+
+    // The app opens rather than landing on the connect screen, and says which
+    // mailbox it could not reach instead of quietly dropping it.
+    expect(next.get().session?.email).toBe(SECOND);
+    expect(next.get().activeAccount).toBe(TWO);
+    expect(next.get().needsReauth).toContain(ONE);
+    expect(next.get().accounts.map((a) => a.id)).toContain(ONE);
+  });
+
+  it('flags a second mailbox that will not restore, rather than dropping it', async () => {
+    const first = harness();
+    await connectBoth(first);
+
+    mockConnected.splice(
+      mockConnected.findIndex((s) => s.email === FIRST),
+      1,
+    );
+
+    const next = harness();
+    await boot(next);
+
+    expect(next.get().activeAccount).toBe(TWO);
+    expect(next.get().needsReauth).toEqual([ONE]);
+    // Its keyring, drafts and decrypted mail are untouched — a dead token says
+    // nothing about whether the data on this device is still the user's.
+    expect(next.get().accounts.map((a) => a.id)).toContain(ONE);
+  });
+});
+
+/**
+ * One revoked grant, two connected mailboxes.
+ *
+ * This is the case that was wrong for as long as the provider could only hold
+ * one account: `handleAuthLoss` cleared the whole account list, so a second
+ * mailbox's expiry signed the user out of the first one, which was working.
+ */
+describe('losing one account', () => {
+  const revoked = () => new AuthError('Access was revoked.', 'reauth-required');
+
+  it('flags the failed mailbox and keeps the other signed in', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    // Returns at once — callers use it to decide whether to stop — and steps
+    // off the dead mailbox behind that answer.
+    expect(h.services.session.handleAuthLoss(revoked(), TWO)).toBe(true);
+    await settle();
+
+    expect(h.get().needsReauth).toEqual([TWO]);
+    expect(h.get().accounts.map((a) => a.id)).toEqual([ONE, TWO]);
+    // Stepped off the dead one rather than sitting on an inbox that can only
+    // ever show an error.
+    expect(h.get().activeAccount).toBe(ONE);
+    expect(h.get().session?.email).toBe(FIRST);
+  });
+
+  it('signs out completely when the last mailbox goes', async () => {
+    const h = harness();
+    await h.services.session.boot(() => false);
+    await h.services.session.signIn();
+
+    expect(h.services.session.handleAuthLoss(revoked())).toBe(true);
+
+    expect(h.get().session).toBeNull();
+    expect(h.get().accounts).toEqual([]);
+    expect(h.get().activeAccount).toBeNull();
+  });
+
+  it('is not an auth loss when the error is something else', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    expect(h.services.session.handleAuthLoss(new Error('offline'))).toBe(false);
+    expect(h.get().needsReauth).toEqual([]);
+    expect(h.get().session?.email).toBe(SECOND);
+  });
+
+  it('clears the flag when the mailbox is signed into again', async () => {
+    const h = harness();
+    await connectBoth(h);
+    h.services.session.handleAuthLoss(revoked(), TWO);
+    await settle();
+    expect(h.get().needsReauth).toEqual([TWO]);
+
+    // The user picks that mailbox again in the Google picker, which is a new
+    // grant for an address the provider is no longer holding.
+    mockConnected.splice(
+      mockConnected.findIndex((session) => session.email === SECOND),
+      1,
+    );
+    await h.services.session.signIn();
+
+    expect(h.get().needsReauth).toEqual([]);
+    expect(h.get().activeAccount).toBe(TWO);
+  });
+});
+
+/**
+ * The display name and avatar the provider hands over at sign-in.
+ *
+ * They ride along with a sign-in that has already happened — no extra call and
+ * no extra scope — which is the only reason they are worth carrying at all.
+ * What matters here is that they land on the *right* account: the switcher
+ * draws one face per mailbox, and a profile stored under the wrong id is a
+ * mislabelled mailbox, which is the one thing a switcher must never be.
+ */
+describe('account profiles', () => {
+  it('stores each mailbox its own name and photo', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    const [first, second] = h.get().accounts;
+    expect(first).toMatchObject({ id: ONE, name: 'You Personal', photo: 'https://example.invalid/you.png' });
+    expect(second).toMatchObject({ id: TWO, name: 'You At Work' });
+  });
+
+  it('leaves the photo absent when the provider has none', async () => {
+    // An account with no picture is ordinary, not broken — the switcher falls
+    // back to initials, so nothing downstream may assume a URL is there.
+    const h = harness();
+    await connectBoth(h);
+
+    expect(h.get().accounts.find((a) => a.id === TWO)?.photo).toBeUndefined();
+  });
+
+  it('survives a relaunch, so the switcher has faces before anything restores', async () => {
+    const first = harness();
+    await connectBoth(first);
+
+    const next = harness();
+    await next.services.session.boot(() => false);
+    await settle();
+
+    expect(next.get().accounts.find((a) => a.id === ONE)?.photo).toBe('https://example.invalid/you.png');
+  });
+});
+
+/**
+ * Leaving the merged view by picking a mailbox.
+ *
+ * The rail's account tap means "this mailbox, on its own", which is two changes
+ * — active account and merged lens — that the user experiences as one. Doing
+ * them as separate `switchAccount` + `setUnified` calls synced the mailbox
+ * twice for a single tap: a full merged page, then a full unmerged one.
+ */
+describe('picking one mailbox out of the merged view', () => {
+  it('switches and unmerges in a single sync', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+
+    mockListCalls.length = 0;
+    await h.services.accounts.switchAccount(ONE, { unified: false });
+
+    expect(h.get().activeAccount).toBe(ONE);
+    expect(h.get().unified).toBe(false);
+    // Only this mailbox's rows are listed now.
+    expect(h.get().messages.every((m) => m.account === ONE)).toBe(true);
+    // One sync of one mailbox — inbox and the provider's junk folder, and
+    // nothing belonging to the account being left. Two calls per refresh, so a
+    // second refresh (the old switch-then-unmerge pair) would show up as four
+    // and as the other mailbox appearing here at all.
+    expect(mockListCalls).toEqual([`${FIRST}:inbox`, `${FIRST}:spam`]);
+  });
+
+  it('unmerges without a switch when the mailbox is already in front', async () => {
+    // The early return used to fire on `id === active` and swallow the lens
+    // change entirely, so tapping the active avatar while merged did nothing.
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+
+    await h.services.accounts.switchAccount(TWO, { unified: false });
+
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(h.get().unified).toBe(false);
+    expect(h.get().messages.every((m) => m.account === TWO)).toBe(true);
+  });
+
+  it('is still a no-op when nothing would change', async () => {
+    const h = harness();
+    await connectBoth(h);
+    const before = h.get().messages;
+
+    await h.services.accounts.switchAccount(TWO);
+
+    expect(h.get().messages).toBe(before);
+  });
+});
+
+/**
+ * Both mailboxes losing their grant at once.
+ *
+ * One merged refresh asks every provider, so both can come back `401` in the
+ * same tick — and then `markReauth` runs twice, concurrently. The first picks
+ * the second as the mailbox to step onto while the second is dropping its own
+ * session, and the switch lands on an account that no longer has one.
+ *
+ * Observed on a device on 2026-09-05 as a pair of
+ * `Uncaught (in promise): "Error: That account is not connected."` — a throw
+ * out of a `void` call, which is to say an error no user could ever see.
+ */
+describe('both accounts failing together', () => {
+  const revoked = () => new AuthError('Access was revoked.', 'reauth-required');
+
+  // The precise device interleaving is not reproducible here — this only fixes
+  // the shape of it, that two concurrent `markReauth` calls settle with both
+  // mailboxes flagged and neither promise rejecting. The two tests below are
+  // the ones with teeth: they fail if `switchAccount` goes back to throwing.
+  it('flags both, and neither call rejects', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    await Promise.all([
+      h.services.accounts.markReauth(ONE, 'gone'),
+      h.services.accounts.markReauth(TWO, 'gone'),
+    ]);
+    await settle();
+
+    expect(h.get().needsReauth.sort()).toEqual([ONE, TWO].sort());
+  });
+
+  it('reports an unreachable mailbox instead of throwing', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.markReauth(ONE);
+    await settle();
+
+    // A switch onto it is a no-op that says why, rather than a rejected promise
+    // nothing is waiting on.
+    await expect(h.services.accounts.switchAccount(ONE)).resolves.toBeUndefined();
+    expect(h.get().error).toMatch(/sign in again/i);
+    expect(h.get().activeAccount).toBe(TWO);
+  });
+
+  it('never opens a sign-in prompt on its own', async () => {
+    // Google's picker as a side effect of a background token failure is a
+    // prompt the user did not ask for. The drawer asks; the switch does not.
+    const h = harness();
+    await connectBoth(h);
+    const before = mockConnected.length;
+
+    await h.services.accounts.markReauth(TWO, 'gone');
+    await settle();
+    await h.services.accounts.switchAccount(TWO);
+
+    expect(mockConnected.length).toBe(before);
   });
 });

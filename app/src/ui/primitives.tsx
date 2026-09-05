@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -233,13 +234,124 @@ export function Callout({ children }: { children: React.ReactNode }) {
 
 /* ------------------------------------------------------------- avatars ---- */
 
-export function Avatar({ seed, label, size = 34 }: { seed: string; label: string; size?: number }) {
+/**
+ * A face, or the initials that stand in for one.
+ *
+ * `photo` is only ever the signed-in user's own avatar from their provider, so
+ * it is drawn directly. It is deliberately **not** offered for message senders:
+ * loading a remote image because mail arrived is a tracking pixel with extra
+ * steps, and it would tell a sender the message had been looked at. Senders
+ * keep their initials.
+ *
+ * A URL that fails — expired, offline, signed out at the CDN — falls back to
+ * the initials rather than leaving a hole, which is also what makes the tinted
+ * circle worth keeping underneath.
+ *
+ * The tint is the ground for those initials and **only** for them: it is not
+ * painted while a photo is showing. A coloured disc behind an opaque circular
+ * image is invisible everywhere except the one place it is not wanted — the
+ * antialiased edge, where it fringes out around the face as a coloured ring
+ * that reads as a border nobody asked for.
+ *
+ * **The image carries its own `borderRadius`, and the container clips as well.**
+ * Both, not either: `overflow: 'hidden'` on a rounded `View` does not reliably
+ * clip a child `Image` on Android, so a container-only clip renders the photo
+ * as a square. The image's own radius is what actually rounds it; the
+ * container's `overflow` is the backstop for a source whose aspect ratio makes
+ * `cover` overflow the box.
+ */
+export function Avatar({
+  seed,
+  label,
+  size = 34,
+  photo,
+}: {
+  seed: string;
+  label: string;
+  size?: number;
+  photo?: string;
+}) {
+  const [broken, setBroken] = useState(false);
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
   const bg = avatarTints[h % avatarTints.length];
+
+  // Reset when the account behind this circle changes, so a previous row's
+  // failure does not suppress the next one's perfectly good picture.
+  useEffect(() => setBroken(false), [photo]);
+
+  const showPhoto = Boolean(photo) && !broken;
+
   return (
-    <View style={[s.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
-      <Text style={[s.avatarText, { fontSize: size * 0.4 }]}>{label}</Text>
+    <View
+      style={[
+        s.avatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: showPhoto ? 'transparent' : bg,
+        },
+      ]}
+    >
+      {showPhoto ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          onError={() => setBroken(true)}
+          source={{ uri: photo }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+        />
+      ) : (
+        <Text style={[s.avatarText, { fontSize: size * 0.4 }]}>{label}</Text>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The "every mailbox at once" face, worn wherever an account avatar would be.
+ *
+ * It is a primitive because two places have to agree on it exactly: the drawer
+ * rail, where it is the thing you press to merge, and the mail bar, which
+ * stands in for the active account's photo while merged. If those drifted apart
+ * the bar would stop looking like the control that put it there.
+ *
+ * **The glyph fills when it is the one in use**, the way a starred star does —
+ * the circle around it never changes. The accounts beside it are photographs,
+ * which are always "solid", so an outline that only changed colour was the one
+ * mark on the rail whose state you had to look twice to read. Filling the house
+ * itself answers "what am I looking at" at a glance without turning the slot
+ * into a coloured disc that competes with the faces under it.
+ */
+export function AllAccountsAvatar({
+  size = 34,
+  tone,
+  active = false,
+}: {
+  size?: number;
+  tone: string;
+  active?: boolean;
+}) {
+  return (
+    <View
+      style={[
+        s.avatar,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: 'transparent',
+          borderColor: tone,
+          borderWidth: 1,
+        },
+      ]}
+    >
+      <Icon
+        color={tone}
+        fill={active ? tone : 'none'}
+        name="home"
+        size={Math.round(size * 0.52)}
+      />
     </View>
   );
 }
@@ -834,7 +946,8 @@ const s = StyleSheet.create({
 
   rim: { backgroundColor: 'rgba(255,255,255,0.16)', height: 1, left: 0, position: 'absolute', right: 0, top: 0 },
 
-  avatar: { alignItems: 'center', justifyContent: 'center' },
+  // The backstop clip, not the one that rounds the photo — see `Avatar`.
+  avatar: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { color: ON_ACCENT, fontFamily: font.sansBold },
 
   // A solid neutral button — near-white on true black — rather than an

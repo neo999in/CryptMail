@@ -44,7 +44,7 @@ import { INBOX_TABS, InboxTab } from '../ui/inboxTabs';
 import { MailTopBar } from '../ui/mailBar';
 import { Filter, FILTERS, needsAttention } from '../ui/mailFilter';
 import { ComposeFab } from '../ui/mailList';
-import { Avatar, barIcon, IconButton, PressableRow, Segmented, Sheet } from '../ui/primitives';
+import { AllAccountsAvatar, Avatar, barIcon, IconButton, PressableRow, Segmented, Sheet } from '../ui/primitives';
 import { ContactFilter, CONTACT_FILTERS, ContactsBody } from './ContactsScreen';
 import { DraftsBody } from './DraftsScreen';
 import { InboxBody } from './InboxScreen';
@@ -115,7 +115,7 @@ function count(n: number, one: string, many: string, none: string): string {
 
 export function HomeScreen(props: HomeProps) {
   const { navigation } = props;
-  const { session, messages, drafts, scheduled, unified, switchingAccount, encryptionFor, refreshInbox, loadBox } =
+  const { session, messages, drafts, scheduled, unified, encryptionFor, refreshInbox, loadBox } =
     useApp();
   const { destination, setDestination } = useDestination();
   const accent = useAccent();
@@ -182,12 +182,12 @@ export function HomeScreen(props: HomeProps) {
     <View style={s.screen}>
       <MailTopBar
         title={category ? CATEGORY_LABELS[category] : (TITLES[destination] ?? 'Inbox')}
-        // Which mailbox is in front, and only when that is ambiguous — a merged
-        // inbox still composes, sends and decrypts as exactly one account, so
-        // the reader must be able to see which.
-        subtitle={
-          switchingAccount ? 'Switching…' : unified ? `${session?.email ?? ''} · all accounts` : undefined
-        }
+        // No second line at all. A merged inbox still composes, sends and
+        // decrypts as exactly one account, and a switch still takes a moment —
+        // but the drawer rail rings the active mailbox and the leading avatar
+        // here wears its face, so both were already answered in the one place
+        // you look to change them. What the subtitle added was a line under
+        // the title that appeared and vanished, moving the list under it.
         leading={
           // The account avatar is the drawer handle, as in the reference — the
           // rail behind it is where mailboxes are switched. It is the same on
@@ -199,7 +199,21 @@ export function HomeScreen(props: HomeProps) {
             onPress={() => navigation.openDrawer()}
             style={({ pressed }) => [pressed && { opacity: 0.7 }]}
           >
-            <Avatar seed={session?.email ?? ''} label={initials(session?.email ?? '')} size={36} />
+            {/* Merged, the bar wears the same mark as the rail control that
+                merged it — one account's face here would say the list is that
+                account's, which is exactly what it is not. Who is being sent
+                as is not lost: this opens the rail, where the active mailbox
+                is the one ringed in the accent. */}
+            {unified ? (
+              <AllAccountsAvatar active size={36} tone={accent} />
+            ) : (
+              <Avatar
+                label={initials(session?.name ?? session?.email ?? '')}
+                photo={session?.photo}
+                seed={session?.email ?? ''}
+                size={36}
+              />
+            )}
           </Pressable>
         }
         actions={

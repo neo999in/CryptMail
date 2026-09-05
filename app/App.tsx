@@ -123,10 +123,13 @@ function FullStack() {
           presentation: 'transparentModal',
         }}
       />
+      {/* Draws its own top bar: it holds the account this message leaves as,
+          the address under the title, and the send arrow — none of which a
+          native header can carry. */}
       <Stack.Screen
         name="Compose"
         component={ComposeScreen}
-        options={{ title: 'New message', presentation: 'modal' }}
+        options={{ headerShown: false, presentation: 'modal' }}
         initialParams={{}}
       />
       <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
