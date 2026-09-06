@@ -3,6 +3,7 @@ import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigat
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { Attachment } from './mail/attachment';
+import type { AccountId } from './store/accountScope';
 import type { OriginRect } from './ui/expand';
 
 /**
@@ -49,6 +50,10 @@ export type RootStackParamList = {
   Recovery: undefined;
   Settings: undefined;
   Appearance: undefined;
+  /** The connected mailboxes. Switching stays in the drawer; managing is here. */
+  Accounts: undefined;
+  /** One mailbox's own name, avatar, image policy, sync window and storage. */
+  Account: { id: AccountId };
 };
 
 /**

@@ -156,7 +156,24 @@ Every per-account store is keyed
 `cryptmail.<store>.v1@<provider>:<address>`
 ([app/src/store/accountScope.ts](app/src/store/accountScope.ts)); the registry
 naming them is the one global store
-([accountsStore.ts](app/src/store/accountsStore.ts)). **Exactly one account is
+([accountsStore.ts](app/src/store/accountsStore.ts)). A mailbox's own settings —
+display name, avatar mode, remote-image policy, sync window, and whether it is
+**paused** — ride on its registry *ref*, not in a scoped store, because every
+consumer needs all accounts' at once and synchronously (N rail avatars, and a
+merged sync asking each mailbox for its own window). Managing them is
+[AccountsScreen](app/src/screens/AccountsScreen.tsx) →
+[AccountScreen](app/src/screens/AccountScreen.tsx), reached from Settings; those
+two are stack **pushes**, not destinations. A paused mailbox keeps everything
+and loses only its `MailClient`, which is what every sync path keys on, so
+nothing has to ask whether it is paused; boot skips it, and choosing it anywhere
+resumes it. Pausing the last one still syncing is refused — that is what signing
+out is for.
+
+That screen is also where a mailbox says which key it sends with, and where it
+is exported: [mail/mbox.ts](app/src/mail/mbox.ts) writes **the bytes the
+provider stores**, so encrypted mail exports sealed. Never make the export write
+the decrypted tree — a backup button that strips encryption off every message
+the user chose to encrypt is rule 1 with extra steps. **Exactly one account is
 active at a time**, including when the inbox is merged — merging is a reading
 convenience, and opening a row from another account switches to it first, while
 composing, sending and decrypting always use the active account. Every scoped

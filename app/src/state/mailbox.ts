@@ -11,7 +11,7 @@ import { FlagPatch, MailClient, Mailbox, MailSummary } from '../mail/types';
 import { indexContent } from '../search/search';
 import { extractLinks, learn, unlearn } from '../spam/spam';
 import type { SpamMark } from '../spam/spam';
-import { AccountId } from '../store/accountScope';
+import { AccountId, settingsOf } from '../store/accountScope';
 import { findKey } from '../store/keyring';
 import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
@@ -87,6 +87,19 @@ export function createMailbox(ctx: Ctx): MailboxService {
   const exhausted = (box: Mailbox, account: AccountId) => cursors.get(cursorKey(box, account)) === null;
 
   /**
+   * One account's sync window, in days, or `undefined` for the whole mailbox.
+   *
+   * Read from the registry at call time rather than captured: the accounts
+   * screen can change it while a list is on screen, and the next refresh should
+   * use the new value without anything having to re-create this service.
+   */
+  function syncWindowDays(account: AccountId): number | undefined {
+    const ref = store.get().accounts.find((a) => a.id === account);
+    const window = settingsOf(ref).syncWindow;
+    return window === 'all' ? undefined : Number(window);
+  }
+
+  /**
    * Which mailboxes a merged inbox merges.
    *
    * The inbox and the junk folder, because both feed the one list the inbox
@@ -132,7 +145,15 @@ export function createMailbox(ctx: Ctx): MailboxService {
       // to the provider.
       if (mode === 'more' && exhausted(box, account)) return [];
       const pageToken = mode === 'more' ? (cursors.get(cursorKey(box, account)) ?? undefined) : undefined;
-      const result = await client.list(box, { limit: box === 'spam' ? JUNK_PAGE_SIZE : PAGE_SIZE, pageToken });
+      const result = await client.list(box, {
+        limit: box === 'spam' ? JUNK_PAGE_SIZE : PAGE_SIZE,
+        pageToken,
+        // The window belongs to the account being asked, not to the one in
+        // front: a merged inbox calls this once per mailbox, and reading the
+        // active account's setting here would apply one mailbox's window to
+        // all of them.
+        newerThanDays: syncWindowDays(account),
+      });
       cursors.set(cursorKey(box, account), result.nextPageToken ?? null);
       return tag(result.messages, account);
     }

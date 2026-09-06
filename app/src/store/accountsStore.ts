@@ -9,7 +9,14 @@
  * No token, no key and no message text lives here; the auth provider owns
  * credentials and the per-account stores own everything else.
  */
-import { AccountId, AccountRef } from './accountScope';
+import {
+  AccountId,
+  AccountRef,
+  AccountSettings,
+  AvatarMode,
+  DEFAULT_ACCOUNT_SETTINGS,
+  SYNC_WINDOWS,
+} from './accountScope';
 import { loadJson, saveJson } from './secureJson';
 
 export const ACCOUNTS_STORE_KEY = 'cryptmail.accounts.v1';
@@ -52,9 +59,34 @@ export async function saveAccounts(state: AccountsState): Promise<AccountsState>
  */
 export function upsertAccount(state: AccountsState, ref: AccountRef, activate = true): AccountsState {
   const accounts = state.accounts.some((a) => a.id === ref.id)
-    ? state.accounts.map((a) => (a.id === ref.id ? { ...a, ...ref } : a))
+    ? // `settings` is merged rather than overwritten, and the spread would
+      // overwrite it: a ref built from a sign-in carries none, and every boot
+      // re-registers every account. Without this, launching the app would reset
+      // the name, avatar mode, image policy and sync window the user chose.
+      state.accounts.map((a) =>
+        a.id === ref.id ? { ...a, ...ref, settings: { ...settingsFrom(a), ...(ref.settings ?? {}) } } : a,
+      )
     : [...state.accounts, ref];
   return normalise({ ...state, accounts, active: activate ? ref.id : state.active });
+}
+
+/**
+ * Change what the user has decided about one mailbox (pure).
+ *
+ * A patch, not a replacement, so a screen that owns one control does not have
+ * to know the whole shape to write its field.
+ */
+export function setAccountSettings(
+  state: AccountsState,
+  id: AccountId,
+  patch: Partial<AccountSettings>,
+): AccountsState {
+  return normalise({
+    ...state,
+    accounts: state.accounts.map((a) =>
+      a.id === id ? { ...a, settings: { ...settingsFrom(a), ...patch } } : a,
+    ),
+  });
 }
 
 /**
@@ -71,12 +103,35 @@ export function removeAccount(state: AccountsState, id: AccountId): AccountsStat
 }
 
 /**
- * `active` always names a listed account, and `unified` is off when there is
- * nothing to unify. Applied on read as well as write so a hand-edited or
- * half-written blob cannot put the app in a state no screen can render.
+ * `active` always names a listed account, every account carries a complete
+ * `settings`, and `unified` is off when there is nothing to unify. Applied on
+ * read as well as write so a hand-edited or half-written blob cannot put the
+ * app in a state no screen can render.
  */
 function normalise(state: AccountsState): AccountsState {
-  const accounts = state.accounts ?? [];
+  const accounts = (state.accounts ?? []).map((a) => ({ ...a, settings: settingsFrom(a) }));
   const active = accounts.some((a) => a.id === state.active) ? state.active : (accounts[0]?.id ?? null);
   return { accounts, active, unified: accounts.length > 1 && state.unified === true };
+}
+
+/**
+ * Coerce whatever is on a ref into a settings object every screen can render.
+ *
+ * A value from a future build, an older one, or a half-written blob must not be
+ * able to hand a screen a sync window with no meaning behind it — the same
+ * reasoning as `normalisePrefs`, and for the same reason it is done on read.
+ */
+function settingsFrom(ref: Pick<AccountRef, 'settings'>): AccountSettings {
+  const stored = (ref.settings ?? {}) as Partial<AccountSettings>;
+  const avatar: AvatarMode = stored.avatar === 'initials' ? 'initials' : 'photo';
+  return {
+    displayName: typeof stored.displayName === 'string' ? stored.displayName : '',
+    avatar,
+    blockRemoteImages: stored.blockRemoteImages === true,
+    paused: stored.paused === true,
+    syncWindow:
+      stored.syncWindow && SYNC_WINDOWS.includes(stored.syncWindow)
+        ? stored.syncWindow
+        : DEFAULT_ACCOUNT_SETTINGS.syncWindow,
+  };
 }

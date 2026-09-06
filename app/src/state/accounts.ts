@@ -16,16 +16,23 @@
  * one.
  */
 import { auth, Session } from '../auth';
-import { AccountId, accountRefFor } from '../store/accountScope';
+import { AccountId, accountRefFor, settingsOf } from '../store/accountScope';
 import {
   loadAccounts,
   removeAccount as withoutAccount,
   saveAccounts,
+  setAccountSettings,
   upsertAccount,
 } from '../store/accountsStore';
 import { PER_ACCOUNT_STORE_KEYS } from '../store';
+import { SEARCH_STORE_KEY } from '../store/searchIndex';
+import { SNOOZE_STORE_KEY } from '../store/snoozeStore';
+import { emptySpamState, SPAM_STORE_KEY } from '../store/spamModelStore';
 import { removeScoped } from '../store/secureJson';
+import { saveTextFile } from '../lib/files';
+import { mboxFilename, MboxEntry, toMbox } from '../mail/mbox';
 import { AccountsService, Ctx, message } from './contracts';
+import { SECONDARY_BOXES } from './types';
 
 export function createAccounts(ctx: Ctx): AccountsService {
   const { store, mail } = ctx;
@@ -100,7 +107,10 @@ export function createAccounts(ctx: Ctx): AccountsService {
       // its session dropped by the other in between. Choosing from the live map
       // at the moment of the switch is what keeps "step onto a working account"
       // from stepping onto one that just stopped working.
-      const next = accounts.find((a) => a.id !== id && sessions.has(a.id));
+      // A paused mailbox is skipped as firmly as a disconnected one: stepping
+      // onto it would resume syncing an account the user deliberately stopped,
+      // as a side effect of a *different* account's token dying.
+      const next = accounts.find((a) => a.id !== id && sessions.has(a.id) && !settingsOf(a).paused);
       if (!next || !sessions.has(next.id)) return;
       // Straight through `switchAccount`, so the arriving account loads its own
       // stores exactly as it would have on a tap. Reproducing that here is how
@@ -127,6 +137,15 @@ export function createAccounts(ctx: Ctx): AccountsService {
       if (!moving) {
         await persist({ ...(await loadAccounts()), unified: nextUnified });
         await ctx.services.mailbox.refreshInbox();
+        return;
+      }
+
+      // A paused mailbox has one door, and this is it: every way of choosing an
+      // account — the rail, the account screen, a merged row being opened —
+      // means "show me this mail", and refusing here would leave the rail with
+      // an avatar that does nothing on tap.
+      if (settingsOf(store.get().accounts.find((a) => a.id === id)).paused) {
+        await service.resumeAccount(id);
         return;
       }
 
@@ -201,6 +220,182 @@ export function createAccounts(ctx: Ctx): AccountsService {
       } else {
         await ctx.services.session.signOut();
       }
+    },
+
+    /**
+     * Write one mailbox's own settings.
+     *
+     * Any account, not only the one in front: the accounts screen can be opened
+     * on a mailbox that is not active, and renaming it should not require
+     * switching to it first (which would re-sync a mailbox the user is not
+     * reading).
+     *
+     * Only a changed sync window re-lists anything. The other three are read at
+     * render time from `state.accounts`, so `persist` alone is the whole update.
+     */
+    async updateAccount(id, patch) {
+      const before = store.get().accounts.find((a) => a.id === id);
+      await persist(setAccountSettings(await loadAccounts(), id, patch));
+
+      const windowChanged =
+        patch.syncWindow !== undefined && patch.syncWindow !== before?.settings?.syncWindow;
+      if (windowChanged && (id === store.get().activeAccount || store.get().unified)) {
+        await ctx.services.mailbox.refreshInbox();
+      }
+    },
+
+    /**
+     * Drop this device's cache of one mailbox and fetch it again.
+     *
+     * The in-memory copies are cleared alongside the stores, but only when the
+     * account being reset is the one whose data is loaded — `state.searchIndex`
+     * and friends belong to the active account, and blanking them while another
+     * mailbox is in front would show that mailbox as empty until the next
+     * switch.
+     */
+    async resetAccount(id, scope = 'all') {
+      const bases =
+        scope === 'content' ? [SEARCH_STORE_KEY] : [SEARCH_STORE_KEY, SPAM_STORE_KEY, SNOOZE_STORE_KEY];
+      await removeScoped(bases, id);
+
+      if (id === store.get().activeAccount) {
+        store.patch({
+          searchIndex: {},
+          ...(scope === 'all' ? { spam: emptySpamState(), snoozed: {} } : {}),
+        });
+        await ctx.services.mailbox.refreshInbox();
+      }
+    },
+
+    /**
+     * Write one mailbox out as an mbox file.
+     *
+     * The raw source is fetched per message rather than reconstructed from the
+     * summaries: an export is a copy of the mail, and a copy assembled from the
+     * fields this app happens to display is not one. Encrypted mail therefore
+     * exports as the sealed message it is — see `mail/mbox.ts` for why that is
+     * the right answer rather than a limitation.
+     *
+     * A message the provider refuses is skipped rather than failing the whole
+     * export: forty-nine messages out is worth more than an error.
+     */
+    async exportMailbox(id) {
+      const client = mail.clients.get(id);
+      if (!client) throw new Error('That mailbox is not syncing, so there is nothing to export.');
+
+      const state = store.get();
+      if (id !== state.activeAccount) {
+        throw new Error('Put this mailbox in front before exporting it.');
+      }
+
+      // Every list this account has loaded, de-duplicated: a message can be in
+      // both the inbox list and a box, and an mbox with it twice is a mailbox
+      // with it twice once imported.
+      const rows = [
+        ...state.messages.filter((m) => m.account === id),
+        ...SECONDARY_BOXES.flatMap((box) => state.boxes[box].items.filter((m) => m.account === id)),
+      ];
+      const seen = new Set<string>();
+      const unique = rows.filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+
+      const entries: MboxEntry[] = [];
+      for (const summary of unique) {
+        try {
+          entries.push({
+            from: summary.from.address,
+            date: summary.date,
+            raw: await client.getRaw(summary.id),
+          });
+        } catch {
+          // Deleted server-side since the page was fetched, or a transient
+          // failure. Either way it is one message, not the export.
+        }
+      }
+
+      await saveTextFile(
+        mboxFilename(client.address),
+        toMbox(entries),
+        // The registered type for an mbox. `text/plain` would open it in a text
+        // viewer on the share sheet rather than offering a mail client.
+        'application/mbox',
+      );
+      return entries.length;
+    },
+
+    /**
+     * Stop syncing a mailbox, keeping everything it owns.
+     *
+     * The session is deliberately **kept** in memory while the app runs, so
+     * resuming in the same session costs nothing. Only the client goes, and
+     * that is what every sync path keys on: `mailbox.collect` iterates
+     * `mail.clients`, so a paused mailbox contributes nothing to a merged inbox
+     * without anything having to ask whether it is paused.
+     */
+    async pauseAccount(id) {
+      const { accounts, activeAccount } = store.get();
+      // "Still syncing" and not merely "listed": a paused mailbox and one whose
+      // grant died are both unreadable, and stepping onto either would leave
+      // the app showing an inbox that cannot load.
+      const others = accounts.filter(
+        (a) => a.id !== id && !settingsOf(a).paused && sessions.has(a.id),
+      );
+      if (others.length === 0) {
+        store.patch({
+          error: 'This is the only mailbox still syncing. Sign out instead of pausing it.',
+        });
+        return;
+      }
+
+      mail.clients.delete(id);
+      await persist(setAccountSettings(await loadAccounts(), id, { paused: true }));
+
+      if (id !== activeAccount) return;
+      // Straight through `switchAccount`, for the same reason `markReauth`
+      // does: the arriving mailbox must load its own stores exactly as it
+      // would on a tap.
+      await service.switchAccount(others[0].id);
+    },
+
+    /**
+     * Sync it again, and put it in front.
+     *
+     * Unpausing without switching would leave the mailbox syncing into a merged
+     * list the user may not be looking at, with nothing on screen to show the
+     * tap did anything — so resuming means "bring it back", which is what
+     * `attach` does.
+     */
+    async resumeAccount(id) {
+      const ref = store.get().accounts.find((a) => a.id === id);
+      if (!ref) return;
+      await persist(setAccountSettings(await loadAccounts(), id, { paused: false }));
+
+      // Held from before it was paused, or gone because this is a fresh launch
+      // and boot skipped it. Only the second case costs a round trip.
+      let session = sessions.get(id);
+      if (!session) {
+        try {
+          [session] = await auth.restoreAll([ref.email]);
+        } catch {
+          session = undefined;
+        }
+      }
+      if (!session) {
+        // Flagged rather than reported as a resume failure: the mailbox is
+        // un-paused and simply needs a new sign-in, which the rail and its own
+        // screen already offer.
+        await service.markReauth(id, 'That mailbox needs you to sign in again.');
+        return;
+      }
+
+      store.patch({ switchingAccount: true, error: null });
+      try {
+        await ctx.services.session.attach(session);
+      } catch (e) {
+        store.patch({ error: message(e) });
+      } finally {
+        store.patch({ switchingAccount: false });
+      }
+      await ctx.services.mailbox.refreshInbox();
     },
 
     async setUnified(on) {

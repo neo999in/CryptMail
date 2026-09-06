@@ -26,6 +26,8 @@ import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
+import { AccountScreen } from './src/screens/AccountScreen';
+import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
@@ -138,6 +140,11 @@ function FullStack() {
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
+      {/* Managing a mailbox is a detail screen, not a destination: the drawer
+          sets destinations and never pushes, and these two are reached from
+          Settings. Both draw their own top bar, like Settings. */}
+      <Stack.Screen name="Accounts" component={AccountsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Account" component={AccountScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

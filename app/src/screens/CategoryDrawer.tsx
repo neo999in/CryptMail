@@ -6,8 +6,13 @@
  * a faster way to exercise the rule that already holds everywhere else:
  * **exactly one account is active at a time**, and tapping a rail avatar simply
  * calls the same `switchAccount` action the account sheet used to. Merging is
- * still only a reading convenience, and it is the "All accounts" toggle at the
- * top of the panel.
+ * still only a reading convenience, and its one control is the Home circle at
+ * the top of this rail — the panel's toggle was removed, because two controls
+ * for one setting is the mistake the accent swatches already taught us.
+ *
+ * Switching is all this rail does. Managing a mailbox — its name, its avatar,
+ * what it may fetch, how far back it syncs, and removing it — is
+ * `screens/AccountScreen.tsx`, which a long press here opens.
  *
  * The panel on the right lists destinations that exist, and **every row is the
  * same kind of thing**: it sets the home screen's `Destination`
@@ -36,9 +41,8 @@ import { CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categori
 import { initials } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
-import { AccountRef } from '../store/accountScope';
+import { AccountRef, accountLabel, settingsOf } from '../store/accountScope';
 import { color, font, radius, space, tint, type } from '../theme';
-import { confirmDialog } from '../ui/dialog';
 import { useAccent } from '../ui/appearance';
 import { Icon, IconName } from '../ui/Icon';
 import { AllAccountsAvatar, Avatar, PressableRow } from '../ui/primitives';
@@ -74,7 +78,6 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
     unified,
     switchAccount,
     addAccount,
-    removeAccount,
     setUnified,
   } = useApp();
   const { destination, setDestination } = useDestination();
@@ -99,6 +102,9 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
   // (state/types.ts), and those rows are not in the list this badge belongs to.
   const total = CATEGORIES.reduce((sum, cat) => (cat === 'spam' ? sum : sum + counts[cat]), 0);
 
+  /** The mailbox in front, for the panel's title — the user's name for it wins. */
+  const activeRef = accounts.find((a) => a.id === activeAccount);
+
   const choose = (next: Destination) => {
     setDestination(next);
     navigation.closeDrawer();
@@ -116,20 +122,16 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
   };
 
   /**
-   * Removing an account erases its keyring, drafts and search index, so it asks
-   * — and says so. It is a long press rather than a visible button because the
-   * tap on a rail avatar means "switch to this mailbox", which is the thing
-   * people do constantly and must never do this by accident.
+   * A long press on a rail avatar opens that mailbox's own screen.
+   *
+   * It used to confirm *removal* — a destructive action on an unlabelled
+   * gesture, with nothing on screen to say the gesture existed. Removal now
+   * lives on the screen this opens, under a heading that says what it deletes,
+   * and the gesture became a shortcut to it rather than a trapdoor.
    */
-  const confirmRemove = (account: AccountRef) => {
-    confirmDialog(
-      `Remove ${account.email}?`,
-      'This deletes its keyring, drafts and locally decrypted mail from this device. Nothing on the server is touched.',
-      [
-        { label: 'Cancel' },
-        { label: 'Remove', tone: 'destructive', onPress: () => void removeAccount(account.id) },
-      ],
-    );
+  const manage = (account: AccountRef) => {
+    navigation.closeDrawer();
+    stack.navigate('Account', { id: account.id });
   };
 
   return (
@@ -175,15 +177,25 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
           // something a screen reader can convey, and this is the one control
           // that explains why an account stopped syncing.
           const stale = needsReauth.includes(account.id);
+          // Paused mailboxes are dimmed the same way and for the same reason —
+          // they are not fetching — but the tap means something different, and
+          // both the label and `switchAccount` say so: choosing a paused
+          // mailbox resumes it (`state/accounts.ts`), because every way of
+          // picking an account means "show me this mail".
+          const paused = settingsOf(account).paused;
           return (
             <Pressable
               accessibilityLabel={
-                stale ? `Sign in again to ${account.email}` : `Switch to ${account.email}`
+                stale
+                  ? `Sign in again to ${account.email}`
+                  : paused
+                    ? `Resume syncing ${accountLabel(account)}`
+                    : `Switch to ${accountLabel(account)}`
               }
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
               key={account.id}
-              onLongPress={() => confirmRemove(account)}
+              onLongPress={() => manage(account)}
               onPress={() => {
                 // A mailbox whose grant died can only be reached by signing in
                 // again, and that is a Google picker — so it happens here, on a
@@ -204,7 +216,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
             >
               <View
                 style={[
-                  stale && s.railStale,
+                  (stale || paused) && s.railStale,
                   // Merged, but still the identity everything is composed and
                   // decrypted with. A ring rather than the filled tint: it is
                   // the subordinate of the two answers on screen.
@@ -212,7 +224,8 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                 ]}
               >
                 <Avatar
-                  label={initials(account.name ?? account.email)}
+                  label={initials(accountLabel(account))}
+                  mode={settingsOf(account).avatar}
                   photo={account.photo}
                   seed={account.email}
                   size={40}
@@ -261,7 +274,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               line on two screens. */}
           <View style={s.panelHead}>
             <Text numberOfLines={1} style={s.panelTitle}>
-              {unified ? 'All Accounts' : (session?.email ?? 'Mailbox')}
+              {unified ? 'All Accounts' : (activeRef ? accountLabel(activeRef) : (session?.email ?? 'Mailbox'))}
             </Text>
           </View>
 

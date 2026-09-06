@@ -35,7 +35,16 @@ The DB file is encrypted at rest with a key held in the OS keychain.
 | provider | text | `gmail` / `outlook` / `imap` |
 | auth_kind | text | `oauth` / `password` |
 | token_ref | text | keychain reference, **not** the token itself |
+| settings | json | the user's own choices for this mailbox — display name, avatar mode, remote-image policy, sync window |
 | created_at | ts | |
+
+`settings` is the one thing on this row the provider does not own, which is why
+it is merged rather than overwritten when an account is re-registered (every
+launch re-registers every account). It holds no token, key or message text.
+Today it lives on the ref inside the `accounts` store itself
+([`accountsStore.ts`](../app/src/store/accountsStore.ts)) rather than in a
+per-account store, because every consumer needs all accounts' settings at once
+and synchronously — see [features.md](features.md) 0.11.
 
 ### `identity_keys` (this user's keypairs)
 | column | type | notes |

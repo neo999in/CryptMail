@@ -123,7 +123,22 @@ export interface MailClient {
    * Paged rather than capped: a mailbox is older than any one page, and without a
    * cursor the app could only ever show its newest `limit` messages.
    */
-  list(box: Mailbox, options?: { limit?: number; pageToken?: string }): Promise<MailPage>;
+  list(
+    box: Mailbox,
+    options?: {
+      limit?: number;
+      pageToken?: string;
+      /**
+       * Only mail newer than this many days, when the account asks for a
+       * window. Omitted means the whole mailbox, which is the default and what
+       * every caller did before the setting existed.
+       *
+       * It is a *list* filter, not a retention policy: nothing is deleted
+       * anywhere, and widening the window brings the older mail straight back.
+       */
+      newerThanDays?: number;
+    },
+  ): Promise<MailPage>;
   /** Full RFC 5322 source — what the crypto core needs. */
   getRaw(id: string): Promise<string>;
   send(rfc822: string): Promise<void>;

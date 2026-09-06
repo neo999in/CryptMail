@@ -35,6 +35,7 @@ import { initials } from '../lib/format';
 import { listScheduled } from '../outbox/outbox';
 import { HomeProps } from '../navigation';
 import { useApp } from '../state/AppState';
+import { accountLabel, settingsOf } from '../store/accountScope';
 import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { color, font, radius, space, type } from '../theme';
 import { Icon } from '../ui/Icon';
@@ -115,8 +116,18 @@ function count(n: number, one: string, many: string, none: string): string {
 
 export function HomeScreen(props: HomeProps) {
   const { navigation } = props;
-  const { session, messages, drafts, scheduled, unified, encryptionFor, refreshInbox, loadBox } =
-    useApp();
+  const {
+    session,
+    accounts,
+    activeAccount,
+    messages,
+    drafts,
+    scheduled,
+    unified,
+    encryptionFor,
+    refreshInbox,
+    loadBox,
+  } = useApp();
   const { destination, setDestination } = useDestination();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
@@ -131,6 +142,9 @@ export function HomeScreen(props: HomeProps) {
   const [headerHeight, setHeaderHeight] = useState(0);
   /** The whole bar, controls included — the band an open mail may stand on. */
   const [barHeight, setBarHeight] = useState(0);
+
+  /** The mailbox in front, whose name and avatar mode the bar wears. */
+  const activeRef = accounts.find((a) => a.id === activeAccount);
 
   const category = categoryOf(destination);
   const mail = showsMail(destination);
@@ -208,8 +222,12 @@ export function HomeScreen(props: HomeProps) {
               <AllAccountsAvatar active size={36} tone={accent} />
             ) : (
               <Avatar
-                label={initials(session?.name ?? session?.email ?? '')}
-                photo={session?.photo}
+                // The registry ref, not the session: the user's own name for
+                // this mailbox and their "show as" choice live there, and the
+                // bar has to wear the same face the rail does.
+                label={initials(activeRef ? accountLabel(activeRef) : (session?.name ?? session?.email ?? ''))}
+                mode={settingsOf(activeRef).avatar}
+                photo={activeRef?.photo ?? session?.photo}
                 seed={session?.email ?? ''}
                 size={36}
               />

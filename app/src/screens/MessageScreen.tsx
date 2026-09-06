@@ -26,6 +26,8 @@ import { RootStackParamList } from '../navigation';
 import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
 import { OpenedMessage, useApp } from '../state/AppState';
 import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
+import { settingsOf } from '../store/accountScope';
+import { countRemoteImages } from '../html/remoteImages';
 import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
@@ -75,8 +77,12 @@ export function MessageScreen({ route, navigation }: Props) {
     markNotSpam,
     snoozeMessage,
     unsnoozeMessage,
+    accounts,
+    activeAccount,
   } = useApp();
   const { showToast } = useToast();
+  /** The mailbox this mail belongs to — see the `allowRemoteImages` note below. */
+  const activeRef = accounts.find((a) => a.id === activeAccount);
   const insets = useSafeAreaInsets();
   // The reader wraps to the scroll view's padded box, not the whole window, or
   // wide content lays out past the right edge before it is clipped.
@@ -95,6 +101,15 @@ export function MessageScreen({ route, navigation }: Props) {
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
+  /**
+   * Whether the reader has asked for this one message's images.
+   *
+   * Per message and per opening, never remembered: the account's setting is the
+   * standing answer, and a "just this once" that quietly became permanent would
+   * be a privacy control that decays. Reset below with the rest of the
+   * per-message state when the id changes.
+   */
+  const [loadImages, setLoadImages] = useState(false);
   /**
    * Where the message's own ground starts.
    *
@@ -188,9 +203,27 @@ export function MessageScreen({ route, navigation }: Props) {
     [encryptionFor, searchIndex, session?.email, spam, summary],
   );
 
+  /**
+   * Whether this message's remote images may be fetched, and how many are
+   * being held back if not.
+   *
+   * The count is of the message's *own* markup, not of what the renderer drew,
+   * so the strip can say a number before anything has been laid out. It is
+   * distinct sources rather than tags: one spacer repeated down a newsletter is
+   * one disclosure to one host (`html/remoteImages.ts`).
+   */
+  const imagesAllowed = !settingsOf(activeRef).blockRemoteImages || loadImages;
+  const blockedImages = useMemo(
+    () => (imagesAllowed || !opened?.html ? 0 : countRemoteImages(opened.html)),
+    [imagesAllowed, opened?.html],
+  );
+
   useEffect(() => {
     let cancelled = false;
     if (!summary) return;
+    // A new message is a new decision. Without this, opening a blocked message
+    // after loading one's images would fetch the next sender's pixels too.
+    setLoadImages(false);
     (async () => {
       try {
         const result = await openMessage(summary);
@@ -548,18 +581,48 @@ export function MessageScreen({ route, navigation }: Props) {
                       it, sanitised in `html/sanitize.ts` before it reaches the
                       renderer, with the text part as the fallback. */}
                   {opened.html ? (
-                    <HtmlReader
-                      // Remote images load on open, by the reader's own
-                      // decision (features.md 0.8). It is a real disclosure —
-                      // a per-recipient image URL tells the sender the message
-                      // was opened, when, and from where — and it is the one
-                      // place in this app where convenience was chosen over
-                      // that. Nothing else here phones anyone.
-                      allowRemoteImages
-                      contentWidth={bodyWidth}
-                      html={opened.html}
-                      onLinkPress={setTappedLink}
-                    />
+                    <>
+                      {/* What was withheld, and the one control that loads it.
+                          Without this the account setting is a switch people
+                          turn on once and off again the first time they need
+                          an image: the only alternative was Settings →
+                          Accounts → the mailbox → toggle → back. */}
+                      {blockedImages > 0 ? (
+                        <PressableRow
+                          accessibilityLabel={`Load ${blockedImages} blocked ${blockedImages === 1 ? 'image' : 'images'}. This tells the sender the message was opened.`}
+                          accessibilityRole="button"
+                          onPress={() => setLoadImages(true)}
+                          style={s.imageStrip}
+                        >
+                          <Icon color={color.inkDim} name="image" size={16} />
+                          <Text style={s.imageStripText}>
+                            {blockedImages} {blockedImages === 1 ? 'image' : 'images'} not loaded
+                          </Text>
+                          <Text style={[s.imageStripAction, { color: accent }]}>Load</Text>
+                        </PressableRow>
+                      ) : null}
+                      <HtmlReader
+                        // Remote images load on open unless this mailbox says
+                        // not to (features.md 0.8, and the Privacy control on
+                        // `screens/AccountScreen.tsx`). The default is still
+                        // "load", which is a real disclosure — a per-recipient
+                        // image URL tells the sender the message was opened,
+                        // when, and from where. What changed is that the choice
+                        // is now the user's: standing, per account, and
+                        // overridable for this one message by the strip above.
+                        // Nothing else here phones anyone.
+                        //
+                        // The *active* account's setting, which is the right
+                        // one: opening a merged-inbox row switches to the
+                        // account that owns it first (`state/mailbox.ts`), so
+                        // by the time this renders, the mail on screen belongs
+                        // to that mailbox.
+                        allowRemoteImages={imagesAllowed}
+                        contentWidth={bodyWidth}
+                        html={opened.html}
+                        onLinkPress={setTappedLink}
+                      />
+                    </>
                   ) : (
                     <Body text={opened.body} onLinkPress={setTappedLink} />
                   )}
@@ -1095,6 +1158,23 @@ const s = StyleSheet.create({
   senderKey: { color: color.mint, flex: 1, fontFamily: font.mono, fontSize: 11.5 },
 
   body: { color: color.body, fontFamily: font.sans, fontSize: 15.5, lineHeight: 25 },
+
+  // Reads as a note above the mail rather than a warning: nothing has gone
+  // wrong, and coral is trust vocabulary that must not be spent here.
+  imageStrip: {
+    alignItems: 'center',
+    backgroundColor: color.panel2,
+    borderColor: color.line,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  imageStripText: { color: color.inkDim, flex: 1, fontFamily: font.sans, fontSize: 13 },
+  imageStripAction: { fontFamily: font.sansSemibold, fontSize: 13 },
   // Underlined as well as tinted: colour alone is not a signal everyone can see.
   link: { color: defaultAccent, textDecorationLine: 'underline' },
 

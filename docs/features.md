@@ -249,11 +249,17 @@ Pairs with 0.9.
 **Done when.** A message with a tracking pixel issues zero network requests on
 open, and "load images" is an explicit, per-message action.
 
-**Status: not built, and currently decided against.** The reader loads remote
-images on open (`allowRemoteImages` at the `HtmlReader` call site in
-`screens/MessageScreen.tsx`). Both halves of this entry were built and then
-removed on the maintainer's call: blocking by default, and a per-message strip
-saying what had been withheld and offering to load it.
+**Status: ◐ per-account, opt-in.** Blocking is now a setting on each mailbox —
+*Block external images* on
+[`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx), stored on
+the account's registry ref and read at the `HtmlReader` call site in
+`screens/MessageScreen.tsx`. It is **off by default**, so the standing decision
+below is unchanged for anyone who does not go looking: what changed is that the
+choice now exists and belongs to the reader, per mailbox.
+
+Both halves of this entry were once built and then removed on the maintainer's
+call: blocking by *default*, and a per-message strip saying what had been
+withheld and offering to load it. Neither has come back.
 
 What that costs is worth stating plainly rather than leaving for someone to
 rediscover. A remote image URL is routinely unique per recipient, so opening a
@@ -263,11 +269,16 @@ that is the one disclosure that happens with no action by the reader and no
 indication to them. It is also the only outbound request this app makes on
 another party's say-so.
 
-Reinstating it is small: `HtmlReader` still defaults `allowRemoteImages` to
-false and still renders a non-fetching placeholder for every blocked image, so
-the block is one prop at the call site. The consent strip and its image count
-were deleted and would need rewriting; the per-sender allowlist was never
-built.
+Turning blocking on for a mailbox removes that disclosure for its mail:
+`HtmlReader` renders a non-fetching placeholder for every blocked image, and a
+strip above the body says how many were withheld and offers to load them
+([`html/remoteImages.ts`](../app/src/html/remoteImages.ts) counts them —
+distinct http(s) sources, so one spacer repeated down a newsletter counts once,
+and a `data:` or `cid:` image counts not at all). That consent is **per message
+and per opening**: it is never remembered, because a "just this once" that
+quietly became permanent is a privacy control that decays.
+
+What is still missing is the per-sender allowlist, which was never built.
 
 ### 0.9 HTML reader + rich-text compose · Impact M · Effort M–L
 
@@ -299,8 +310,8 @@ payloads) renders inert, verified by tests over the sanitizer.
 the message screen for plaintext *and* decrypted mail. `parseProtectedInner`
 walks nested multiparts and transfer-decodes them, so a tree sealed by another
 PGP client (Thunderbird, ProtonMail) reads as HTML rather than as nothing.
-Remote images are blocked until 0.8 lands the consent step. Rich-text *compose*
-is not built — `ui/RichTextComposer.tsx` exists but nothing mounts it.
+Remote images load unless the mailbox blocks them (0.8); there is no
+per-message consent step. Rich-text *compose* is not built — `ui/RichTextComposer.tsx` exists but nothing mounts it.
 
 ### 0.10 Privacy-preserving notification policy · Impact M · Effort S
 
@@ -369,6 +380,38 @@ Composing, sending and decrypting always use the active account, because each
 needs one identity and one keyring; choosing those per message is precisely how
 state leaks between mailboxes.
 
+**Managing one, as opposed to switching.** Switching is the rail, which is one
+gesture from the inbox and happens dozens of times a day. Everything else is
+Settings → Accounts
+([`screens/AccountsScreen.tsx`](../app/src/screens/AccountsScreen.tsx)) and the
+per-mailbox screen behind it
+([`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx)): a display
+name, whether the avatar shows the provider's photo or initials, whether that
+mailbox's mail may fetch remote images (0.8), how far back it syncs, what it has
+cached here, and removal. Those four settings live on the registry ref rather
+than in a per-account store, because every consumer needs all of them at once
+and synchronously — N rows, N rail avatars, and a merged sync that asks each
+mailbox for *its own* window. Every default reproduces the behaviour of an
+install that never opens the screen.
+
+That screen also carries the two things a per-account app owed the user and had
+nowhere to put. **Which key this mailbox sends with**, and whether it is listed
+in the directory — the keyring, the publication record and the recovery mark are
+all per-account stores, but Keys and Recovery are reached from Settings and
+silently describe whichever mailbox is in front. And **"stop syncing"**, the
+rung between a dead grant and removal: a paused mailbox keeps its place, its
+keys, its drafts and its indexed mail, and simply loses its `MailClient`, so a
+merged sync steps over it and boot does not even ask the provider for a token
+for it. Resuming restores the session and puts it in front — every way of
+choosing a mailbox means "show me this mail", so `switchAccount` on a paused one
+resumes it rather than refusing. Pausing the last mailbox still syncing is
+refused, and the screen says why before the tap: an app with nothing to read is
+the connect screen, and that is what signing out is for.
+
+Removal used to be a long-press on a rail avatar: a destructive action on an
+unlabelled gesture. The long press now opens that mailbox's screen, where
+removal sits under a heading that says what it deletes.
+
 Removing an account deletes every scoped store belonging to it. Leaving its
 search index — a plaintext copy of that mailbox's mail — on disk would make the
 button a lie, and re-adding the address would silently adopt it.
@@ -410,7 +453,7 @@ service graph and the real stores — with only the auth provider and the Gmail
 client faked — by
 [`state/__tests__/accounts-test.ts`](../app/src/state/__tests__/accounts-test.ts).
 
-### 0.12 Storage management & cache eviction · Impact S · Effort S
+### 0.12 Storage management & cache eviction · Impact S · Effort S — ◐ partly built
 
 **What.** Show what's cached; bound it; "clear decrypted content" as a visible,
 honest control.
@@ -422,7 +465,22 @@ counterpart to the known debt.
 **Done when.** A settings row shows index size and clearing it empties the store
 without breaking search over freshly-opened mail.
 
-### 0.13 Mailbox export / backup · Impact M · Effort M
+**Status: ◐ partly built, per account.** The Storage group on
+[`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) shows what
+the mailbox in front holds — messages indexed, drafts, queued mail — and offers
+two controls: *Clear decrypted content*, which empties the search index alone,
+and *Reset account*, which also drops the learned spam model and any snoozes and
+then syncs again. Neither touches the keyring, the recovery blob, drafts or the
+outbox: those are the private key and the user's unsent work, and a control
+called "reset" must not silently destroy either.
+
+Still missing: a byte count rather than a row count, an automatic bound on the
+index, and the same numbers for a mailbox that is *not* in front — `State` holds
+the active account's stores, and counting another one would mean loading its
+index behind the user's back, so the screen says whose numbers these are
+instead of guessing.
+
+### 0.13 Mailbox export / backup · Impact M · Effort M — ◐ built
 
 **What.** Export decrypted mail as `.mbox` or `.eml` files.
 
@@ -430,6 +488,24 @@ without breaking search over freshly-opened mail.
 yours and you can take it out. Also a de-risking story for account loss.
 
 **Done when.** An export opens cleanly in Thunderbird.
+
+**Status: ◐ built, per account and bounded.** *Export as .mbox* on
+[`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) writes the
+mailbox out through [`mail/mbox.ts`](../app/src/mail/mbox.ts) — mboxrd, so a
+`From ` line inside a body round-trips instead of splitting one message into
+two, and asctime in UTC rather than the device's locale.
+
+Two deliberate boundaries. It exports **the bytes the provider stores**, not a
+re-rendering of what the app shows: a faithful copy is the only kind worth
+calling a backup, which means an encrypted message exports *sealed*. That is the
+right outcome — the ciphertext is the mail, and any PGP-capable client with the
+same key reads it — and writing the decrypted tree instead would make the export
+a button that strips encryption off everything the user chose to encrypt. And it
+exports the mail **this device has loaded**, since those are the ids known
+without paging the whole mailbox from the provider; the row says so.
+
+Still missing: `.eml` per message, and an export that pages the mailbox rather
+than the pages already in hand.
 
 ### 0.14 Sign-only / verify-only mode · Impact S · Effort S — ◐ partly built
 

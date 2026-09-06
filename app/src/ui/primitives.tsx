@@ -265,11 +265,20 @@ export function Avatar({
   label,
   size = 34,
   photo,
+  mode = 'photo',
 }: {
   seed: string;
   label: string;
   size?: number;
   photo?: string;
+  /**
+   * `initials` ignores `photo` entirely — the account's own "Show as" choice.
+   *
+   * It is a mode rather than the caller dropping the `photo` prop so that every
+   * avatar of one account reads the same setting, instead of each call site
+   * remembering to look it up.
+   */
+  mode?: 'photo' | 'initials';
 }) {
   const [broken, setBroken] = useState(false);
   let h = 0;
@@ -280,7 +289,7 @@ export function Avatar({
   // failure does not suppress the next one's perfectly good picture.
   useEffect(() => setBroken(false), [photo]);
 
-  const showPhoto = Boolean(photo) && !broken;
+  const showPhoto = mode === 'photo' && Boolean(photo) && !broken;
 
   return (
     <View
@@ -890,6 +899,50 @@ export function Radio({
   );
 }
 
+/**
+ * An on/off switch, for a setting whose two states need no naming.
+ *
+ * Drawn here rather than taken from React Native's `Switch`, which paints its
+ * own platform colours and cannot follow `useAccent()` — an accent-coloured
+ * control that stays iOS blue is the exact drift the accent hook exists to
+ * prevent.
+ *
+ * The knob **moves** as well as changing colour, so the state is not carried by
+ * hue alone; the caller supplies the label, and the role and `checked` state
+ * make it readable to a screen reader without one.
+ */
+export function Toggle({
+  on,
+  onChange,
+  label,
+  disabled,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+  /** What this switches. Read out, since the control itself is unlabelled. */
+  label: string;
+  disabled?: boolean;
+}) {
+  const accent = useAccent();
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on, disabled: !!disabled }}
+      disabled={disabled}
+      hitSlop={8}
+      onPress={() => onChange(!on)}
+      style={[
+        s.toggle,
+        { backgroundColor: on ? accent : color.panel2, borderColor: on ? accent : color.line },
+        disabled && { opacity: 0.45 },
+      ]}
+    >
+      <View style={[s.toggleKnob, { backgroundColor: on ? ON_ACCENT : color.inkDim, marginLeft: on ? 20 : 2 }]} />
+    </Pressable>
+  );
+}
+
 const s = StyleSheet.create({
   title: { ...type.heading, color: color.ink },
   muted: { ...type.body, color: color.inkDim },
@@ -1092,6 +1145,9 @@ const s = StyleSheet.create({
   radioLabel: { ...type.settingsRow, color: color.ink },
   radioRing: { alignItems: 'center', borderRadius: 10, borderWidth: 2, height: 20, justifyContent: 'center', width: 20 },
   radioDot: { borderRadius: 5, height: 10, width: 10 },
+
+  toggle: { borderRadius: radius.pill, borderWidth: 1, height: 26, justifyContent: 'center', width: 46 },
+  toggleKnob: { borderRadius: 10, height: 20, width: 20 },
 
 
   empty: { alignItems: 'center', paddingHorizontal: space.xl, paddingVertical: 56 },

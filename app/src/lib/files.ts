@@ -119,6 +119,41 @@ export async function saveAttachment(attachment: Attachment): Promise<void> {
   }
 }
 
+/**
+ * Hand the user a text file the app generated — today, a mailbox export.
+ *
+ * The same two platform paths as `saveAttachment`, and the same trade-off: on
+ * Android the file is written to the cache and offered through the share sheet,
+ * because that is the only way an app can put a file somewhere the user
+ * chooses. The cache copy is temporary and evictable, which matters more here
+ * than for an attachment — an mbox is *every* message it holds, in the clear
+ * for anything that was not encrypted.
+ */
+export async function saveTextFile(name: string, text: string, mimeType: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    const anchor = document.createElement('a');
+    // A blob, not a `data:` URL: an export is megabytes, and a data URL that
+    // size is refused outright by some browsers and truncated by others.
+    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  const file = new File(Paths.cache, name);
+  if (file.exists) file.delete();
+  file.create();
+  file.write(text);
+
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType });
+  }
+}
+
 /** An anchor with `download` — the browser's only "save this bytes as a file". */
 function saveOnWeb(attachment: Attachment): void {
   const anchor = document.createElement('a');

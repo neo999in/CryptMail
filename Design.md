@@ -147,9 +147,10 @@ twice, it belongs here instead.
 | `IconButton` | header and toolbar controls | square ghost tile, flush until pressed |
 | `Field` + `Input` + `useFocus()` | text entry | border tracks the caret |
 | `Radio` | an exclusive choice | ring fills with the accent when selected |
+| `Toggle` | a setting that is simply on or off | accent track, and the knob **moves** — never colour alone. Ours, not RN's `Switch`, which cannot follow `useAccent()` |
 | `Sheet` | a modal bottom sheet | scrim + blur + grip. **The only place blur is used.** |
 | `Badge` / `Banner` / `Callout` | encryption and trust state | `enc`→mint, `warn`→coral, `plain`→faint |
-| `Avatar` | a sender or account | circle, tint derived deterministically from the address |
+| `Avatar` | a sender or account | circle, tint derived deterministically from the address; `mode="initials"` honours an account's "show as" choice |
 | `EmptyState` | "nothing here" / "nothing matched" | centred glyph, title, hint, optional action |
 | `Skeleton` | loading | pulsing block — loading should have the shape of the result |
 

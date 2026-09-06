@@ -92,6 +92,52 @@ describe('the query per mailbox', () => {
   });
 });
 
+/**
+ * The account's sync window (`store/accountScope.ts`). It is a `q` term, so it
+ * has to reach all five boxes — four of which carry no query of their own and
+ * one of which already has terms it must not lose. A window silently missing
+ * from one list is a mailbox that ignores the setting in exactly one place.
+ */
+describe('the sync window', () => {
+  it('is asked for on every mailbox', async () => {
+    for (const box of ['inbox', 'sent', 'archive', 'spam', 'trash'] as Mailbox[]) {
+      const urls = stubGmail();
+      await client().list(box, { newerThanDays: 30 });
+      expect(decodeURIComponent(urls[0])).toContain('newer_than:30d');
+    }
+  });
+
+  it('narrows archive rather than replacing what it already excludes', async () => {
+    const urls = stubGmail();
+
+    await client().list('archive', { newerThanDays: 7 });
+
+    const asked = decodeURIComponent(urls[0]);
+    expect(asked).toContain('-in:inbox -in:sent -in:draft');
+    expect(asked).toContain('newer_than:7d');
+  });
+
+  it('keeps the labels and the junk opt-in beside it', async () => {
+    const urls = stubGmail();
+
+    await client().list('spam', { newerThanDays: 90 });
+
+    expect(urls[0]).toContain('labelIds=SPAM');
+    expect(urls[0]).toContain('includeSpamTrash=true');
+    expect(decodeURIComponent(urls[0])).toContain('newer_than:90d');
+  });
+
+  /** `all` reaches the connector as `undefined`, and must ask for no query. */
+  it('asks for no query at all when there is no window', async () => {
+    const urls = stubGmail();
+
+    await client().list('inbox');
+
+    expect(urls[0]).not.toContain('q=');
+    expect(urls[0]).toContain('labelIds=INBOX');
+  });
+});
+
 describe('what a junk row carries back', () => {
   it("keeps the provider's labels, which is what files the message", async () => {
     // Without `labels` reaching `MailSummary` the categoriser has nothing to defer

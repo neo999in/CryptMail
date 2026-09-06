@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cryptoMode } from '../config';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
+import { accountLabel } from '../store/accountScope';
 import { color, space, type } from '../theme';
 import { useAppearance } from '../ui/appearance';
 import { Destination, useDestination } from '../ui/destination';
@@ -37,10 +38,14 @@ type Row = {
 };
 
 export function SettingsScreen({ navigation }: Props) {
-  const { session, accounts, signOut } = useApp();
+  const { session, accounts, activeAccount, signOut } = useApp();
   const { auroraColors, density, theme } = useAppearance();
   const { setDestination } = useDestination();
   const insets = useSafeAreaInsets();
+
+  /** What to call the mailbox in front on the Accounts row. */
+  const active = accounts.find((a) => a.id === activeAccount);
+  const inFront = active ? accountLabel(active) : (session?.email ?? '');
 
   /** Drafts and Scheduled are destinations on the home screen, not routes. */
   const go = (destination: Destination) => {
@@ -79,13 +84,17 @@ export function SettingsScreen({ navigation }: Props) {
           {
             icon: 'user',
             label: 'Accounts',
+            // The user's own name for the mailbox, like everywhere else that
+            // names one. Falls back to the address, which is what
+            // `accountLabel` does when nothing has been chosen.
             value:
               accounts.length > 1
-                ? `${accounts.length} mailboxes · ${session?.email ?? ''} in front`
-                : (session?.email ?? ''),
-            // Switching lives in the drawer rail, which is one gesture from the
-            // inbox; this row is how someone who came looking here finds it.
-            onPress: () => navigation.navigate('Home'),
+                ? `${accounts.length} mailboxes · ${inFront} in front`
+                : inFront,
+            // Switching still lives in the drawer rail, which is one gesture
+            // from the inbox. This is the other half: naming a mailbox, what it
+            // may fetch, how far back it syncs, and what it has left here.
+            onPress: () => navigation.navigate('Accounts'),
           },
           {
             icon: 'users',
@@ -107,7 +116,7 @@ export function SettingsScreen({ navigation }: Props) {
     // `confirmSignOut` closes over `signOut` only, which is stable for the life
     // of the app — see the note on the actions `useApp()` exposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts.length, auroraColors.name, density, navigation, session?.email, setDestination, theme],
+    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, theme],
   );
 
   return (

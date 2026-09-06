@@ -9,7 +9,7 @@ import { createGmailClient } from '../mail/gmail';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
-import { AccountId, accountIdFor } from '../store/accountScope';
+import { AccountId, accountIdFor, settingsOf } from '../store/accountScope';
 import { loadAccounts, NO_ACCOUNTS, saveAccounts } from '../store/accountsStore';
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
@@ -204,9 +204,15 @@ export function createSession(ctx: Ctx): SessionService {
         // now, not last: the provider cannot enumerate the grants it holds, so
         // this registry is what tells it which addresses to ask for.
         const stored = await loadAccounts();
+        // A paused mailbox is listed but not asked for. Restoring it would cost
+        // a Play-services round trip per launch for mail the user has said they
+        // do not want fetched — and would hand it a client, which is the only
+        // thing a merged sync looks at. It comes back through
+        // `accounts.resumeAccount`, which restores it on demand.
+        const syncing = stored.accounts.filter((a) => !settingsOf(a).paused);
         const ordered = [
-          ...stored.accounts.filter((a) => a.id === stored.active),
-          ...stored.accounts.filter((a) => a.id !== stored.active),
+          ...syncing.filter((a) => a.id === stored.active),
+          ...syncing.filter((a) => a.id !== stored.active),
         ];
 
         // Nothing stored means a first launch, or an install from before the

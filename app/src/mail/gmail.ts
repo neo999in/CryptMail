@@ -39,12 +39,12 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
     kind: 'gmail',
     address,
 
-    async list(box, { limit = 20, pageToken } = {}) {
+    async list(box, { limit = 20, pageToken, newerThanDays } = {}) {
       const list = await call<{
         messages?: { id: string; threadId: string }[];
         nextPageToken?: string;
       }>(
-        `/messages?maxResults=${limit}${selector(box)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
+        `/messages?maxResults=${limit}${selector(box, newerThanDays)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
       );
       const ids = list.messages ?? [];
       // Metadata format is enough for the list; raw is fetched lazily on open.
@@ -135,13 +135,26 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
  * The other three lists therefore need no exclusion of their own: spam and trash
  * are already absent from them, which is also why archive's `-in:` query does not
  * mention either.
+ *
+ * `newerThanDays` — the account's sync window — is a `q` term, so it composes
+ * with all five. Four of them carry no query today and gain one; archive's is
+ * extended. Both cases go through `withWindow` rather than being spelled out
+ * per box, because a window silently missing from one list is a mailbox that
+ * ignores the setting in exactly one place.
  */
-function selector(box: Mailbox): string {
-  if (box === 'sent') return '&labelIds=SENT';
-  if (box === 'archive') return `&q=${encodeURIComponent('-in:inbox -in:sent -in:draft')}`;
-  if (box === 'spam') return '&labelIds=SPAM&includeSpamTrash=true';
-  if (box === 'trash') return '&labelIds=TRASH&includeSpamTrash=true';
-  return '&labelIds=INBOX';
+function selector(box: Mailbox, newerThanDays?: number): string {
+  if (box === 'sent') return `&labelIds=SENT${withWindow('', newerThanDays)}`;
+  if (box === 'archive') return withWindow('-in:inbox -in:sent -in:draft', newerThanDays);
+  if (box === 'spam') return `&labelIds=SPAM&includeSpamTrash=true${withWindow('', newerThanDays)}`;
+  if (box === 'trash') return `&labelIds=TRASH&includeSpamTrash=true${withWindow('', newerThanDays)}`;
+  return `&labelIds=INBOX${withWindow('', newerThanDays)}`;
+}
+
+/** `&q=…` for a box's own terms plus its window, or nothing when there are none. */
+function withWindow(terms: string, newerThanDays?: number): string {
+  const window = newerThanDays && newerThanDays > 0 ? `newer_than:${Math.floor(newerThanDays)}d` : '';
+  const q = [terms, window].filter(Boolean).join(' ');
+  return q ? `&q=${encodeURIComponent(q)}` : '';
 }
 
 type GmailMessage = {

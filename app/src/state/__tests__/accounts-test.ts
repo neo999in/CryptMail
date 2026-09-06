@@ -17,11 +17,12 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AuthError, Session } from '../../auth';
+import { auth, AuthError, Session } from '../../auth';
 import { MailClient, MailSummary } from '../../mail/types';
 import { accountIdFor, scopedKey } from '../../store/accountScope';
 import { DRAFTS_STORE_KEY, loadDrafts } from '../../store/draftsStore';
 import { KEYRING_STORE_KEY, loadKeyring } from '../../store/keyring';
+import { loadSearchIndex, saveSearchIndex } from '../../store/searchIndex';
 import { createServices } from '../services';
 import { createStore, initialState } from '../store';
 import { State } from '../types';
@@ -112,8 +113,20 @@ jest.mock('../../auth', () => {
 // into this file; RFC 5322 wants CRLF between header lines.
 const CRLF = String.fromCharCode(13, 10);
 
+/** Every file the export has handed the platform: `[name, text]`. */
+const mockSaved: [string, string][] = [];
+
+jest.mock('../../lib/files', () => ({
+  saveTextFile: async (name: string, text: string) => {
+    mockSaved.push([name, text]);
+  },
+}));
+
 /** Every `list` any fake mailbox has served — how a redundant sync is caught. */
 const mockListCalls: string[] = [];
+
+/** The sync window each of those calls carried, so the setting can be traced. */
+const mockListWindows: (number | undefined)[] = [];
 
 function mockMailboxFor(address: string): MailClient {
   const tag = address.replace(/[^a-z0-9]+/gi, '-');
@@ -152,8 +165,9 @@ function mockMailboxFor(address: string): MailClient {
   return {
     kind: 'gmail',
     address,
-    async list(box, { limit = 20 } = {}) {
+    async list(box, { limit = 20, newerThanDays } = {}) {
       mockListCalls.push(`${address}:${box}`);
+      mockListWindows.push(newerThanDays);
       // One page holds every row this fake has, so it hands back no cursor.
       return { messages: box === 'inbox' ? rows.slice(0, limit) : [] };
     },
@@ -191,6 +205,8 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   mockConnected.length = 0;
   mockListCalls.length = 0;
+  mockListWindows.length = 0;
+  mockSaved.length = 0;
 });
 
 describe('connecting a second mailbox', () => {
@@ -689,5 +705,293 @@ describe('both accounts failing together', () => {
     await h.services.accounts.switchAccount(TWO);
 
     expect(mockConnected.length).toBe(before);
+  });
+});
+
+/**
+ * What the user decides about one mailbox, and what "reset" is allowed to take.
+ *
+ * The second half is the one worth pinning: a control called reset that quietly
+ * deleted a private key or an unsent draft would be indistinguishable from a
+ * bug, and the only honest way to state the boundary is to assert what survives.
+ */
+describe('per-account settings', () => {
+  it('are written per mailbox and survive a relaunch', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    await h.services.accounts.updateAccount(ONE, { displayName: 'Personal', avatar: 'initials' });
+    await h.services.accounts.updateAccount(TWO, { syncWindow: '30' });
+
+    const relaunched = harness();
+    await relaunched.services.session.boot(() => false);
+    await settle();
+
+    const [one, two] = relaunched.get().accounts;
+    expect(one.settings).toMatchObject({ displayName: 'Personal', avatar: 'initials' });
+    expect(two.settings).toMatchObject({ displayName: '', syncWindow: '30' });
+  });
+
+  it('do not need the mailbox to be in front', async () => {
+    const h = harness();
+    await connectBoth(h);
+    // TWO is active; renaming ONE must not switch to it, which would re-sync a
+    // mailbox the user is not reading.
+    await h.services.accounts.updateAccount(ONE, { displayName: 'Personal' });
+
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(h.get().accounts.find((a) => a.id === ONE)?.settings?.displayName).toBe('Personal');
+  });
+
+  it('carry the sync window through to the provider, per mailbox', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.updateAccount(TWO, { syncWindow: '7' });
+    await h.services.accounts.setUnified(true);
+    mockListCalls.length = 0;
+    mockListWindows.length = 0;
+
+    await h.services.mailbox.refreshInbox();
+
+    // A merged sync lists both mailboxes, and each carries its *own* window —
+    // reading the active account's setting once would apply 7 days to both.
+    const windows = new Map(mockListCalls.map((call, i) => [call, mockListWindows[i]]));
+    expect(windows.get(`${SECOND}:inbox`)).toBe(7);
+    expect(windows.get(`${FIRST}:inbox`)).toBeUndefined();
+  });
+});
+
+describe('resetting a mailbox', () => {
+  /** Something in every store the reset is allowed to touch, and one it is not. */
+  async function withCachedMail(h: ReturnType<typeof harness>) {
+    await h.services.drafts.saveDraft({
+      id: 'd-keep',
+      to: ['someone@example.com'],
+      subject: 'unsent',
+      body: '',
+      updatedAt: new Date().toISOString(),
+    });
+    await saveSearchIndex(TWO, { 'work-1': { subject: 'indexed', body: 'text' } });
+  }
+
+  it('clears the decrypted-content index and nothing else', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await withCachedMail(h);
+
+    await h.services.accounts.resetAccount(TWO, 'content');
+
+    expect(await loadSearchIndex(TWO)).toEqual({});
+    expect(h.get().searchIndex).toEqual({});
+    expect(await loadDrafts(TWO)).toHaveProperty('d-keep');
+  });
+
+  it('leaves the keys and the unsent mail alone on a full reset', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await withCachedMail(h);
+    const keysBefore = await loadKeyring(TWO);
+
+    await h.services.accounts.resetAccount(TWO);
+
+    expect(await loadSearchIndex(TWO)).toEqual({});
+    expect(await loadDrafts(TWO)).toHaveProperty('d-keep');
+    expect(await loadKeyring(TWO)).toEqual(keysBefore);
+  });
+
+  it('does not touch the mailbox that is not being reset', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await saveSearchIndex(ONE, { 'personal-1': { subject: 'kept', body: 'text' } });
+    await saveSearchIndex(TWO, { 'work-1': { subject: 'gone', body: 'text' } });
+
+    await h.services.accounts.resetAccount(TWO);
+
+    expect(await loadSearchIndex(ONE)).toHaveProperty('personal-1');
+    expect(await loadSearchIndex(TWO)).toEqual({});
+  });
+});
+
+/**
+ * Stopping a mailbox without disconnecting it.
+ *
+ * The rung between "the grant died" and "remove it". What makes it a *pause*
+ * rather than a soft removal is what survives it, so that is what these assert:
+ * the account stays listed, keeps its stores, and comes back with them.
+ */
+describe('pausing a mailbox', () => {
+  it('keeps it listed and stops it syncing', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+
+    await h.services.accounts.pauseAccount(ONE);
+    mockListCalls.length = 0;
+    await h.services.mailbox.refreshInbox();
+
+    expect(h.get().accounts.map((a) => a.id)).toEqual([ONE, TWO]);
+    expect(h.get().accounts.find((a) => a.id === ONE)?.settings?.paused).toBe(true);
+    expect(mockListCalls.some((call) => call.startsWith(FIRST))).toBe(false);
+    expect(mockListCalls.some((call) => call.startsWith(SECOND))).toBe(true);
+  });
+
+  it('steps off it when it was the mailbox in front', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    // TWO is in front after the second sign-in.
+    await h.services.accounts.pauseAccount(TWO);
+
+    expect(h.get().activeAccount).toBe(ONE);
+    expect(h.get().session?.email).toBe(FIRST);
+  });
+
+  it('keeps its keys and drafts, unlike removing it', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.drafts.saveDraft({
+      id: 'd-work',
+      to: ['someone@example.com'],
+      subject: 'unsent',
+      body: '',
+      updatedAt: new Date().toISOString(),
+    });
+
+    await h.services.accounts.pauseAccount(TWO);
+
+    expect(await loadDrafts(TWO)).toHaveProperty('d-work');
+  });
+
+  /**
+   * An app with nothing left to read is the connect screen, and that is what
+   * signing out is for. Reported rather than thrown: every caller is a tap.
+   */
+  it('refuses on the last mailbox still syncing, and says why', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(ONE);
+
+    await expect(h.services.accounts.pauseAccount(TWO)).resolves.toBeUndefined();
+    expect(h.get().error).toMatch(/only mailbox still syncing/i);
+    expect(h.get().accounts.find((a) => a.id === TWO)?.settings?.paused).toBe(false);
+    expect(h.get().activeAccount).toBe(TWO);
+  });
+
+  it('is not asked for again on the next launch', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(ONE);
+    // Only the relaunch's own fetches are interesting; the sign-ins above
+    // legitimately listed both mailboxes.
+    mockListCalls.length = 0;
+
+    const relaunched = harness();
+    await relaunched.services.session.boot(() => false);
+    await settle();
+
+    // Still listed, and still paused — but nothing fetched for it, so it has no
+    // client and cannot appear in a merged sync.
+    expect(relaunched.get().accounts.map((a) => a.id)).toEqual([ONE, TWO]);
+    expect(relaunched.get().activeAccount).toBe(TWO);
+    expect(mockListCalls.some((call) => call.startsWith(FIRST))).toBe(false);
+  });
+});
+
+describe('resuming a mailbox', () => {
+  it('brings it back and puts it in front', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(TWO);
+
+    await h.services.accounts.resumeAccount(TWO);
+
+    expect(h.get().accounts.find((a) => a.id === TWO)?.settings?.paused).toBe(false);
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(h.get().session?.email).toBe(SECOND);
+  });
+
+  it('comes back after a relaunch that never restored it', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(ONE);
+
+    const relaunched = harness();
+    await relaunched.services.session.boot(() => false);
+    await settle();
+    await relaunched.services.accounts.resumeAccount(ONE);
+
+    expect(relaunched.get().activeAccount).toBe(ONE);
+    expect(relaunched.get().session?.email).toBe(FIRST);
+  });
+
+  /** Choosing a mailbox anywhere means "show me this mail" — including a paused one. */
+  it('is what switching to a paused mailbox does', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(TWO);
+
+    await h.services.accounts.switchAccount(TWO, { unified: false });
+
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(h.get().accounts.find((a) => a.id === TWO)?.settings?.paused).toBe(false);
+  });
+
+  it('flags a mailbox whose grant died while it was paused', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(ONE);
+
+    // A fresh run has no session held in memory, and the provider no longer
+    // has the grant either.
+    const relaunched = harness();
+    await relaunched.services.session.boot(() => false);
+    await settle();
+    await auth.signOut(FIRST);
+
+    await relaunched.services.accounts.resumeAccount(ONE);
+    await settle();
+
+    expect(relaunched.get().needsReauth).toContain(ONE);
+    expect(relaunched.get().activeAccount).toBe(TWO);
+  });
+});
+
+/**
+ * Taking a mailbox out.
+ *
+ * The property worth pinning is that the export is *this* mailbox: a merged
+ * inbox holds both accounts' rows, and an export that wrote whatever was on
+ * screen would hand the user the other account's mail in a file named after
+ * this one.
+ */
+describe('exporting a mailbox', () => {
+  it('writes the account’s own mail, and nothing from the other one', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+    await h.services.mailbox.refreshInbox();
+
+    const count = await h.services.accounts.exportMailbox(TWO);
+
+    expect(count).toBe(2);
+    const [name, text] = mockSaved[0];
+    expect(name).toBe(`you-work-example-${new Date().toISOString().slice(0, 10)}.mbox`);
+    expect(text).toContain(`Subject: Hello ${SECOND}`);
+    expect(text).not.toContain(`Subject: Hello ${FIRST}`);
+  });
+
+  it('refuses to export a mailbox that is not in front', async () => {
+    const h = harness();
+    await connectBoth(h);
+
+    await expect(h.services.accounts.exportMailbox(ONE)).rejects.toThrow(/in front/i);
+  });
+
+  it('has nothing to export from a paused mailbox', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.pauseAccount(TWO);
+
+    await expect(h.services.accounts.exportMailbox(TWO)).rejects.toThrow(/not syncing/i);
   });
 });

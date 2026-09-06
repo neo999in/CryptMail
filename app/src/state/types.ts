@@ -13,7 +13,7 @@ import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { SnoozeMap } from '../snooze/snooze';
 import type { LinkPair } from '../spam/spam';
-import { AccountId, AccountRef } from '../store/accountScope';
+import { AccountId, AccountRef, AccountSettings } from '../store/accountScope';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState, PublishStatus } from '../store/publishStore';
@@ -267,6 +267,26 @@ export type Actions = {
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
   /** Disconnect one mailbox and erase every local store belonging to it. */
   removeAccount(id: AccountId): Promise<void>;
+  /** Rename a mailbox, or change its avatar, image policy or sync window. */
+  updateAccount(id: AccountId, patch: Partial<AccountSettings>): Promise<void>;
+  /**
+   * Clear this device's cache of one mailbox — the decrypted-mail index alone
+   * (`'content'`), or that plus the spam model and snoozes (`'all'`). Keys,
+   * drafts and the outbox are never touched.
+   */
+  resetAccount(id: AccountId, scope?: 'content' | 'all'): Promise<void>;
+  /**
+   * Stop syncing a mailbox without disconnecting it — keys, drafts and indexed
+   * mail all stay. Refuses on the last mailbox still syncing, and says why.
+   */
+  pauseAccount(id: AccountId): Promise<void>;
+  /** Sync it again, and put it in front. */
+  resumeAccount(id: AccountId): Promise<void>;
+  /**
+   * Write the mail this device has loaded for one mailbox out as an `.mbox`
+   * file. Returns how many messages were written. The mailbox must be in front.
+   */
+  exportMailbox(id: AccountId): Promise<number>;
   /** Show every account's mail in one list, or just the active one's. */
   setUnified(on: boolean): Promise<void>;
   refreshInbox(): Promise<void>;

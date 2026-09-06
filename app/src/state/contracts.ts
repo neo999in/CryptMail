@@ -15,7 +15,7 @@ import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { Held } from '../outbox/outbox';
-import { AccountId } from '../store/accountScope';
+import { AccountId, AccountSettings } from '../store/accountScope';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
 import { RecipientState } from './recipients';
@@ -142,6 +142,68 @@ export type AccountsService = {
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
   addAccount(): Promise<void>;
   removeAccount(id: AccountId): Promise<void>;
+  /**
+   * Change what the user has decided about one mailbox — its name, its avatar,
+   * whether its mail may fetch remote images, how far back it syncs.
+   *
+   * A patch, so a screen that owns one control writes one field. Changing the
+   * sync window re-lists the mailbox, because the setting is only visible as a
+   * different list.
+   */
+  updateAccount(id: AccountId, patch: Partial<AccountSettings>): Promise<void>;
+  /**
+   * Throw away what this device has *cached* of one mailbox and fetch it again.
+   *
+   * `scope: 'content'` clears the search index alone — the plaintext copy of
+   * decrypted mail, which is the one people actually want a switch for
+   * (features.md 0.12). `'all'` also drops the spam model and the snoozes.
+   *
+   * Neither touches the keyring, the recovery blob, drafts or the outbox: those
+   * are the private key and the user's unsent work, and neither is a cache. A
+   * control called "reset" must not silently destroy either — only
+   * `removeAccount` erases them, and only because the user asked for the whole
+   * account to be gone.
+   */
+  resetAccount(id: AccountId, scope?: 'content' | 'all'): Promise<void>;
+  /**
+   * Stop syncing a mailbox without disconnecting it.
+   *
+   * Everything it owns on this device stays; what goes is its `MailClient`, so
+   * a merged sync steps over it and boot no longer asks the provider for a
+   * token for it. If it was in front, another mailbox takes over — the same
+   * reasoning as `markReauth`.
+   *
+   * Refuses when it is the last mailbox still syncing, and says why: an app
+   * with nothing to read is the connect screen, and that is what signing out
+   * is for. The refusal is reported through `State.error`, not thrown, because
+   * every caller is a fire-and-forget tap.
+   */
+  /**
+   * Write this mailbox out as an `mbox` file and hand it to the user.
+   *
+   * Exports **the mail this device has loaded** — the inbox and junk pages
+   * fetched so far, plus Sent, Archive and Trash if they have been opened —
+   * because those are the messages whose ids are known without paging the whole
+   * mailbox from the provider. The screen says so; a control that claimed to
+   * export everything and quietly wrote the first twenty would be worse than
+   * one that is honest about its scope.
+   *
+   * Returns how many messages were written, which is what the caller reports.
+   * Only the account in front can be exported: the messages come from `State`,
+   * which holds one account's lists.
+   */
+  exportMailbox(id: AccountId): Promise<number>;
+  pauseAccount(id: AccountId): Promise<void>;
+  /**
+   * Start syncing it again, and put it in front — which is what the user is
+   * asking for by resuming it.
+   *
+   * Reuses the session still held in memory when it was paused this run;
+   * otherwise the provider is asked to restore it, and a mailbox whose grant
+   * has died in the meantime is flagged rather than silently failing to come
+   * back.
+   */
+  resumeAccount(id: AccountId): Promise<void>;
   setUnified(on: boolean): Promise<void>;
   /**
    * Remember a connected account. Returns its id.
