@@ -54,13 +54,25 @@ but needs a server.
 
 ## Outlook.com / Microsoft 365
 
-**Auth:** OAuth 2.0 via Microsoft identity platform (MSAL).
+**Auth:** OAuth 2.0 authorization code + PKCE against the Microsoft identity
+platform's `common` endpoint, in the system browser. There is no MSAL SDK:
+a public client may redirect to `cryptmail://auth`, so `expo-web-browser` plus
+`expo-crypto` is enough ([auth/microsoftAuth.ts](../app/src/auth/microsoftAuth.ts)).
+Setup: [running-it.md](running-it.md) §1c.
 
-- Scopes: `Mail.ReadWrite`, `Mail.Send`, `offline_access`, `openid email`.
-- **Transport options:**
-  - **Microsoft Graph API (recommended):** `/me/messages`, `/me/sendMail`,
-    change notifications (webhook subscriptions) for push.
-  - **IMAP/SMTP with OAuth2:** Microsoft supports OAuth for IMAP/SMTP AUTH.
+- Scopes: `offline_access`, `openid`, `profile`, `User.Read` (for `/me` only, to
+  learn the SMTP address), `Mail.ReadWrite`, `Mail.Send`.
+- **Transport (built):** Microsoft Graph ([mail/graph.ts](../app/src/mail/graph.ts)).
+  - List: `/me/mailFolders/{inbox|sentitems|archive|junkemail|deleteditems}/messages`,
+    one request per page, cleartext headers via `internetMessageHeaders`.
+  - Raw: `/me/messages/{id}/$value`. The crypto core never reads Graph's JSON body.
+  - Send: `POST /me/sendMail` with base64 MIME as `text/plain`.
+  - Flags: `PATCH` for read and flag. Archive and trash are **moves**, so every
+    request sends `Prefer: IdType="ImmutableId"`, or the id would change on move.
+  - Archive is the well-known `archive` folder, the same one Outlook's own
+    Archive button uses. Gmail's archive is a query instead.
+  - Push (change notifications) is not built. Graph mail is polled like Gmail.
+- **Alternative, not used:** IMAP/SMTP with OAuth2 (XOAUTH2).
 - Note: Microsoft has been deprecating **Basic auth** for IMAP/SMTP — OAuth is
   required for personal and work/school accounts. Plan for OAuth only.
 

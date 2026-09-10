@@ -3,8 +3,8 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AuthError } from '../auth';
-import { canConnectMailbox, degradedReason } from '../config';
+import { AuthError, Provider } from '../auth';
+import { canConnectGmail, canConnectOutlook, degradedReason } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
@@ -16,20 +16,21 @@ export function ConnectScreen() {
   const { signIn } = useApp();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
-  const [busy, setBusy] = useState(false);
+  /** Which provider is mid-sign-in, so only its button spins. */
+  const [busy, setBusy] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const connect = async () => {
-    setBusy(true);
+  const connect = async (provider: Provider) => {
+    setBusy(provider);
     setError(null);
     try {
-      await signIn();
+      await signIn(provider);
     } catch (e) {
       if (!(e instanceof AuthError && e.code === 'cancelled')) {
         setError(e instanceof Error ? e.message : String(e));
       }
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -70,12 +71,20 @@ export function ConnectScreen() {
           glyph="G"
           tint={color.coral}
           label="Continue with Gmail"
-          onPress={connect}
-          busy={busy}
-          disabled={!canConnectMailbox}
-          note={canConnectMailbox ? undefined : 'Not configured'}
+          onPress={() => void connect('gmail')}
+          busy={busy === 'gmail'}
+          disabled={!canConnectGmail || (busy !== null && busy !== 'gmail')}
+          note={canConnectGmail ? undefined : 'Not configured'}
         />
-        <ProviderButton glyph="⊞" tint="#6DB0FF" label="Continue with Outlook" disabled note="Phase 1" />
+        <ProviderButton
+          glyph="⊞"
+          tint="#6DB0FF"
+          label="Continue with Outlook"
+          onPress={() => void connect('outlook')}
+          busy={busy === 'outlook'}
+          disabled={!canConnectOutlook || (busy !== null && busy !== 'outlook')}
+          note={canConnectOutlook ? undefined : 'Not configured'}
+        />
         <ProviderButton glyph="@" tint={color.inkDim} label="Other (IMAP / SMTP)" disabled note="Phase 1" />
 
         <View style={s.reassure}>
@@ -109,7 +118,7 @@ export function ConnectScreen() {
 
       <Reveal delay={240}>
         <Text style={s.foot}>
-          Prototype · Phase 0 · Gmail only, manual key exchange, no backend.
+          Prototype · Phase 0 · Gmail and Outlook, manual key exchange, no backend.
         </Text>
       </Reveal>
     </ScrollView>

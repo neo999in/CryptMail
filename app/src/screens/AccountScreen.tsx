@@ -17,6 +17,7 @@ import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { providerName } from '../auth';
 import { initials, shortFingerprint } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
@@ -239,7 +240,7 @@ export function AccountScreen({ navigation, route }: Props) {
               only when it is telling the reader something new. */}
           {label !== account.email ? <Text style={s.identityAddress}>{account.email}</Text> : null}
           <Text style={s.identityProvider}>
-            {account.provider === 'gmail' ? 'Google' : account.provider}
+            {providerName(account.provider)}
             {stale ? ' · needs sign-in' : active ? (unified ? ' · sending from this mailbox' : ' · in front') : ''}
           </Text>
         </View>
@@ -249,8 +250,8 @@ export function AccountScreen({ navigation, route }: Props) {
             <SettingsRow
               icon="refresh"
               label="Sign in again"
-              onPress={() => void addAccount()}
-              value="This mailbox cannot sync until Google grants access again. Its keys and mail on this device are kept."
+              onPress={() => void addAccount(account.provider)}
+              value={`This mailbox cannot sync until ${providerName(account.provider)} grants access again. Its keys and mail on this device are kept.`}
             />
           </Group>
         ) : !active ? (

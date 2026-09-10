@@ -1,5 +1,9 @@
 export type Provider = 'gmail' | 'outlook' | 'imap';
 
+/** Who a mailbox's grant is with, as a person would name them. */
+export const providerName = (provider: Provider): string =>
+  provider === 'gmail' ? 'Google' : provider === 'outlook' ? 'Microsoft' : 'IMAP';
+
 export type Session = {
   provider: Provider;
   email: string;

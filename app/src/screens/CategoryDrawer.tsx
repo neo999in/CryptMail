@@ -38,6 +38,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categorizer/categorizer';
+import { signInProviders } from '../config';
 import { initials } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
@@ -198,9 +199,9 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               onLongPress={() => manage(account)}
               onPress={() => {
                 // A mailbox whose grant died can only be reached by signing in
-                // again, and that is a Google picker — so it happens here, on a
-                // deliberate tap, and never as a side effect of a switch.
-                if (stale) void addAccount();
+                // again, and that is the provider's picker — so it happens here,
+                // on a deliberate tap, and never as a side effect of a switch.
+                if (stale) void addAccount(account.provider);
                 // "This mailbox, on its own" — leaving the merged view is part
                 // of picking one, and both land in a single sync.
                 else if (!active || unified) void switchAccount(account.id, { unified: false });
@@ -248,7 +249,11 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
           accessibilityRole="button"
           onPress={() => {
             navigation.closeDrawer();
-            void addAccount();
+            // With two providers the rail cannot know which one is meant, and a
+            // guessed picker is worse than one extra tap: the Accounts screen
+            // offers a row per provider.
+            if (signInProviders.length > 1) stack.navigate('Accounts');
+            else void addAccount();
           }}
           style={({ pressed }) => [s.railAdd, pressed && { backgroundColor: color.segmentActive }]}
         >

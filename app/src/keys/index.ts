@@ -8,7 +8,7 @@
  *
  * | | demo | live |
  * |---|---|---|
- * | Trigger | no mailbox configured (`mailMode !== 'gmail'`) | real Gmail |
+ * | Trigger | no mailbox configured (`mailMode !== 'real'`) | a real mailbox |
  * | Lookup | in-memory fixtures | `keys.openpgp.org`, then WKD |
  *
  * Screens never touch this — `AppState` does (CLAUDE.md rule 5).
@@ -27,7 +27,7 @@ export interface KeyDirectory {
   publish(armored: string, email: string): Promise<{ status: PublishOutcome }>;
 }
 
-export const directory: KeyDirectory = mailMode === 'gmail' ? vksDirectory : demoDirectory;
+export const directory: KeyDirectory = mailMode === 'real' ? vksDirectory : demoDirectory;
 
 export { DiscoveryError } from './discovery';
 export type { DiscoveryResult, DiscoverySource, PublishOutcome } from './discovery';

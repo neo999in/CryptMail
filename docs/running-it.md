@@ -95,6 +95,72 @@ expiry and the revocation path are still unproven. See
 [implementation-status.md](implementation-status.md) §5.3 for exactly what was
 and was not observed.
 
+### 1c. Real Outlook — Azure app registration (~15 minutes, free)
+
+The code is [auth/microsoftAuth.ts](../app/src/auth/microsoftAuth.ts) and
+[mail/graph.ts](../app/src/mail/graph.ts). Like Gmail, all it needs is a client
+id. Registering an app costs nothing and needs no Azure subscription or card.
+
+1. Go to **entra.microsoft.com** (or portal.azure.com → *Microsoft Entra ID*)
+   and sign in with any Microsoft account. If it says your account has no
+   directory, sign up for a free Azure account first. That creates one, and app
+   registrations are free.
+2. **App registrations → New registration.**
+   - Name: `CryptMail (dev)`.
+   - Supported account types: **Accounts in any organizational directory and
+     personal Microsoft accounts**. The app signs in through the `common`
+     endpoint ([config.ts](../app/src/config.ts)), so a narrower choice will
+     reject either outlook.com or work accounts at the consent page.
+   - Redirect URI: platform **Public client/native (mobile & desktop)**, value
+     **`cryptmail://auth`**, exactly as written. It must match
+     `redirectUri()` in `microsoftAuth.ts`.
+3. On the **Overview** page, copy **Application (client) ID**. That is the only
+   value the app needs.
+4. **API permissions → Add a permission → Microsoft Graph → Delegated**, and add
+   `offline_access`, `openid`, `profile`, `User.Read`, `Mail.ReadWrite` and
+   `Mail.Send`. Personal accounts consent for themselves on first sign-in. A work
+   tenant may need its admin to grant consent.
+5. Create **no** client secret or certificate. This is a public client using PKCE,
+   and a secret shipped in an APK would not stay secret.
+6. *(Optional, for `npm run web`.)* **Authentication → Add a platform →
+   Single-page application**, with `http://localhost:8081` as its redirect URI.
+   Microsoft only allows the browser's token call from an SPA-registered
+   redirect. SPA refresh tokens last 24 hours, not the 90 days a native one gets.
+
+Then add it to `app/.env` beside (or instead of) the Google one:
+
+```bash
+# EXPO_PUBLIC_MS_CLIENT_ID=00000000-0000-0000-0000-000000000000
+```
+
+Unlike Google, Microsoft *does* accept a custom scheme from a mobile client, so
+sign-in is a browser tab that returns through `cryptmail://auth`. There is no
+native SDK and no Play-services requirement. The `cryptmail` scheme comes from
+[app/app.json](../app/app.json). After changing it, run `npx expo prebuild`
+again so the Android intent filter matches.
+
+Microsoft issues the refresh token to the app itself, unlike Google, where Play
+services keeps it. It is stored in the OS keystore, one entry per mailbox, and
+never in app state. Signing out deletes it from the device. Microsoft has no
+revocation endpoint for public clients, so the grant itself stays until the user
+removes the app at account.live.com/consent/Manage.
+
+**This setup has been run.** On 2026-09-10 it was tested on an emulator against a
+real outlook.com mailbox, alongside a Gmail one:
+
+- Sign-in: the Custom Tab picker, consent, and the redirect back to the app.
+- Display name and profile photo come from Graph.
+- Inbox, Sent, Archive, Spam (Junk) and Trash (Deleted Items) all list.
+- Star survives a full re-fetch. Mark unread works.
+- Archive lands in the `archive` folder, and swiping it back restores it.
+- Move to Trash lands in Deleted Items, and Restore brings it back. Both are
+  round trips on the same message id, which is the immutable-id header at work.
+- After a cold restart, both mailboxes come back with no browser and no password.
+
+**Still unproven:** encrypted send and decrypt through Graph (whether `/$value`
+of a received PGP/MIME message still decrypts once Exchange has stored it), and
+harvesting Autocrypt keys from `internetMessageHeaders`.
+
 ---
 
 ## 2. Real post-quantum encryption

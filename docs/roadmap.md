@@ -30,7 +30,9 @@ Goal: the seamless experience for two CryptMail users.
 - [ ] Encryption-status UI per recipient; fail-safe send (no silent plaintext).
 - [ ] Encrypted local store (SQLCipher) + OS keychain for the wrapped key.
 - [ ] Recovery code flow + encrypted key backup.
-- [ ] Outlook/Graph provider connector.
+- [x] Outlook/Graph provider connector — run against a real outlook.com mailbox
+      2026-09-10; encrypted send and decrypt over Graph still unproven
+      ([running-it.md](running-it.md) §1c).
 
 **Done when:** two users who have emailed once can exchange encrypted mail with no
 manual key steps, and a lost device can be recovered.

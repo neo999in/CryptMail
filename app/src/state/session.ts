@@ -6,10 +6,11 @@ import { needsReauth } from '../auth/types';
 import { core, Identity } from '../core';
 import { Drafts } from '../drafts/drafts';
 import { createGmailClient } from '../mail/gmail';
+import { createGraphClient } from '../mail/graph';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
-import { AccountId, accountIdFor, settingsOf } from '../store/accountScope';
+import { AccountId, AccountRef, settingsOf } from '../store/accountScope';
 import { loadAccounts, NO_ACCOUNTS, saveAccounts } from '../store/accountsStore';
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
@@ -65,7 +66,9 @@ export function createSession(ctx: Ctx): SessionService {
     const existing = mail.clients.get(account);
     if (existing) return existing;
 
-    const client = createGmailClient(session.email, () => auth.freshAccessToken(session.email));
+    const token = () => auth.freshAccessToken(session.email, session.provider);
+    const client =
+      session.provider === 'outlook' ? createGraphClient(session.email, token) : createGmailClient(session.email, token);
     mail.clients.set(account, client);
     return client;
   }
@@ -108,12 +111,12 @@ export function createSession(ctx: Ctx): SessionService {
    * skipped is flagged by `restoreRest`, which sees it again.
    */
   async function firstRestorable(
-    addresses: string[],
+    refs: AccountRef[],
   ): Promise<{ session: Session | null; error: unknown }> {
     let error: unknown = null;
-    for (const address of addresses) {
+    for (const ref of refs) {
       try {
-        const [session] = await auth.restoreAll([address]);
+        const [session] = await auth.restoreAll([ref.email], ref.provider);
         if (session) return { session, error: null };
       } catch (e) {
         // Kept, not thrown: the next mailbox may open fine, and only if none
@@ -139,14 +142,14 @@ export function createSession(ctx: Ctx): SessionService {
    * switcher, contributing nothing to the merged inbox, with nothing on screen
    * saying why.
    */
-  async function restoreRest(addresses: string[], isCancelled: () => boolean) {
+  async function restoreRest(refs: AccountRef[], isCancelled: () => boolean) {
     let arrived = false;
 
-    for (const address of addresses) {
+    for (const ref of refs) {
       if (isCancelled()) return;
-      const id = accountIdFor('gmail', address);
+      const id = ref.id;
       try {
-        const [session] = await auth.restoreAll([address]);
+        const [session] = await auth.restoreAll([ref.email], ref.provider);
         if (!session) {
           await ctx.services.accounts.markReauth(id);
           continue;
@@ -218,7 +221,7 @@ export function createSession(ctx: Ctx): SessionService {
         // Nothing stored means a first launch, or an install from before the
         // registry existed — both of which want whoever Play services has.
         const { session: wanted, error } = ordered.length
-          ? await firstRestorable(ordered.map((a) => a.email))
+          ? await firstRestorable(ordered)
           : { session: (await auth.restoreAll())[0] ?? null, error: null };
 
         if (!wanted) {
@@ -236,7 +239,7 @@ export function createSession(ctx: Ctx): SessionService {
         store.patch({ booting: false, session: wanted, ...attached });
 
         void restoreRest(
-          ordered.filter((a) => a.id !== account).map((a) => a.email),
+          ordered.filter((a) => a.id !== account),
           isCancelled,
         );
       } catch (e) {
@@ -253,9 +256,9 @@ export function createSession(ctx: Ctx): SessionService {
      * "add account": the new mailbox becomes active and the previous one stays
      * connected behind it.
      */
-    async signIn() {
+    async signIn(provider) {
       store.patch({ error: null });
-      const session = await auth.signIn();
+      const session = await auth.signIn(provider);
       // The patch lands in the store synchronously, so the refresh below — and
       // the Autocrypt harvest it triggers — already knows whose mailbox this is.
       await service.attach(session);

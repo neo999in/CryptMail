@@ -59,7 +59,38 @@ export const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.modify',
 ];
 
+/**
+ * The Application (client) id of the Azure app registration — see
+ * docs/running-it.md §1c. A public client: there is no secret, and the id is no
+ * more private than the Google one.
+ */
+export const MS_CLIENT_ID = process.env.EXPO_PUBLIC_MS_CLIENT_ID ?? '';
+
+/**
+ * `common` accepts both personal Microsoft accounts (outlook.com, hotmail.com)
+ * and work or school ones. The app registration has to allow both — the
+ * "Accounts in any organizational directory and personal Microsoft accounts"
+ * option — or one of the two is refused at the consent page.
+ */
+export const MS_AUTHORITY = 'https://login.microsoftonline.com/common/oauth2/v2.0';
+
+/**
+ * Graph scopes, fully qualified. `Mail.ReadWrite` is the Graph equivalent of
+ * `gmail.modify` and for the same reason: read, mark read, flag and move are
+ * all built UI. `User.Read` is only for `/me`, to learn the mailbox's address;
+ * `offline_access` is what yields a refresh token at all.
+ */
+export const GRAPH_SCOPES = [
+  'openid',
+  'profile',
+  'offline_access',
+  'https://graph.microsoft.com/User.Read',
+  'https://graph.microsoft.com/Mail.ReadWrite',
+  'https://graph.microsoft.com/Mail.Send',
+];
+
 export const hasGoogleClient = GOOGLE_WEB_CLIENT_ID.length > 0;
+export const hasMicrosoftClient = MS_CLIENT_ID.length > 0;
 export const hasNativeCore = core.kind === 'native';
 
 /**
@@ -70,21 +101,36 @@ export const hasNativeCore = core.kind === 'native';
  */
 export const hasSignInModule = typeof GoogleSignin?.configure === 'function';
 
-export type MailMode = 'gmail' | 'unconfigured';
+/** Gmail needs its client id *and* Play services. */
+export const canConnectGmail = hasGoogleClient && hasSignInModule;
+
+/**
+ * Outlook needs only its client id. Sign-in is a browser redirect, not a native
+ * module, so it works everywhere the app does — the web build included.
+ */
+export const canConnectOutlook = hasMicrosoftClient;
+
+/** The providers a new mailbox can come from on this build, in button order. */
+export const signInProviders: ('gmail' | 'outlook')[] = [
+  ...(canConnectGmail ? (['gmail'] as const) : []),
+  ...(canConnectOutlook ? (['outlook'] as const) : []),
+];
+
+export type MailMode = 'real' | 'unconfigured';
 export type CryptoMode = 'real' | 'demo';
 export type AppMode = 'live' | 'degraded';
 
-/** A reachable mailbox, or none. There is no fixture mailbox any more. */
-export const mailMode: MailMode = hasGoogleClient && hasSignInModule ? 'gmail' : 'unconfigured';
+/** A reachable mailbox, from any provider, or none. There is no fixture mailbox any more. */
+export const mailMode: MailMode = signInProviders.length > 0 ? 'real' : 'unconfigured';
 
 /** Real encryption or the encoded stand-in. Independent of where mail comes from. */
 export const cryptoMode: CryptoMode = hasNativeCore ? 'real' : 'demo';
 
 /** Both halves real — the only configuration in which the product claim holds. */
-export const appMode: AppMode = mailMode === 'gmail' && cryptoMode === 'real' ? 'live' : 'degraded';
+export const appMode: AppMode = mailMode === 'real' && cryptoMode === 'real' ? 'live' : 'degraded';
 
 /** Whether signing in can do anything at all. False leaves the connect screen inert. */
-export const canConnectMailbox = mailMode === 'gmail';
+export const canConnectMailbox = mailMode === 'real';
 
 /**
  * Why local data is not fully protected at rest, or null when it is.
@@ -116,16 +162,16 @@ export function degradedReason(): string | null {
   if (appMode === 'live') return null;
 
   if (mailMode === 'unconfigured' && cryptoMode === 'demo') {
-    return 'No mailbox and no real encryption: this build has neither a Google OAuth client (M3) nor the Rust crypto core (M2).';
+    return 'No mailbox and no real encryption: this build has neither an OAuth client (M3) nor the Rust crypto core (M2).';
   }
   // The dangerous one, and the reason this function exists: mail is real, so
   // everything on screen looks like the product, and the user has to be told
   // plainly that none of it is actually encrypted.
   if (cryptoMode === 'demo') {
-    return 'Real Gmail, demo crypto: the native core is not linked, so nothing is really encrypted.';
+    return 'Real mail, demo crypto: the native core is not linked, so nothing is really encrypted.';
   }
   if (hasGoogleClient && !hasSignInModule) {
     return 'No mailbox: Google sign-in needs Play services, which this platform does not have.';
   }
-  return 'No mailbox: set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID in app/.env to connect one.';
+  return 'No mailbox: set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID or EXPO_PUBLIC_MS_CLIENT_ID in app/.env to connect one.';
 }

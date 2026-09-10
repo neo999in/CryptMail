@@ -10,7 +10,7 @@
  * others. The provider used to do this with two late-bound refs
  * (`drainRef`, `refreshPublishRef`) assigned halfway down the file.
  */
-import { Session } from '../auth';
+import { Provider, Session } from '../auth';
 import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
@@ -41,8 +41,11 @@ export type MailHolder = {
 export type SessionService = {
   /** Restore every stored session on launch. `isCancelled` guards a unmounted provider. */
   boot(isCancelled: () => boolean): Promise<void>;
-  /** Connect a mailbox. The first one signs in; a later one adds an account. */
-  signIn(): Promise<void>;
+  /**
+   * Connect a mailbox. The first one signs in; a later one adds an account.
+   * With no provider, the first one this build can reach.
+   */
+  signIn(provider?: Provider): Promise<void>;
   /** Disconnect everything and return to the sign-in screen. */
   signOut(): Promise<void>;
   /** Load everything one account owns on this device and put it in front. */
@@ -150,7 +153,7 @@ export type AccountsService = {
    * as two calls would sync the mailbox twice.
    */
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
-  addAccount(): Promise<void>;
+  addAccount(provider?: Provider): Promise<void>;
   removeAccount(id: AccountId): Promise<void>;
   /**
    * Change what the user has decided about one mailbox — its name, its avatar,

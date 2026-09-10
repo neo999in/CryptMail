@@ -4,7 +4,7 @@
  * Split out of `AppState.tsx` so the service modules can describe what they
  * read and write without importing the provider — which imports them.
  */
-import { Session } from '../auth';
+import { Provider, Session } from '../auth';
 import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
 import { Attachment } from '../mail/attachment';
@@ -258,10 +258,11 @@ export type BoxState = {
 };
 
 export type Actions = {
-  signIn(): Promise<void>;
+  /** With no provider, the first one this build can reach. */
+  signIn(provider?: Provider): Promise<void>;
   signOut(): Promise<void>;
   /** Connect another mailbox alongside the ones already here, and switch to it. */
-  addAccount(): Promise<void>;
+  addAccount(provider?: Provider): Promise<void>;
   /** Put another connected mailbox in front, loading everything it owns. */
   /** Put a mailbox in front; `unified: false` also leaves the merged view. */
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;

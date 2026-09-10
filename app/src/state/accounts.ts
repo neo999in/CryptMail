@@ -188,8 +188,8 @@ export function createAccounts(ctx: Ctx): AccountsService {
     },
 
     /** Connect one more mailbox. `auth.signIn` adds a session rather than replacing one. */
-    async addAccount() {
-      await ctx.services.session.signIn();
+    async addAccount(provider) {
+      await ctx.services.session.signIn(provider);
     },
 
     /**
@@ -205,8 +205,9 @@ export function createAccounts(ctx: Ctx): AccountsService {
       // because an account flagged `needsReauth` has no session left — and
       // `auth.signOut()` with no address means *every* account, which would
       // sign the user out of the mailboxes they are keeping.
-      const email = sessions.get(id)?.email ?? store.get().accounts.find((a) => a.id === id)?.email;
-      if (email) await auth.signOut(email);
+      const ref = store.get().accounts.find((a) => a.id === id);
+      const email = sessions.get(id)?.email ?? ref?.email;
+      if (email) await auth.signOut(email, sessions.get(id)?.provider ?? ref?.provider);
       sessions.delete(id);
       mail.clients.delete(id);
       await removeScoped(PER_ACCOUNT_STORE_KEYS, id);
@@ -374,7 +375,7 @@ export function createAccounts(ctx: Ctx): AccountsService {
       let session = sessions.get(id);
       if (!session) {
         try {
-          [session] = await auth.restoreAll([ref.email]);
+          [session] = await auth.restoreAll([ref.email], ref.provider);
         } catch {
           session = undefined;
         }

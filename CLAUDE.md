@@ -64,8 +64,8 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 
 ```
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
-                                ──▶  mail/    (Gmail REST)
-                                ──▶  auth/    (Google OAuth via Play services)
+                                ──▶  mail/    (Gmail REST | Microsoft Graph)
+                                ──▶  auth/    (Google via Play services | Microsoft via PKCE in the browser)
                                 ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
@@ -111,7 +111,7 @@ and `degradedReason()` explains a downgrade to the user rather than hiding it.
 | | degraded | live |
 |---|---|---|
 | Trigger | no OAuth client **or** no native core | both present |
-| Mail | **none** — sign-in is disabled and says why | Gmail REST |
+| Mail | **none** — sign-in is disabled and says why | Gmail REST and/or Microsoft Graph, per client id set |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
 | Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
 

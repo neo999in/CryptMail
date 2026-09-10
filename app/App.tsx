@@ -12,6 +12,7 @@ import {
 } from '@expo-google-fonts/manrope';
 import { SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
 import { StatusBar } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -46,6 +47,11 @@ import { ToastProvider } from './src/ui/ToastContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<InboxDrawerParamList>();
+
+// On web, Microsoft sign-in redirects its popup back to this app; this hands
+// the redirect to the window that opened it and closes the popup. A no-op on
+// native, where the browser returns to the app through the `cryptmail` scheme.
+WebBrowser.maybeCompleteAuthSession();
 
 // Transparent surfaces everywhere so the app's single ground colour shows
 // through every screen.

@@ -18,6 +18,8 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { providerName } from '../auth';
+import { signInProviders } from '../config';
 import { initials } from '../lib/format';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
@@ -94,7 +96,16 @@ export function AccountsScreen({ navigation }: Props) {
               </PressableRow>
             );
           })}
-          <SettingsRow icon="plus" label="Add account" onPress={() => void addAccount()} />
+          {/* One row per provider this build can reach, named only when there
+              is more than one — a lone "Add account" needs no qualifier. */}
+          {signInProviders.map((provider) => (
+            <SettingsRow
+              icon="plus"
+              key={provider}
+              label={signInProviders.length > 1 ? `Add ${providerName(provider)} account` : 'Add account'}
+              onPress={() => void addAccount(provider)}
+            />
+          ))}
         </Group>
 
         <Text style={s.footnote}>

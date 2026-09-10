@@ -21,6 +21,7 @@ function loadConfig(
   clientId: string,
   coreKind: 'native' | 'demo',
   signInModule: boolean = true,
+  msClientId: string = '',
 ): ConfigModule {
   let mod!: ConfigModule;
   jest.isolateModules(() => {
@@ -29,22 +30,53 @@ function loadConfig(
       signInModule ? { GoogleSignin: { configure: jest.fn() } } : {},
     );
     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = clientId;
+    process.env.EXPO_PUBLIC_MS_CLIENT_ID = msClientId;
     mod = require('../config') as ConfigModule;
   });
   return mod;
 }
 
 const CLIENT = 'abc123.apps.googleusercontent.com';
+const MS_CLIENT = '11111111-2222-3333-4444-555555555555';
 
 afterEach(() => {
   delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  delete process.env.EXPO_PUBLIC_MS_CLIENT_ID;
   jest.resetModules();
+});
+
+describe('Outlook is a capability of its own', () => {
+  /**
+   * Microsoft sign-in is a browser redirect, not Play services, so it needs no
+   * native module — which makes it the only real mailbox the web build can have.
+   */
+  it('connects a mailbox with only a Microsoft client id, even without Play services', () => {
+    const c = loadConfig('', 'native', false, MS_CLIENT);
+    expect(c.canConnectOutlook).toBe(true);
+    expect(c.canConnectGmail).toBe(false);
+    expect(c.mailMode).toBe('real');
+    expect(c.canConnectMailbox).toBe(true);
+    expect(c.signInProviders).toEqual(['outlook']);
+  });
+
+  it('offers both, Gmail first, when both are configured', () => {
+    expect(loadConfig(CLIENT, 'native', true, MS_CLIENT).signInProviders).toEqual(['gmail', 'outlook']);
+  });
+
+  it('asks for offline access and the mail scopes the built UI calls', () => {
+    const scopes = loadConfig('', 'native', true, MS_CLIENT).GRAPH_SCOPES;
+    // Without offline_access Microsoft issues no refresh token, and every
+    // Outlook session would die within the hour with nothing to renew it.
+    expect(scopes).toContain('offline_access');
+    expect(scopes).toContain('https://graph.microsoft.com/Mail.ReadWrite');
+    expect(scopes).toContain('https://graph.microsoft.com/Mail.Send');
+  });
 });
 
 describe('mail and crypto capabilities are independent', () => {
   it('gives real Gmail with a client id even when the core is missing', () => {
     const c = loadConfig(CLIENT, 'demo');
-    expect(c.mailMode).toBe('gmail');
+    expect(c.mailMode).toBe('real');
     expect(c.cryptoMode).toBe('demo');
   });
 
@@ -68,7 +100,7 @@ describe('mail and crypto capabilities are independent', () => {
 
   it('is fully real when both are configured', () => {
     const c = loadConfig(CLIENT, 'native');
-    expect(c.mailMode).toBe('gmail');
+    expect(c.mailMode).toBe('real');
     expect(c.cryptoMode).toBe('real');
   });
 });
@@ -85,7 +117,7 @@ describe('the sign-in module is a separate capability from the crypto core', () 
 
   it('keeps mail and crypto independent — a sign-in module with no core is still real mail', () => {
     const c = loadConfig(CLIENT, 'demo', true);
-    expect(c.mailMode).toBe('gmail');
+    expect(c.mailMode).toBe('real');
     expect(c.cryptoMode).toBe('demo');
   });
 });

@@ -122,7 +122,7 @@ export type FlagPatch = {
 };
 
 export interface MailClient {
-  readonly kind: 'gmail';
+  readonly kind: 'gmail' | 'outlook';
   readonly address: string;
   /**
    * One page of a mailbox, newest first. `pageToken` continues a previous page.
