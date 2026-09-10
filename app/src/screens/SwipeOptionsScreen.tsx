@@ -12,9 +12,14 @@
  *
  * The two sides are independent all the way down — a change writes one field of
  * `MailPrefs` (`ui/mailPrefs.tsx`) and the other is untouched on screen and on
- * disk. The right side ships as *No action* and stays that way until someone
+ * disk. The right side ships unconfigured and stays that way until someone
  * chooses otherwise; see `store/mailPrefsStore.ts` for why that is not a gap
  * waiting to be filled.
+ *
+ * The picker offers *No action* — a side deliberately turned off — but not the
+ * unconfigured state it ships in: emptying a side again is an answer, not a
+ * retraction of one, so it is `off` and the preview goes blank rather than
+ * going back to offering to be set up. See `SwipeAction` in `swipe/swipe.ts`.
  */
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
@@ -27,7 +32,7 @@ import {
   resolveSwipe,
   SWIPE_ACTION_HINT,
   SWIPE_ACTION_LABEL,
-  SWIPE_ACTIONS,
+  SWIPE_PICKER_ACTIONS,
   SWIPE_DIRECTION_LABEL,
   SWIPE_DIRECTIONS,
   SwipeAction,
@@ -60,6 +65,7 @@ const PREVIEW_CONTEXT: SwipeContext = {
 
 export function SwipeOptionsScreen({ navigation }: Props) {
   const { swipeLeft, swipeRight, setSwipe } = useMailPrefs();
+  const accent = useAccent();
   const insets = useSafeAreaInsets();
   /** Which side the picker is open for, if either. */
   const [picking, setPicking] = useState<SwipeDirection | null>(null);
@@ -89,6 +95,19 @@ export function SwipeOptionsScreen({ navigation }: Props) {
             onChange={() => setPicking(direction)}
           />
         ))}
+
+        {/* The glyph bench. Dev builds only — it is a test rig, not a setting,
+            and the release build has no way to reach it. */}
+        {__DEV__ ? (
+          <Pressable
+            accessibilityLabel="Open the swipe glyph bench"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('SwipeGlyphDemo')}
+            style={({ pressed }) => [s.devRow, pressed && { backgroundColor: color.rowPress }]}
+          >
+            <Text style={[s.devLabel, { color: accent }]}>Glyph animation bench (dev)</Text>
+          </Pressable>
+        ) : null}
 
         <Text style={s.note}>
           Some actions only mean something in some lists. Archive is offered in the inbox, Delete becomes Restore in
@@ -161,12 +180,18 @@ function DirectionCard({
  * a shared value, and this one is created once and never written to.
  */
 function SwipePreview({ action, direction }: { action: SwipeAction; direction: SwipeDirection }) {
+  // `null` for *No action*, and the preview is then the row alone, unswiped —
+  // which is exactly what that choice looks like under a finger.
   const visual = resolveSwipe(action, PREVIEW_CONTEXT);
   // Pulling left moves the row left and uncovers the right-hand edge.
   const dx = useSharedValue(direction === 'left' ? -PREVIEW_BLOCK : PREVIEW_BLOCK);
 
+  // Held aside only when there is a block to hold it aside for: a side that
+  // does nothing shows a row sitting where it always sits.
+  const offset = !visual ? 0 : direction === 'left' ? -PREVIEW_BLOCK : PREVIEW_BLOCK;
+
   const row = (
-    <View style={[s.previewRow, { transform: [{ translateX: direction === 'left' ? -PREVIEW_BLOCK : PREVIEW_BLOCK }] }]}>
+    <View style={[s.previewRow, { transform: [{ translateX: offset }] }]}>
       <View style={s.previewAvatar} />
       <View style={{ flex: 1, gap: 6 }}>
         <View style={[s.previewLine, { width: '52%' }]} />
@@ -175,7 +200,15 @@ function SwipePreview({ action, direction }: { action: SwipeAction; direction: S
     </View>
   );
 
-  if (!visual) return <View style={s.preview}>{row}</View>;
+  if (!visual)
+    return (
+      <View
+        accessibilityLabel={`Preview: ${SWIPE_DIRECTION_LABEL[direction].toLowerCase()} does nothing`}
+        style={s.preview}
+      >
+        {row}
+      </View>
+    );
 
   return (
     <View
@@ -195,8 +228,8 @@ function SwipePreview({ action, direction }: { action: SwipeAction; direction: S
 /**
  * The action list for one side.
  *
- * Every action CryptMail actually has, each with the one line that says where it
- * applies — the same `Sheet` the filter and snooze pickers use, so choosing an
+ * Every action CryptMail actually has plus *No action*, each with the one line
+ * that says where it applies — the same `Sheet` the filter and snooze pickers use, so choosing an
  * action is the gesture choosing a filter already is.
  */
 function ActionPicker({
@@ -220,7 +253,7 @@ function ActionPicker({
       title={direction ? SWIPE_DIRECTION_LABEL[direction] : undefined}
       visible={direction !== null}
     >
-      {SWIPE_ACTIONS.map((action) => (
+      {SWIPE_PICKER_ACTIONS.map((action) => (
         <PressableRow
           accessibilityRole="button"
           accessibilityState={{ selected: action === selected }}
@@ -263,6 +296,14 @@ const s = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
   },
+  devRow: {
+    borderRadius: radius.sm,
+    marginHorizontal: space.lg,
+    marginTop: space.lg,
+    paddingVertical: space.sm,
+  },
+  devLabel: { fontFamily: font.sansSemibold, fontSize: 14 },
+
   note: {
     color: color.inkFaint,
     fontFamily: font.sans,

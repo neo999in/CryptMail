@@ -44,8 +44,15 @@ export const SWIPE_DIRECTIONS: SwipeDirection[] = ['left', 'right'];
  * `state.messages`), and a swipe that silently did nothing in Sent would be
  * worse than no swipe. Adding one later is a case in `resolveSwipe`, a row in
  * `SWIPE_ACTIONS`, and a glyph — nothing else.
+ *
+ * `none` and `off` are both "nothing happens to the message", and they are not
+ * the same thing. `none` is the side nobody has *answered for* yet: it reveals
+ * the neutral set-up block and completing the swipe opens the picker. `off` is
+ * the answer — this side is to stay dead, the row does not move, and there is
+ * nothing left to ask. So `none` is the state a side starts in and can never be
+ * chosen back into, and `off` is the one the picker offers.
  */
-export type SwipeAction = 'none' | 'archive' | 'trash' | 'spam' | 'read' | 'snooze';
+export type SwipeAction = 'none' | 'off' | 'archive' | 'trash' | 'spam' | 'read' | 'snooze';
 
 /**
  * What actually runs. More operations than actions, because one action reads
@@ -142,10 +149,11 @@ export function swipeVisual(operation: SwipeOperation): SwipeVisual {
 /**
  * What this side does to this row, right now — or `null` for "nothing happens".
  *
- * `null` is a real answer and the row honours it by not moving at all: an
- * unconfigured side, and a side whose action has no meaning in this list, are
- * the same non-event as far as the finger is concerned. See the header for why
- * the preference is not rewritten instead.
+ * `null` is a real answer and the row honours it by not moving at all: a side
+ * turned `off`, and a side whose action has no meaning in this list, are the
+ * same non-event as far as the finger is concerned. See the header for why the
+ * preference is not rewritten instead. An *unconfigured* side is the one thing
+ * that is not `null` — it resolves to the set-up offer.
  */
 export function resolveSwipe(action: SwipeAction, ctx: SwipeContext): SwipeVisual | null {
   switch (action) {
@@ -153,6 +161,12 @@ export function resolveSwipe(action: SwipeAction, ctx: SwipeContext): SwipeVisua
     // anything done to the message under the finger.
     case 'none':
       return swipeVisual('set-up');
+
+    // Chosen, and chosen to do nothing: the same `null` an action with no
+    // meaning in this list gives, so the row is inert in every list and never
+    // offers to be configured again. See the type for why this is not `none`.
+    case 'off':
+      return null;
 
     // The same move, in whichever direction the message is not already: out of
     // the inbox, or back into it from Archive. Sent and Trash have no INBOX
@@ -189,12 +203,29 @@ export function resolveSwipe(action: SwipeAction, ctx: SwipeContext): SwipeVisua
 
 /* ------------------------------------------------------------ the picker ---- */
 
-/** The action list, in the order the picker offers it. */
-export const SWIPE_ACTIONS: SwipeAction[] = ['none', 'archive', 'trash', 'spam', 'read', 'snooze'];
+/**
+ * Every action id there is — what `store/mailPrefsStore.ts` validates against.
+ *
+ * Not what the picker shows: `none` is in here because a stored `none` is a
+ * perfectly good value that must survive a reload, and out of the picker
+ * because it is the state of a side that has not been answered for. Choosing
+ * "no action" is `off`.
+ */
+export const SWIPE_ACTIONS: SwipeAction[] = ['none', 'off', 'archive', 'trash', 'spam', 'read', 'snooze'];
+
+/**
+ * The action list, in the order the picker offers it.
+ *
+ * `off` leads, because the question the screen asks is what this side should
+ * do and "nothing" is a real answer to it — one a user who dislikes swipe
+ * gestures is looking for first, not last.
+ */
+export const SWIPE_PICKER_ACTIONS: SwipeAction[] = ['off', 'archive', 'trash', 'spam', 'read', 'snooze'];
 
 /** What a configured action is called where the gesture is not in front of you. */
 export const SWIPE_ACTION_LABEL: Record<SwipeAction, string> = {
   none: 'Set Up',
+  off: 'No action',
   archive: 'Archive',
   trash: 'Delete',
   spam: 'Mark as spam',
@@ -210,6 +241,7 @@ export const SWIPE_ACTION_LABEL: Record<SwipeAction, string> = {
  */
 export const SWIPE_ACTION_HINT: Record<SwipeAction, string> = {
   none: 'Swiping this way does nothing to the message — it opens this screen so you can choose an action.',
+  off: 'Swiping this way does nothing at all. The row stays put.',
   archive: 'Takes the message out of the inbox and leaves it in the account. In Archive, it puts it back.',
   trash: 'Moves it to Trash — and back out again, when you swipe in Trash. Nothing is erased.',
   spam: 'Files it under Spam and trains this device’s filter. In Spam, it rescues the message instead. Inbox only.',
@@ -232,18 +264,25 @@ export const SWIPE_DIRECTION_LABEL: Record<SwipeDirection, string> = {
  */
 export const SWIPE_ENGAGE_PX = 14;
 
-/** Above this much of the pull, the pane spells the action out as well as drawing it. */
-export const SWIPE_LABEL_AT = 0.55;
-
 /**
- * The block's fill at the moment it appears, and at the moment it arms.
+ * The block's fill before it arms, as an alpha on the action's own colour over
+ * the true-black ground.
  *
- * The floor rose with the colours: washed to 16%, a deep green over a true-black
- * ground is indistinguishable from the ground, so the first centimetre of the
- * pull looked like nothing was happening at all.
+ * **There are two fills, and the block switches between them — it does not fade
+ * from one to the other.** A pull that has not reached the line is a dark shade
+ * of the action's colour, holding steady however far it has come; crossing the
+ * line replaces it with the full colour in one step. That step *is* the signal.
+ * A continuous ramp spent it: every frame looked slightly more committed than
+ * the last, so no single frame said "this will now happen", and the difference
+ * between a pull about to fire and one about to be cancelled was a shade the
+ * eye had nothing to compare against. The two states are far enough apart to be
+ * read at a glance, and the glyph flips and the label appears on the same frame.
+ *
+ * The alpha is the shade's own: deep enough to read as a colour rather than as
+ * the ground, dark enough that the full colour is unmistakably a different
+ * state.
  */
-export const SWIPE_FILL_MIN_ALPHA = 0.24;
-export const SWIPE_FILL_MAX_ALPHA = 1;
+export const SWIPE_REST_ALPHA = 0.22;
 
 /**
  * How far this operation has to be pulled to run, in points.
@@ -278,17 +317,14 @@ export function swipeArmed(progress: number): boolean {
 }
 
 /**
- * The pane's opacity at this much of the pull — light when the action first
- * appears, full colour by the time it will run.
+ * Which of the two fills this much of the pull wears.
  *
- * Squared rather than linear so the deepening is felt near the line rather than
- * spent in the first centimetre, which is the difference between "this is
- * about to happen" and a background that simply exists.
+ * The one place the switch is decided, so the pane, the glyph and the label
+ * cannot disagree about which state the block is in.
  */
-export function swipeFillAlpha(progress: number): number {
+export function swipeFillState(progress: number): 'rest' | 'armed' {
   'worklet';
-  const p = Math.min(Math.max(progress, 0), 1);
-  return SWIPE_FILL_MIN_ALPHA + (SWIPE_FILL_MAX_ALPHA - SWIPE_FILL_MIN_ALPHA) * p * p;
+  return swipeArmed(progress) ? 'armed' : 'rest';
 }
 
 /**

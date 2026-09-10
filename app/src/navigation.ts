@@ -54,6 +54,14 @@ export type RootStackParamList = {
   Mail: undefined;
   /** What each swipe direction does, and a live preview of both. */
   SwipeOptions: undefined;
+  /**
+   * The animated swipe glyphs on a bench, `__DEV__` only.
+   *
+   * Registered in the release build too — a route that only exists in one build
+   * is a navigation type that differs between them — but nothing links to it
+   * outside `__DEV__`, so there is no way in.
+   */
+  SwipeGlyphDemo: undefined;
   /** The connected mailboxes. Switching stays in the drawer; managing is here. */
   Accounts: undefined;
   /** One mailbox's own name, avatar, image policy, sync window and storage. */

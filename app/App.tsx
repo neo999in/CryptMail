@@ -30,6 +30,7 @@ import { AccountScreen } from './src/screens/AccountScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
 import { MailScreen } from './src/screens/MailScreen';
+import { SwipeGlyphDemoScreen } from './src/screens/SwipeGlyphDemoScreen';
 import { SwipeOptionsScreen } from './src/screens/SwipeOptionsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
@@ -146,6 +147,7 @@ function FullStack() {
       {/* Settings → Mail → Swipe options. Both are pushes, like Accounts. */}
       <Stack.Screen name="Mail" component={MailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SwipeOptions" component={SwipeOptionsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="SwipeGlyphDemo" component={SwipeGlyphDemoScreen} options={{ headerShown: false }} />
       {/* Managing a mailbox is a detail screen, not a destination: the drawer
           sets destinations and never pushes, and these two are reached from
           Settings. Both draw their own top bar, like Settings. */}

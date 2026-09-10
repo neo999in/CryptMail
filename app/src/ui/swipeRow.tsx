@@ -41,11 +41,13 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Easing,
   interpolate,
-  interpolateColor,
   runOnJS,
+  useAnimatedReaction,
   SharedValue,
   useAnimatedStyle,
+  useDerivedValue,
   useReducedMotion,
   useSharedValue,
   withSpring,
@@ -54,23 +56,21 @@ import Animated, {
 
 import {
   SWIPE_ENGAGE_PX,
-  SWIPE_FILL_MAX_ALPHA,
-  SWIPE_FILL_MIN_ALPHA,
-  SWIPE_LABEL_AT,
+  SWIPE_REST_ALPHA,
   SwipeDirection,
   SwipeOperation,
   SwipeTone,
   SwipeVisual,
   swipeArmed,
-  swipeFillAlpha,
+  swipeFillState,
   swipeProgress,
   swipeRelease,
   swipeThreshold,
   swipeTravel,
 } from '../swipe/swipe';
-import { color, font, ON_ACCENT, space, swipeColor, tint, type } from '../theme';
-import { Icon, IconName } from './Icon';
+import { color, font, readableOn, space, swipeColor, tint, type } from '../theme';
 import { useAccent } from './appearance';
+import { GLYPH_SPRING, glyphDrive, hasGlyph, SwipeGlyph } from './swipeGlyph';
 
 /**
  * The width the block's contents are laid out in, whatever the block itself is
@@ -81,26 +81,6 @@ import { useAccent } from './appearance';
  * block clips it while it is still the narrower of the two.
  */
 const PANE_CONTENT = 116;
-
-/**
- * The glyph for each operation, from the app's own icon set.
- *
- * `set-up` has none on purpose: it is a sentence rather than an action, and a
- * glyph beside it would be one more thing to decode on a side that has not been
- * given a meaning yet.
- */
-const GLYPH: Record<SwipeOperation, IconName | null> = {
-  'set-up': null,
-  archive: 'archive',
-  unarchive: 'inbox',
-  trash: 'trash',
-  restore: 'inbox',
-  'mark-spam': 'junk',
-  'mark-not-spam': 'check',
-  'mark-read': 'mail',
-  'mark-unread': 'mail',
-  snooze: 'clock',
-};
 
 /**
  * The tone's colour.
@@ -133,27 +113,23 @@ export function swipeTint(tone: SwipeTone, accent: string): string {
 /**
  * The ink on that block, at rest and once it will fire.
  *
- * At rest the glyph is the block's own colour on a wash of it; armed, it flips
- * to whatever reads on full colour — and that is not one answer for every tone.
- * The action colours are deep enough that dark ink on them is a smudge, so they
- * take white; only the accents are light enough to take dark ink. The neutral
- * surface is dark at every depth, so its ink stays light throughout.
+ * At rest the glyph is the block's own colour picked out of a dark shade of
+ * itself — a green outline on near-black green — and the whole thing is dim.
+ * Armed, the block is full colour and the ink is whatever actually reads on it,
+ * which `readableOn` answers per colour rather than per tone: the action green
+ * is light enough to need dark ink, the red is not, and the accents vary with
+ * whichever palette the user picked.
  *
- * The flip itself is half of how "this will happen" is said without relying on
- * colour — the other half is the action's name appearing.
+ * The flip is one of the three things that change on the single frame the block
+ * arms — fill, ink, and the action's name appearing — so "this will happen" is
+ * never carried by colour alone, and never by a shade the eye has nothing to
+ * compare against.
  */
 export function swipeInk(tone: SwipeTone, hue: string): { rest: string; armed: string } {
-  switch (tone) {
-    // The accent tones are mid-tones and take dark ink on full colour.
-    case 'accent':
-      return { rest: hue, armed: ON_ACCENT };
-    // Everything else here is a deep surface: light ink at every depth, and at
-    // rest the glyph is the block's own colour picked out of it.
-    case 'neutral':
-      return { rest: color.inkDim, armed: color.ink };
-    default:
-      return { rest: hue, armed: color.ink };
-  }
+  // The neutral tone is a dark surface at both depths, so its ink stays light
+  // and only brightens; there is no full colour for it to contrast against.
+  if (tone === 'neutral') return { rest: color.inkDim, armed: color.ink };
+  return { rest: hue, armed: readableOn(hue) };
 }
 
 /* ------------------------------------------------------------------ pane ---- */
@@ -167,12 +143,14 @@ export function swipeInk(tone: SwipeTone, hue: string): { rest: string; armed: s
  * under the whole row. That is the difference between "an action is being
  * revealed" and "this row has changed colour".
  *
- * Its fill deepens as the block grows — dark and muted the moment the action
- * appears, full colour by the time releasing will run it — and at that point the
- * glyph flips to dark ink and the action's *name* appears under it. So the
- * armed state is said three ways at once (colour, ink, a word) and never by
- * colour alone, and a shallow pull reads differently from a committed one at a
- * glance rather than by inspection.
+ * It has **two** looks and switches between them; it does not fade from one to
+ * the other. Through the whole of the pull it is a dark shade of the action's
+ * colour with the glyph picked out in that colour. On the single frame the pull
+ * crosses the line, all three change at once: the fill becomes the full colour,
+ * the glyph flips to the ink that reads on it, and the action's *name* appears
+ * under it. So the armed state is said three ways and never by colour alone,
+ * and — the reason for the step — a pull that will fire is a different picture
+ * from one that will not, rather than a slightly deeper shade of it.
  *
  * A block whose whole content *is* a word (`set-up`, which has no glyph) shows
  * it from the start — there is nothing else in there to read.
@@ -203,12 +181,14 @@ export function SwipeActionPane({
 }) {
   const accent = useAccent();
   const hue = swipeTint(visual.tone, accent);
-  const wash = tint(hue, SWIPE_FILL_MIN_ALPHA);
-  const full = tint(hue, SWIPE_FILL_MAX_ALPHA);
+  const wash = tint(hue, SWIPE_REST_ALPHA);
+  // The armed fill is the colour itself, opaque: the true-black ground must not
+  // show through the state that means "this is about to happen".
+  const full = hue;
   const toRight = direction === 'right';
   const ink = swipeInk(visual.tone, hue);
-  const glyph = GLYPH[visual.operation];
-  const hasGlyph = glyph !== null;
+  const glyph = hasGlyph(visual.operation);
+  const reducedMotion = useReducedMotion();
 
   /**
    * How far through the pull this side is: 0 at rest, 1 at the trigger line, and
@@ -226,18 +206,81 @@ export function SwipeActionPane({
   const block = useAnimatedStyle(() => {
     const travel = toRight ? dx.value : -dx.value;
     const p = travel <= 0 ? 0 : swipeProgress(travel, threshold);
-    // `swipeFillAlpha` maps the pull onto 16%–100% opacity; normalising it back
-    // to 0–1 lets `interpolateColor` apply that same curve to a colour on the UI
-    // thread, where an alpha channel alone would not do (the block sits over the
-    // true-black ground, and the ground must not show through the armed state).
-    const eased =
-      (swipeFillAlpha(p) - SWIPE_FILL_MIN_ALPHA) / (SWIPE_FILL_MAX_ALPHA - SWIPE_FILL_MIN_ALPHA);
     return {
-      backgroundColor: interpolateColor(eased, [0, 1], [wash, full]),
+      // Two fills, switched — never faded between. The dark shade holds for the
+      // whole of the pull and is replaced by the full colour on the frame the
+      // action arms. See `SWIPE_REST_ALPHA` for why the step is the signal.
+      backgroundColor: swipeFillState(p) === 'armed' ? full : wash,
       // Only ever seen through the strip the row has uncovered — see `s.pane`.
       opacity: p > 0 ? 1 : 0,
     };
   }, [dx, full, threshold, toRight, wash]);
+
+  /**
+   * Whether this side is armed right now: a plain 0 or 1, recomputed on every
+   * frame of the pull along with everything else that reads `dx`.
+   *
+   * Deliberately carries **no animation**. See `armed` below for why that
+   * separation is the whole thing.
+   */
+  const armedTarget = useDerivedValue<number>(() => {
+    const travel = toRight ? dx.value : -dx.value;
+    const p = travel <= 0 ? 0 : swipeProgress(travel, threshold);
+    return swipeFillState(p) === 'armed' ? 1 : 0;
+  }, [dx, threshold, toRight]);
+
+  /**
+   * The value the glyph's parts actually follow: 0 at rest, 1 once the pull
+   * will fire, and *travelling* between the two.
+   *
+   * It is a shared value written by a reaction rather than a derived value that
+   * returns a spring, and that is not a style choice. A `useDerivedValue` whose
+   * worklet reads `dx` re-runs on every frame of the drag; if such a worklet
+   * returns `withSpring(target)`, each of those runs **starts a new spring**
+   * from the current value with zero velocity. Sixty restarts a second is a
+   * spring that never gets to travel, so the parts snapped to their armed
+   * positions and the animation was invisible — which is exactly how this was
+   * first written, and exactly what it looked like on a device.
+   *
+   * A reaction fires only when its input actually changes, so the spring is
+   * started once, on the frame the side arms or disarms, and is then left alone
+   * to run. Everything else on the pane still switches instantly: this is the
+   * only thing that eases.
+   *
+   * Under reduced motion the same transition is written without the spring — the
+   * parts land in their armed positions without the travel, so the drawing still
+   * says what is about to happen.
+   */
+  const armed = useSharedValue(0);
+
+  /**
+   * Which way this glyph wants driving — a pose to spring into and hold, or a
+   * sequence to play through once (`ui/swipeGlyph.tsx`).
+   */
+  const { drive, durationMs } = glyphDrive(visual.operation);
+
+  useAnimatedReaction(
+    () => armedTarget.value,
+    (next, previous) => {
+      if (next === previous) return;
+      if (reducedMotion) {
+        // A `play` glyph ends where it started, so there is nothing to jump to:
+        // it simply does not run. A `hold` glyph lands in its armed pose.
+        armed.value = drive === 'play' ? 0 : next;
+        return;
+      }
+      if (drive === 'play') {
+        // Once through on arming, and straight back to the start on disarming —
+        // the sequence has already returned the parts to their rest positions by
+        // its last keyframe, so the reset is invisible and only matters for the
+        // *next* arm.
+        armed.value = next === 1 ? withTiming(1, { duration: durationMs, easing: Easing.linear }) : 0;
+        return;
+      }
+      armed.value = withSpring(next, GLYPH_SPRING);
+    },
+    [drive, durationMs, reducedMotion],
+  );
 
   const lightGlyph = useAnimatedStyle(() => {
     const travel = toRight ? dx.value : -dx.value;
@@ -260,11 +303,14 @@ export function SwipeActionPane({
   const labelStyle = useAnimatedStyle(() => {
     const travel = toRight ? dx.value : -dx.value;
     const p = travel <= 0 ? 0 : swipeProgress(travel, threshold);
+    const isArmed = swipeFillState(p) === 'armed';
     return {
-      color: interpolateColor(swipeArmed(p) ? 1 : 0, [0, 1], [ink.rest, ink.armed]),
-      opacity: hasGlyph ? interpolate(p, [SWIPE_LABEL_AT, 1], [0, 1], 'clamp') : 1,
+      color: isArmed ? ink.armed : ink.rest,
+      // Appears on the same frame the fill switches, rather than fading in
+      // across the pull — one moment of change, said three ways.
+      opacity: glyph ? (isArmed ? 1 : 0) : 1,
     };
-  }, [dx, hasGlyph, ink.armed, ink.rest, threshold, toRight]);
+  }, [dx, glyph, ink.armed, ink.rest, threshold, toRight]);
 
   return (
     <Animated.View
@@ -283,10 +329,10 @@ export function SwipeActionPane({
         {glyph ? (
           <View>
             <Animated.View style={lightGlyph}>
-              <Icon name={glyph} size={22} color={ink.rest} strokeWidth={2} />
+              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.rest} strokeWidth={2} />
             </Animated.View>
             <Animated.View style={[StyleSheet.absoluteFill, darkGlyph]}>
-              <Icon name={glyph} size={22} color={ink.armed} strokeWidth={2.3} />
+              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.armed} strokeWidth={2.3} />
             </Animated.View>
           </View>
         ) : null}

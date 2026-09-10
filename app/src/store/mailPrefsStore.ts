@@ -52,6 +52,10 @@ export const DEFAULT_MAIL_PREFS: MailPrefs = {
  * would draw a pane with no operation behind it. One place decides, and it
  * decides per field: an unreadable left side does not reset a good right one.
  *
+ * `none` is a value in here like any other — the side that has not been
+ * answered for — and is validated, stored and reloaded as such. It is only the
+ * *picker* that leaves it out; turning a side off from there writes `off`.
+ *
  * An unknown action falls back to that side's **default**, not to `none`: the
  * left side is Archive in a fresh install and should be Archive again if its
  * stored value is nonsense, rather than silently going dead.

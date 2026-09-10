@@ -7,31 +7,30 @@
  *
  *  - a real operation, which `ui/swipeRun.tsx` then runs through the same
  *    `useApp()` actions the message screen calls;
- *  - `null`, which the row honours by not moving at all — an unconfigured side
- *    and an action with nothing to do are the same non-event. Nothing here may
+ *  - `null`, which the row honours by not moving at all — a side turned off and
+ *    an action with nothing to do are the same non-event. Nothing here may
  *    quietly substitute a different action for the one the user chose.
  *
  * The geometry is tested for the properties a phone can't be asked about in
  * CI: that the trigger distance scales with the row, that a destructive
- * operation asks for more of a pull than a reversible one, and that the fill
- * deepens all the way to full colour by the time it will fire.
+ * operation asks for more of a pull than a reversible one, and that the fill is
+ * two states switched at the line rather than a shade that creeps.
  */
 import {
   resolveSwipe,
   SWIPE_ACTION_HINT,
   SWIPE_ACTION_LABEL,
   SWIPE_ACTIONS,
+  SWIPE_PICKER_ACTIONS,
   SwipeAction,
   SwipeContext,
   swipeArmed,
-  swipeFillAlpha,
+  swipeFillState,
   swipeProgress,
   swipeRelease,
   swipeRemovesRow,
   swipeThreshold,
   swipeTravel,
-  SWIPE_FILL_MAX_ALPHA,
-  SWIPE_FILL_MIN_ALPHA,
 } from '../swipe';
 
 /** An unread inbox message in the mailbox in front — the ordinary case. */
@@ -64,6 +63,25 @@ describe('resolveSwipe — the side nobody has configured', () => {
   /** It opens a screen, so the row it was swiped on is still there behind it. */
   it('leaves the row in the list', () => {
     expect(swipeRemovesRow('set-up', INBOX)).toBe(false);
+  });
+});
+
+describe('resolveSwipe — the side turned off', () => {
+  /**
+   * The user's answer, as opposed to the absence of one. `null` everywhere, so
+   * the row is inert in every list — including the ones where an unconfigured
+   * side would still be offering to be configured.
+   */
+  it('resolves to nothing at all, in every list', () => {
+    for (const c of [INBOX, ctx({ box: 'trash' }), ctx({ box: 'archive', unread: false }), ctx({ foreign: true })]) {
+      expect(resolveSwipe('off', c)).toBeNull();
+    }
+  });
+
+  /** The distinction is the whole point: one asks a question, the other has answered it. */
+  it('is not the unconfigured side', () => {
+    expect(resolveSwipe('none', INBOX)?.operation).toBe('set-up');
+    expect(resolveSwipe('off', INBOX)).toBeNull();
   });
 });
 
@@ -178,9 +196,25 @@ describe('the pane', () => {
     }
   });
 
-  it('offers the unset side as a choice, so a side can be emptied again', () => {
+  it('offers No action, so a side can be emptied again', () => {
+    expect(SWIPE_PICKER_ACTIONS).toContain<SwipeAction>('off');
+    expect(SWIPE_ACTION_LABEL.off).toBe('No action');
+  });
+
+  /**
+   * `none` stays a valid stored value — it is what a fresh install's right side
+   * is — but it is not something to choose: a side that has been answered for
+   * does not go back to asking. Emptying it is `off`.
+   */
+  it('keeps the unconfigured state storable and out of the picker', () => {
     expect(SWIPE_ACTIONS).toContain<SwipeAction>('none');
+    expect(SWIPE_PICKER_ACTIONS).not.toContain<SwipeAction>('none');
     expect(SWIPE_ACTION_LABEL.none).toBe('Set Up');
+  });
+
+  /** Everything the picker shows is an action the store will accept back. */
+  it('offers only ids the store validates', () => {
+    for (const action of SWIPE_PICKER_ACTIONS) expect(SWIPE_ACTIONS).toContain(action);
   });
 
   /**
@@ -259,25 +293,26 @@ describe('swipeProgress', () => {
   });
 });
 
-describe('swipeFillAlpha', () => {
-  it('starts as a wash rather than a block of colour', () => {
-    expect(swipeFillAlpha(0)).toBe(SWIPE_FILL_MIN_ALPHA);
-    expect(swipeFillAlpha(0.2)).toBeLessThan(0.3);
+describe('swipeFillState', () => {
+  /**
+   * The block has two looks and switches between them. There is deliberately no
+   * third value and no ramp: a pull that will not fire must not be able to look
+   * like one that will, and the step across the line is the whole signal.
+   */
+  it('holds the resting shade for the whole of the pull', () => {
+    for (const p of [0, 0.2, 0.4, 0.6, 0.8, 0.99]) expect(swipeFillState(p)).toBe('rest');
   });
 
-  it('deepens all the way through the pull', () => {
-    let previous = -1;
-    for (const p of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
-      const alpha = swipeFillAlpha(p);
-      expect(alpha).toBeGreaterThan(previous);
-      previous = alpha;
+  it('switches to full colour at the line, and stays there through an over-pull', () => {
+    expect(swipeFillState(1)).toBe('armed');
+    expect(swipeFillState(1.8)).toBe('armed');
+  });
+
+  /** The one place the switch is decided, so nothing on the block disagrees. */
+  it('flips exactly where the release fires', () => {
+    for (const p of [0, 0.5, 0.99, 1, 2]) {
+      expect(swipeFillState(p) === 'armed').toBe(swipeArmed(p));
     }
-  });
-
-  it('is full colour by the time releasing will run it', () => {
-    expect(swipeFillAlpha(1)).toBe(SWIPE_FILL_MAX_ALPHA);
-    // An over-pull cannot push it past full.
-    expect(swipeFillAlpha(1.8)).toBe(SWIPE_FILL_MAX_ALPHA);
   });
 });
 

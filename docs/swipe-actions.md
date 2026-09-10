@@ -29,6 +29,12 @@ settings screen. **Nothing is done to the message** — nothing archived, moved,
 filed, flagged or marked — which is the rule that matters; what the row does
 instead of nothing at all is offer to be configured.
 
+Dead is a separate choice, and it is on the list: **No action** (`off`) turns a
+side off outright. The row then does not move in any list, and never offers to
+be set up again — the question has been answered. It is the answer for a user
+who does not want swipe gestures, and it is why unconfigured (`none`) is a state
+a side ships in rather than one the picker offers: emptying a side is `off`.
+
 Both sides are independent, on screen and on disk: setting one writes one field
 and leaves the other exactly as it was.
 
@@ -40,7 +46,8 @@ implementation.
 
 | Action | Runs | Undo |
 |---|---|---|
-| Set Up | opens this screen; touches no mail | n/a |
+| No action | nothing; the row does not move | n/a |
+| Set Up (unconfigured) | opens this screen; touches no mail | n/a |
 | Archive | `archiveMessage`, or `unarchiveMessage` in Archive | yes |
 | Delete | `trashMessage`, or `restoreMessage` in Trash | yes |
 | Mark as spam | `markSpam` / `markNotSpam` | yes |
@@ -58,8 +65,8 @@ Deliberately absent:
 - **Report.** CryptMail's spam handling *is* the report: marking trains this
   device's own filter (`spam/`). Nothing is sent anywhere.
 
-Adding one later is a case in `resolveSwipe`, an entry in `SWIPE_ACTIONS`, and a
-glyph in `swipeRow.tsx`. Nothing else.
+Adding one later is a case in `resolveSwipe`, an entry in `SWIPE_ACTIONS` and
+`SWIPE_PICKER_ACTIONS`, and a glyph in `swipeRow.tsx`. Nothing else.
 
 ## Context
 
@@ -68,6 +75,7 @@ the resolver decides what it *means* here, at the moment of the swipe:
 
 | Configured | Inbox (and categories) | Sent | Archive | Trash |
 |---|---|---|---|---|
+| No action | — | — | — | — |
 | Set Up | opens settings | opens settings | opens settings | opens settings |
 | Archive | Archive | — | **Move to inbox** | — |
 | Delete | Delete | Delete | Delete | **Restore** |
@@ -75,8 +83,8 @@ the resolver decides what it *means* here, at the moment of the swipe:
 | Read | toggles | toggles | toggles | toggles |
 | Snooze | Snooze | — | — | — |
 
-A dash is a real answer: **the row does not move at all**, exactly as an
-unconfigured side does not. Sent and Trash have no INBOX label to remove and are
+A dash is a real answer: **the row does not move at all**, exactly as a side set
+to *No action* does not. Sent and Trash have no INBOX label to remove and are
 not the archive to come back from, so Archive means nothing there — and a row
 that slid away under an "Archived" toast having done nothing would be a lie
 about the mailbox.
@@ -95,12 +103,49 @@ there a gesture later.
   away from. It carries the action's **glyph** from the start and its **name**
   only once the pull will actually run it — a block that said "Delete" through a
   gesture about to be cancelled would be lying about what happens next.
-- The fill deepens with the pull: 16% at the top of the gesture, full colour at
-  the trigger line, where the glyph also flips to dark ink. Three things say
-  "this will fire" — colour, ink, a word — so none of them is load-bearing
-  alone.
-- A neutral block (Set Up, a read flag) ramps to `surfaceRaised` rather than to
-  a bright fill, and keeps light ink. It is a panel behind the row, not a
+- **The fill has two states and switches between them — it never fades from one
+  to the other.** For the whole of the pull the block is a dark shade of the
+  action's colour (`SWIPE_REST_ALPHA`) with the glyph outlined in that colour.
+  On the frame the pull crosses the line it becomes the full colour, the glyph
+  flips to the ink that reads on it, and the name appears. Three things say
+  "this will fire" — colour, ink, a word — so none is load-bearing alone.
+  The step is the point: a continuous ramp made every frame look slightly more
+  committed than the last, so no frame said *now*, and a pull about to be
+  cancelled differed from one about to fire by a shade with nothing to compare
+  it against.
+- **The glyph is animated, in parts.** Each swipe icon is split into the pieces
+  it is already drawn from — a lid and a box, a bin and its bars, a face and its
+  hands (`ui/swipeGlyph.tsx`) — and each piece moves on its own so the drawing
+  acts the operation out. Two kinds, and a glyph declares which:
+  - **`hold`** — a rest pose and an armed pose, sprung between them and held for
+    as long as the pull is past the line. The archive lid lifts and the slot
+    drops through it; the envelope's flap folds down; the clock's hands sweep.
+  - **`play`** — a keyframed sequence that runs once and ends where it started.
+    Delete is the one: the bin's lid swings open on its hinge, the bars fall out
+    and fade, the bin squashes under the weight, everything returns. Holding past
+    the line does not hold the lid open, because what it depicts is over.
+
+  The technique, the spring (stiffness 200, damping 25) and the keyframes are
+  `heroicons-animated`'s; the code is not, since that library is React DOM and
+  `motion/react`. `archive` and `trash` use its geometry, handed over icon by
+  icon; every other glyph is the app's own (`ui/Icon.tsx`). The motion is the
+  only thing on the pane that eases — fill, ink and label still switch on one
+  frame — and reduced motion drops it.
+
+  **Each part is its own `<Svg>` moved by a `View` transform**, not a `G` with
+  animated SVG props. The latter is the obvious build and it does not work:
+  under Fabric those props are not applied per frame, so the parts lag the value
+  and settle only on an unrelated re-render. `ui/swipeGlyph.tsx` carries the
+  measurement that established it. There is a `__DEV__` bench for all of this
+  behind *Swipe options → Glyph animation bench*: every glyph, one drive value,
+  slow and looping, and a readout of whether reduced motion is on.
+- The armed colours are vivid (`swipeColor`) because they are only ever on
+  screen for the moment between crossing the line and letting go, on a strip a
+  finger is holding open — not as an ambient surface. The ink on them is chosen
+  by luminance (`readableOn`), so the green takes dark ink and the red light,
+  rather than one answer assumed for both.
+- A neutral block (Set Up, a read flag) is `surfaceRaised` rather than a bright
+  fill, and keeps light ink at both depths. It is a panel behind the row, not a
   verdict about the message.
 - **Trigger distance scales with the row** — a fraction of its width, clamped at
   both ends, so it is one gesture on a phone and on a tablet. Destructive

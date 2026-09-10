@@ -127,6 +127,32 @@ export function tint(hex: string, alpha: number): string {
 }
 
 /**
+ * Black ink or white ink on this fill, whichever a reader can actually see.
+ *
+ * Relative luminance per WCAG, so it answers for a colour rather than for a
+ * name — which is what the swipe pane needs, since its fills are a green, a red
+ * and whichever accent the user has chosen, and the right ink is not the same
+ * for all of them. Picking by tone instead meant a bright accent and a deep red
+ * were assumed to want the same ink, and one of the two was always wrong.
+ *
+ * Accepts a 6-digit hex; anything else falls back to light ink, which is what
+ * the app's dark surfaces take.
+ */
+export function readableOn(hex: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return color.ink;
+  const channel = (i: number) => {
+    const c = parseInt(m[1].slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+  // Contrast ratio against light ink vs. against dark ink; the winner is the
+  // one a reader can see. `ON_ACCENT` is near-black, so its own luminance is
+  // close enough to zero to leave out of the second ratio.
+  return 1.05 / (luminance + 0.05) >= (luminance + 0.05) / 0.05 ? color.ink : ON_ACCENT;
+}
+
+/**
  * The accent as a plain constant, for the module-scope `StyleSheet.create` calls
  * that cannot read a hook.
  *
@@ -269,20 +295,28 @@ export const radius = {
  * safely" and a deep red that reads as "gone", rather than the softer mint and
  * salmon the trust badges use.
  *
- * Deep rather than bright, because of the ground they sit on. A saturated block
- * the height of a mail row is the largest lit area the app ever draws, and on a
- * true-black OLED screen a vivid one is a lamp — it reads as an alert rather
- * than as the quiet, reversible filing action it is. These are dark enough to
- * belong to the same screen as the mail, and still unmistakably green and red.
+ * These are the **armed** colours — what the block wears once the pull will
+ * actually run, and nothing else in the app is this lit. That is the point: the
+ * pane has two states and switches between them (`SWIPE_REST_ALPHA` in
+ * `swipe/swipe.ts`), so the vivid block is not something the reader sits in
+ * front of. It is on screen for the moment between crossing the line and
+ * letting go, on a strip a finger is actively holding open. A colour deep
+ * enough to be ambient would have nothing left to say at that moment, which is
+ * what the earlier, darker pair got wrong on a true-black ground: the shade
+ * before the line and the shade after it were too close to tell apart mid-pull.
  *
- * Each is a 6-digit hex, which is what `tint()` needs to wash it down the pull
+ * The resting shade is derived from these rather than picked separately —
+ * the same hue at a low alpha over the ground — so the two states are visibly
+ * the same colour at two depths, and one constant moves both.
+ *
+ * Each is a 6-digit hex, which is what `tint()` needs to derive that shade
  * (`swipe/swipe.ts`).
  */
 export const swipeColor = {
   /** Archive, Move to inbox, Not spam. */
-  positive: '#0E7A41',
+  positive: '#12B65A',
   /** Delete, Spam. */
-  destructive: '#A83239',
+  destructive: '#D4333D',
 } as const;
 
 /**
