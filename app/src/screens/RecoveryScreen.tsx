@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cryptoMode } from '../config';
 import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
 import { RecoveryBackup } from '../core';
+import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
@@ -76,6 +77,42 @@ export function RecoveryScreen() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Hand the backup text out as a file.
+   *
+   * The clipboard is fine for moving the blob between two apps on one phone; it
+   * is no way to get it onto the phone you buy after losing this one. A file
+   * goes to a password manager, a drive, or a USB stick, and is still there in
+   * two years — which is the timescale this feature is actually for.
+   *
+   * Only the blob. The code stays on paper: writing both into one file would
+   * put the lock and its key in the same place and make the pair pointless.
+   */
+  const saveBackupFile = async (value: RecoveryBackup) => {
+    setError(null);
+    try {
+      await saveTextFile(backupFileName(identity?.email ?? 'key'), value.blob, 'text/plain');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** Fill the blob field from a file the user picks. Cancelling changes nothing. */
+  const loadBackupFile = async () => {
+    setError(null);
+    try {
+      const result = await pickTextFile();
+      if (!result) return;
+      if ('refused' in result) {
+        setError(result.refused);
+        return;
+      }
+      setBlobInput(result.text.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -187,6 +224,18 @@ export function RecoveryScreen() {
               />
             </View>
 
+            <View style={{ marginTop: 10 }}>
+              <PrimaryButton
+                title="Save backup to a file"
+                icon="download"
+                onPress={() => void saveBackupFile(backup)}
+              />
+              <Text style={s.note}>
+                The file holds the backup text only — never the code. Put it somewhere you can reach
+                from a device you do not own yet.
+              </Text>
+            </View>
+
             <Text style={[s.eyebrow, { marginTop: 18 }]}>Backup text</Text>
             <Text style={s.blob} selectable numberOfLines={6}>
               {backup.blob}
@@ -202,10 +251,12 @@ export function RecoveryScreen() {
       <Card style={{ marginTop: 14 }}>
         <Title>Restore from a backup</Title>
         <Muted>
-          Paste the backup text and type the recovery code. The same key comes back, with the same
-          fingerprint — nobody who writes to you has to change anything.
+          Load the backup file or paste its text, then type the recovery code. The same key comes
+          back, with the same fingerprint — nobody who writes to you has to change anything.
         </Muted>
-        <View style={{ height: 12 }} />
+        <View style={{ marginTop: 12, marginBottom: 4 }}>
+          <SecondaryButton title="Load from a file" icon="file" onPress={() => void loadBackupFile()} />
+        </View>
 
         <Field label="Backup text" focused={blobFocus.focused}>
           <Input

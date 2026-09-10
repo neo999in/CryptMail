@@ -58,11 +58,31 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      */
     async restoreFromRecovery(blob: string, code: string): Promise<Identity> {
       const identity = await core.importRecoveryBackup(blob, code);
+
+      // A backup carries the address it was taken for, and the core files the
+      // key under *that* address — while boot loads the key for the address
+      // that signed in. Restoring someone else's backup (or your own, into the
+      // wrong mailbox) therefore looks like it worked and is simply gone at the
+      // next launch, which is the worst way for this to fail: the user believes
+      // their key is back. Refusing here leaves this account's key untouched.
+      const { session } = store.get();
+      if (session && identity.email.toLowerCase() !== session.email.toLowerCase()) {
+        throw new CoreError(
+          `That backup holds the key for ${identity.email}, but this mailbox is ${session.email}. Sign in to ${identity.email} to restore it.`,
+          'malformed',
+        );
+      }
+
       store.patch({
         identity,
         recovery: await clearBackupRecord(ctx.services.accounts.requireActive()),
         verifyLink: null,
       });
+
+      // The key is back with its old fingerprint, so any listing it had is
+      // still its listing. Ask before the setup screen offers to publish it.
+      await ctx.services.publish.reconcilePublish();
+
       return identity;
     },
   };

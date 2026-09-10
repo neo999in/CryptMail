@@ -19,6 +19,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
+import { pickTextFile } from '../lib/files';
 import { useApp } from '../state/AppState';
 import { color, font, space } from '../theme';
 import {
@@ -48,6 +49,30 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
   const [codeInput, setCodeInput] = useState('');
   const blobFocus = useFocus();
   const codeFocus = useFocus();
+
+  /**
+   * Fill the blob field from a file the user picks. Cancelling changes nothing.
+   *
+   * This is the step that decides whether restoring happens at all. The backup
+   * text is an armored key thousands of characters long, and on the device it
+   * matters — a phone that has just been set up — it is in a file, not in a
+   * clipboard that never crossed over. Asking for it as a paste is asking most
+   * people to give up and generate a new key instead.
+   */
+  const loadBackupFile = async () => {
+    setError(null);
+    try {
+      const result = await pickTextFile();
+      if (!result) return;
+      if ('refused' in result) {
+        setError(result.refused);
+        return;
+      }
+      setBlobInput(result.text.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const run = async (work: () => Promise<unknown>, next: Step | null) => {
     setBusy(true);
@@ -108,9 +133,12 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
         <Card>
           <Title>Restore from a backup</Title>
           <Muted>
-            Paste the backup text and type the recovery code. Neither one restores anything alone.
+            Load the backup file or paste its text, then type the recovery code. Neither one
+            restores anything alone.
           </Muted>
-          <View style={{ height: 12 }} />
+          <View style={{ marginTop: 12, marginBottom: 4 }}>
+            <SecondaryButton title="Load from a file" icon="file" onPress={() => void loadBackupFile()} />
+          </View>
 
           <Field label="Backup text" focused={blobFocus.focused}>
             <Input

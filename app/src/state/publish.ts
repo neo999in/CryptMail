@@ -59,6 +59,40 @@ export function createPublish(ctx: Ctx): PublishService {
     }
   }
 
+  /**
+   * Does the directory already serve *this* key for this address?
+   *
+   * The question a stranger would ask, asked the same way: look the address up
+   * and compare fingerprints. A different fingerprint is a no — it means the
+   * listing describes some other key, which is exactly the case a restored
+   * device must not mistake for its own.
+   *
+   * Never throws. The directory being unreachable says nothing about the key's
+   * state, and both callers have something sensible to do with "don't know".
+   */
+  async function directoryServesOurKey(identity: Identity): Promise<boolean> {
+    try {
+      const found = await directory.lookup(identity.email);
+      const info = found ? await core.importPublicKey(found.armored) : null;
+      return (
+        !!info && normaliseFingerprint(info.fingerprint) === normaliseFingerprint(identity.fingerprint)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async function markPublished(identity: Identity) {
+    store.patch({
+      publish: await savePublishState(
+        ctx.services.accounts.requireActive(),
+        'published',
+        identity.fingerprint,
+      ),
+      verifyLink: null,
+    });
+  }
+
   return {
     /**
      * List this device's public key in the directory.
@@ -111,25 +145,43 @@ export function createPublish(ctx: Ctx): PublishService {
       if (!identity) return;
       if (publishStatusFor(publish, identity.fingerprint) !== 'pending') return;
 
-      try {
-        const found = await directory.lookup(identity.email);
-        const info = found ? await core.importPublicKey(found.armored) : null;
-        if (info && normaliseFingerprint(info.fingerprint) === normaliseFingerprint(identity.fingerprint)) {
-          store.patch({
-            publish: await savePublishState(
-              ctx.services.accounts.requireActive(),
-              'published',
-              identity.fingerprint,
-            ),
-            verifyLink: null,
-          });
-          return;
-        }
-      } catch {
-        // The directory being unreachable says nothing about the key's state.
+      if (await directoryServesOurKey(identity)) {
+        await markPublished(identity);
+        return;
       }
 
       await findVerifyLink(identity);
+    },
+
+    /**
+     * Adopt the listing a restored key already has.
+     *
+     * A fresh install has no publish record — the store went with the app — so
+     * a device that has just restored its old key reads as `unpublished` and
+     * gets asked to publish a key `keys.openpgp.org` has served all along.
+     * Saying yes to that is not harmless: it uploads again, which supersedes
+     * the confirmation the user already completed and mails them a fresh link
+     * to click for no gain.
+     *
+     * So ask the directory once, at the one moment it is warranted. A match is
+     * the same evidence `refreshPublish` accepts — the key is served for this
+     * address, whichever device put it there — and it needs no confirmation
+     * because the address owner already gave it.
+     *
+     * Deliberately **not** on the sync path. `refreshPublish` runs after every
+     * sync and is cheap because it returns immediately unless a publication is
+     * pending; this one would have to hit the network on every sync for every
+     * user who has never published, including the ones who declined by never
+     * answering. Restoring is the event that makes the question worth asking.
+     */
+    async reconcilePublish() {
+      const { identity, publish } = store.get();
+      if (!identity) return;
+      // Anything else is a decision this device already has a record of, and a
+      // `declined` mark in particular is the user's answer, not a stale guess.
+      if (publishStatusFor(publish, identity.fingerprint) !== 'unpublished') return;
+
+      if (await directoryServesOurKey(identity)) await markPublished(identity);
     },
   };
 }

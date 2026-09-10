@@ -27,6 +27,7 @@ import {
   decodedSize,
   newAttachmentId,
 } from '../mail/attachment';
+import { decodeUtf8Base64 } from './base64';
 
 /** A file the user chose, with its bytes still on disk. */
 export type PickedFile = { name: string; mimeType: string; size: number; uri: string };
@@ -162,4 +163,72 @@ function saveOnWeb(attachment: Attachment): void {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+/** A backup file the user picked, or the sentence explaining why it was refused. */
+export type TextReadResult = { text: string } | { refused: string };
+
+/**
+ * The largest picked file this module will read as text.
+ *
+ * A recovery backup is an armored key — a few kilobytes. The cap is here for
+ * the same reason `attachmentRefusal` is: a user who picks a video by mistake
+ * must get a sentence, not a string long enough to take the app down. It is
+ * checked before the read, so the oversized string is never held at all.
+ */
+const TEXT_FILE_CAP = 256 * 1024;
+
+/**
+ * Read a picked file as text — today, a recovery backup.
+ *
+ * Separate from `readPickedFile` because that one produces an `Attachment`:
+ * base64, capped at the attachment budget, and destined for a MIME tree. A
+ * backup is none of those things. It is text the user is about to paste into
+ * the restore field, and reading it from a file rather than the clipboard is
+ * the whole point — on a fresh install the blob usually lives in a file the
+ * clipboard cannot reach.
+ *
+ * Refusals are returned, not thrown, exactly as `readPickedFile` does: picking
+ * the wrong file is a mistake to explain, not a failure to report.
+ */
+export async function readTextFile(picked: PickedFile): Promise<TextReadResult> {
+  if (picked.size > TEXT_FILE_CAP) {
+    return { refused: `${picked.name} is too large to be a recovery backup.` };
+  }
+
+  const inline = /^data:[^;,]*;base64,(.*)$/s.exec(picked.uri);
+  const text = inline ? decodeUtf8Base64(inline[1]) : await new File(picked.uri).text();
+
+  // Some Android providers do not report a size, so the bytes actually read are
+  // the authority — a provider that under-reported must not get a free pass.
+  if (text.length > TEXT_FILE_CAP) {
+    return { refused: `${picked.name} is too large to be a recovery backup.` };
+  }
+  return { text };
+}
+
+/**
+ * Ask for one file and read it as text. `null` when the user cancels.
+ *
+ * The pick and the read belong together for this caller: a restore form wants
+ * "the backup, or the reason it isn't", and cancelling is neither — it is the
+ * user changing their mind, which must leave the screen exactly as it was.
+ */
+export async function pickTextFile(): Promise<TextReadResult | null> {
+  const [picked] = await pickFiles();
+  if (!picked) return null;
+  return readTextFile(picked);
+}
+
+/**
+ * What a recovery backup is called when it is saved as a file.
+ *
+ * Names the address, because a backup restores into exactly one mailbox and
+ * picking the wrong file is otherwise indistinguishable until it fails. Dated,
+ * because taking a new backup supersedes the last one and the user needs to see
+ * which is which in a folder of them.
+ */
+export function backupFileName(email: string, at: Date = new Date()): string {
+  const safe = email.replace(/[^a-zA-Z0-9._@-]/g, '_');
+  return `cryptmail-backup-${safe}-${at.toISOString().slice(0, 10)}.asc`;
 }

@@ -306,6 +306,41 @@ Three divergences from the plan above, all deliberate:
    This matters more once discovery is live: with every client fetching every
    key automatically, one avoidable rotation blocks compose for every contact.
 
+4. **The blob moves as a file, not only as a paste.** `Save backup to a file`
+   writes it through `saveTextFile` (share sheet on Android, download on web) as
+   `cryptmail-backup-<address>-<date>.asc`; both restore forms offer `Load from
+   a file`, which reads it back through `readTextFile`
+   ([`app/src/lib/files.ts`](../app/src/lib/files.ts), capped at 256 KB and
+   refusing before the read). The device this feature exists for is a phone that
+   has just been set up, where the blob is in a password manager or on a drive
+   and the clipboard never crossed over — asking for a several-thousand-character
+   paste there is asking most people to generate a new key instead. **The code is
+   never written to the file**: the two halves are separate on purpose, and one
+   file holding both would make the pair pointless.
+
+5. **A backup for another address is refused, not adopted.** The core files the
+   restored key under the *backup's* address while boot loads by the *session's*
+   ([`session.ts`](../app/src/state/session.ts)), so restoring the wrong backup
+   used to look like it worked and be gone at the next launch — the worst way
+   for this to fail, because the user believes their key is back.
+   `restoreFromRecovery` compares the two and refuses, naming both addresses.
+
+6. **A restored key adopts the listing it already had.** The publish record is
+   per-account local storage, so it dies with the install: a correctly restored
+   key read as `unpublished` and setup offered to publish it again, which
+   supersedes the confirmation the user already completed and mails them a fresh
+   link for nothing. `reconcilePublish`
+   ([`publish.ts`](../app/src/state/publish.ts)) asks the directory once, after a
+   restore, whether it already serves *this* fingerprint for this address — the
+   same evidence `refreshPublish` accepts — and marks it published if so. It is
+   deliberately **not** on the sync path: `refreshPublish` runs after every sync
+   and is cheap because it returns unless a publication is pending, whereas this
+   one would hit the network on every sync for every user who never published.
+   A `declined` mark is left alone; that is the user's answer, not a stale guess.
+
+   Covered by
+   [`state/__tests__/recovery-test.ts`](../app/src/state/__tests__/recovery-test.ts).
+
 **Status:** the contract, the demo implementation, the UI and the tests exist.
 The Argon2id wrapping itself is Rust and is **not implemented** — see §4.1 of
 [implementation-status.md](implementation-status.md). Until it lands, recovery
