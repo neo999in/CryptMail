@@ -59,10 +59,10 @@
  *
  * The app's own (`ui/Icon.tsx`) except where an icon was handed over
  * specifically — `archive`, `trash`, the two envelopes (`mark-read`,
- * `mark-unread`), `mark-spam` and `snooze` are the reference libraries',
- * path for path. The cost is real and worth stating: those now differ slightly
- * from the same-named glyphs the message screen's toolbar and the drawer draw.
- * Five exceptions is well past the point at which moving the whole set over
+ * `mark-unread`), `mark-spam`, `mark-not-spam` and `snooze` are the reference
+ * libraries', path for path. The cost is real and worth stating: those now differ
+ * slightly from the same-named glyphs the message screen's toolbar and the drawer
+ * draw. Six exceptions is well past the point at which moving the whole set over
  * beats keeping two of everything. That move is owed.
  */
 import React from 'react';
@@ -236,6 +236,40 @@ function warningMail(): Glyph {
         // The width of the pen, so it reads as the full stop under the stroke.
         draw: (p) => <Circle cx={20} cy={22} r={1.1} {...p} />,
       },
+    ],
+  };
+}
+
+/** The reference library's `MailCheckIcon`. Its fold is `WARN_FOLD_*`'s path, split the same way. */
+const CHECK_BODY = 'M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h8';
+/** The tick, split at its corner so each stroke can be written from where the pen starts it. */
+const CHECK_SHORT = 'M16 19l2 2';
+const CHECK_LONG = 'M18 21l4-4';
+
+/**
+ * `mark-not-spam` — see its entry in `GLYPHS`.
+ *
+ * The reference runs about 0.75s at `duration = 1`: lift 0–0.5s, fold drawn
+ * 0.08–0.58s, tick drawn 0.24–0.64s and popped 0.28–0.73s. Those stops are kept,
+ * as fractions of one 750ms sweep.
+ */
+function checkMail(): Glyph {
+  const s = (seconds: number) => seconds / 0.75;
+  const fold = reveal(s(0.08), s(0.58), expoOut);
+  // The tick's draw and its pop are one motion here: each stroke grows from its
+  // own start, the long one overshooting as it lands (the reference's 1.12).
+  const short = reveal(s(0.24), s(0.42), expoOut);
+  const long = reveal(s(0.4), s(0.73), (t) => backOut(t, 2.2));
+  return {
+    drive: 'play',
+    durationMs: 750,
+    whole: { times: [0, s(0.25), s(0.5), 1], scale: [1, 1.04, 1, 1] },
+    parts: [
+      { track: {}, draw: (p) => <Path d={CHECK_BODY} {...p} /> },
+      { track: { times: fold.times, scale: fold.values, origin: [2, 7] }, draw: (p) => <Path d={WARN_FOLD_LEFT} {...p} /> },
+      { track: { times: fold.times, scale: fold.values, origin: [22, 7] }, draw: (p) => <Path d={WARN_FOLD_RIGHT} {...p} /> },
+      { track: { times: short.times, scale: short.values, origin: [16, 19] }, draw: (p) => <Path d={CHECK_SHORT} {...p} /> },
+      { track: { times: long.times, scale: long.values, origin: [18, 21] }, draw: (p) => <Path d={CHECK_LONG} {...p} /> },
     ],
   };
 }
@@ -554,11 +588,19 @@ const GLYPHS: Partial<Record<SwipeOperation, Glyph>> = {
    */
   'mark-spam': warningMail(),
 
-  // A single stroke, so the motion is the whole of it: the tick lands.
-  'mark-not-spam': {
-    drive: 'hold',
-    parts: [{ track: { scale: [1, 1.16], y: [0, 0.5] }, draw: (p) => <Path d="M20 6 9 17l-5-5" {...p} /> }],
-  },
+  /**
+   * A message cleared: the envelope lifts, its fold draws itself in, and a tick
+   * is written in its corner and lands with a pop.
+   *
+   * The reference library's `MailCheckIcon`, paths exactly, and the sibling of
+   * `mark-spam`'s envelope — the same fold, the same technique, since its
+   * `pathLength` draw has to be transforms here too (see `mark-spam`). The tick
+   * is split at its corner so the pen writes the short stroke, then the long.
+   *
+   * A `play` glyph: it ends as it began, the whole mark, so the pane at rest
+   * already says "not spam".
+   */
+  'mark-not-spam': checkMail(),
 
   /**
    * The envelope opening, and closing again — the two states this action flips
