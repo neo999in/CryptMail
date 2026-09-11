@@ -145,9 +145,9 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
             with something to merge — one account is already all of them.
 
             It does not change which account is *active*: composing, sending and
-            decrypting still use one identity, and the bar says which. That is
-            why the mailbox in front keeps a ring here even while Home is lit —
-            two different questions, answered at once. */}
+            decrypting still use one identity. The rail does not mark it while
+            merged — compose shows the account it sends from, which is where
+            that question is actually asked. */}
         {accounts.length > 1 ? (
           <>
             <Pressable
@@ -218,10 +218,6 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               <View
                 style={[
                   (stale || paused) && s.railStale,
-                  // Merged, but still the identity everything is composed and
-                  // decrypted with. A ring rather than the filled tint: it is
-                  // the subordinate of the two answers on screen.
-                  active && unified && { borderColor: accent, ...s.railIdentity },
                 ]}
               >
                 <Avatar
@@ -270,13 +266,11 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
               swatches already taught this codebase what that costs.
 
               Merging is still a reading convenience only — composing, sending
-              and decrypting stay bound to whichever account the rail has in
-              front — but this is not where that is said. The rail beside this
-              rings the active account in the accent for precisely the merged
-              case, and that is now the only place it is stated: an address
-              spelled out under this title, and again under the mail bar's,
-              was a fact that changes about once a session taking a permanent
-              line on two screens. */}
+              and decrypting stay bound to the active account — but this is not
+              where that is said. Compose shows the account it sends from: an
+              address spelled out under this title, and again under the mail
+              bar's, was a fact that changes about once a session taking a
+              permanent line on two screens. */}
           <View style={s.panelHead}>
             <Text numberOfLines={1} style={s.panelTitle}>
               {unified ? 'All Accounts' : (activeRef ? accountLabel(activeRef) : (session?.email ?? 'Mailbox'))}
@@ -394,7 +388,6 @@ const s = StyleSheet.create({
     marginVertical: space.xs,
     width: 28,
   },
-  railIdentity: { borderRadius: radius.pill, borderWidth: 2 },
   railItem: { borderRadius: radius.pill, padding: 5 },
   railFlag: {
     alignItems: 'center',

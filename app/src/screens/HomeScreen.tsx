@@ -198,9 +198,9 @@ export function HomeScreen(props: HomeProps) {
         title={category ? CATEGORY_LABELS[category] : (TITLES[destination] ?? 'Inbox')}
         // No second line at all. A merged inbox still composes, sends and
         // decrypts as exactly one account, and a switch still takes a moment —
-        // but the drawer rail rings the active mailbox and the leading avatar
-        // here wears its face, so both were already answered in the one place
-        // you look to change them. What the subtitle added was a line under
+        // but the leading avatar here wears the active mailbox's face and
+        // compose shows the account it sends from, so both were already
+        // answered where they matter. What the subtitle added was a line under
         // the title that appeared and vanished, moving the list under it.
         leading={
           // The account avatar is the drawer handle, as in the reference — the
