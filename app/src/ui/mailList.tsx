@@ -147,7 +147,7 @@ export function ComposeFab({ onPress, bottom }: { onPress: () => void; bottom: n
         onPressOut={() => setPressed(false)}
         style={s.fabPress}
       >
-        <Icon name="edit" size={17} color={color.ground} strokeWidth={2.2} />
+        <Icon name="edit" size={22} color={color.ground} strokeWidth={2.2} />
         <Text style={s.fabLabel}>Compose</Text>
       </Pressable>
     </MotiView>
