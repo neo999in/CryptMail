@@ -60,14 +60,19 @@ export async function isStoredPlaintext(storeKey: string): Promise<boolean> {
  * no-op on an install that is already sealed.
  */
 export async function resealPlaintext(storeKeys: string[]): Promise<string[]> {
-  const upgraded: string[] = [];
-  for (const storeKey of storeKeys) {
-    const stored = await getAsyncItemMigrating(storeKey);
-    if (stored === null || isSealed(stored)) continue;
-    await AsyncStorage.setItem(storeKey, seal(stored));
-    upgraded.push(storeKey);
-  }
-  return upgraded;
+  // Every key at once: this runs before anything else on every launch, and on
+  // an install that is already sealed it is nothing but reads — twelve of them
+  // in sequence was twelve storage round trips ahead of the first screen. Each
+  // key is its own value, so none of them waits on another.
+  const results = await Promise.all(
+    storeKeys.map(async (storeKey) => {
+      const stored = await getAsyncItemMigrating(storeKey);
+      if (stored === null || isSealed(stored)) return null;
+      await AsyncStorage.setItem(storeKey, seal(stored));
+      return storeKey;
+    }),
+  );
+  return results.filter((key): key is string => key !== null);
 }
 
 /**

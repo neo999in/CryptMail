@@ -76,8 +76,6 @@ export function createSession(ctx: Ctx): SessionService {
   async function load(session: Session, account: AccountId): Promise<Attached> {
     mail.current = clientFor(session, account);
 
-    const identity = await core.loadIdentity(session.email);
-
     // The keyring starts empty and fills from what the mailbox actually
     // carries — Autocrypt headers on inbound mail, directory lookups, and keys
     // the user pastes in. It used to be seeded with three fabricated contacts
@@ -85,19 +83,36 @@ export function createSession(ctx: Ctx): SessionService {
     // fixture mailbox gone there is nothing for those keys to be attached to,
     // and inventing a "verified" contact the user never verified was always
     // the wrong thing to put in a keyring.
-    const keyring = await loadKeyring(account);
+    //
+    // All at once, not one after another: this stands between launch and the
+    // first sync, and each read is its own key under this account, so none of
+    // them waits on another. Awaited in sequence it was ten storage round trips
+    // — plus a decrypt each — before the inbox was even asked for.
+    const [identity, keyring, recovery, publish, invites, searchIndex, drafts, scheduled, spam, snoozed] =
+      await Promise.all([
+        core.loadIdentity(session.email),
+        loadKeyring(account),
+        loadRecoveryState(account),
+        loadPublishState(account),
+        loadInvites(account),
+        loadSearchIndex(account),
+        loadDrafts(account),
+        loadOutbox(account),
+        loadSpamState(account),
+        loadSnoozes(account),
+      ]);
 
     return {
       identity,
-      recovery: await loadRecoveryState(account),
-      publish: await loadPublishState(account),
-      invites: await loadInvites(account),
+      recovery,
+      publish,
+      invites,
       keyring,
-      searchIndex: await loadSearchIndex(account),
-      drafts: await loadDrafts(account),
-      scheduled: await loadOutbox(account),
-      spam: await loadSpamState(account),
-      snoozed: await loadSnoozes(account),
+      searchIndex,
+      drafts,
+      scheduled,
+      spam,
+      snoozed,
       verifyLink: null,
     };
   }
