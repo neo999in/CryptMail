@@ -14,7 +14,7 @@ import { SpaceGrotesk_500Medium, SpaceGrotesk_700Bold } from '@expo-google-fonts
 import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -38,7 +38,7 @@ import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
-import { AppearanceProvider } from './src/ui/appearance';
+import { AppearanceProvider, useAccent } from './src/ui/appearance';
 import { MailPrefsProvider } from './src/ui/mailPrefs';
 import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
@@ -164,7 +164,8 @@ function FullStack() {
 }
 
 function Root() {
-  const { booting, session, identity } = useApp();
+  const { booting, session, identity, addingAccount } = useApp();
+  const accent = useAccent();
   // Opened by a signed-in account with no key on this device, and closed by the
   // setup screen itself — not by `identity` becoming non-null, which happens
   // half way through and would unmount the screen before it has asked about
@@ -180,7 +181,10 @@ function Root() {
   }
 
   if (!session) return <ConnectScreen />;
-  if (setupOpen) return <SetupScreen onDone={() => setSetupOpen(false)} />;
+  // `!identity` as well as the flag: the effect above only runs after a render,
+  // which left one frame of the previous mailbox's inbox between an added
+  // account attaching and its setup screen.
+  if (setupOpen || !identity) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
     <DestinationProvider>
@@ -192,9 +196,30 @@ function Root() {
           <FullStack />
         </NavigationContainer>
       </ChromeProvider>
+      {/* Over the navigator rather than instead of it, so a mailbox that
+          already has a key lands back where the add was started. First sign-in
+          never gets here — the connect screen has its own spinner. */}
+      {addingAccount ? (
+        <View accessibilityLabel="Adding account" accessibilityRole="progressbar" style={s.adding}>
+          <ActivityIndicator color={accent} size="large" />
+        </View>
+      ) : null}
     </DestinationProvider>
   );
 }
+
+const s = StyleSheet.create({
+  adding: {
+    alignItems: 'center',
+    backgroundColor: color.ground,
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+});
 
 export default function App() {
   // Paint the web page canvas dark so any gutter/overscroll never flashes white.

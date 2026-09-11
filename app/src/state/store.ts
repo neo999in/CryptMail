@@ -44,6 +44,7 @@ export function initialState(): State {
     unified: false,
     needsReauth: [],
     switchingAccount: false,
+    addingAccount: false,
     identity: null,
     recovery: { backedUpAt: null, fingerprint: null },
     publish: { status: 'unpublished', fingerprint: null, updatedAt: null },

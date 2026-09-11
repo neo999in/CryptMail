@@ -148,6 +148,8 @@ export type State = {
   needsReauth: AccountId[];
   /** True while a switch is loading the other account's stores. */
   switchingAccount: boolean;
+  /** True from the sign-in picker opening until the new mailbox is attached. */
+  addingAccount: boolean;
   identity: Identity | null;
   /** Whether this device's key has ever been backed up. Drives the Keys warning. */
   recovery: RecoveryState;

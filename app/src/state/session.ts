@@ -257,11 +257,18 @@ export function createSession(ctx: Ctx): SessionService {
      * connected behind it.
      */
     async signIn(provider) {
-      store.patch({ error: null });
-      const session = await auth.signIn(provider);
-      // The patch lands in the store synchronously, so the refresh below — and
-      // the Autocrypt harvest it triggers — already knows whose mailbox this is.
-      await service.attach(session);
+      // Held from the picker opening until the new mailbox is attached, so the
+      // app shows a loader rather than the previous mailbox's inbox meanwhile —
+      // and cleared either way, since a cancelled picker must not leave it up.
+      store.patch({ error: null, addingAccount: true });
+      try {
+        const session = await auth.signIn(provider);
+        // The patch lands in the store synchronously, so the refresh below — and
+        // the Autocrypt harvest it triggers — already knows whose mailbox this is.
+        await service.attach(session);
+      } finally {
+        store.patch({ addingAccount: false });
+      }
       await ctx.services.mailbox.refreshInbox();
     },
 

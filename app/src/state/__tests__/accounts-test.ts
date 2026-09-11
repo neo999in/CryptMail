@@ -995,3 +995,42 @@ describe('exporting a mailbox', () => {
     await expect(h.services.accounts.exportMailbox(TWO)).rejects.toThrow(/not syncing/i);
   });
 });
+
+/**
+ * The loader shown while a mailbox is being added. It has to be up for the
+ * whole wait on the provider's picker, and down again whichever way that ends —
+ * a cancelled picker that left it spinning would lock the app behind it.
+ */
+describe('adding a mailbox', () => {
+  it('holds addingAccount from the picker until the new mailbox is attached', async () => {
+    const h = harness();
+    await h.services.session.boot(() => false);
+    await h.services.session.signIn();
+
+    const seen: boolean[] = [];
+    const real = auth.signIn.bind(auth);
+    const spy = jest.spyOn(auth, 'signIn').mockImplementationOnce(async (provider) => {
+      seen.push(h.get().addingAccount);
+      return real(provider);
+    });
+    await h.services.accounts.addAccount();
+    spy.mockRestore();
+
+    expect(seen).toEqual([true]);
+    expect(h.get().addingAccount).toBe(false);
+    expect(h.get().activeAccount).toBe(TWO);
+  });
+
+  it('clears it when the picker is cancelled, leaving the first mailbox in front', async () => {
+    const h = harness();
+    await h.services.session.boot(() => false);
+    await h.services.session.signIn();
+    const spy = jest.spyOn(auth, 'signIn').mockRejectedValueOnce(new Error('Sign-in cancelled.'));
+
+    await expect(h.services.accounts.addAccount()).rejects.toThrow(/cancelled/);
+    spy.mockRestore();
+
+    expect(h.get().addingAccount).toBe(false);
+    expect(h.get().activeAccount).toBe(ONE);
+  });
+});
