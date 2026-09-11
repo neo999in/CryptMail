@@ -132,6 +132,15 @@ export function swipeInk(tone: SwipeTone, hue: string): { rest: string; armed: s
   return { rest: hue, armed: readableOn(hue) };
 }
 
+/** A 6-digit hex at this alpha over `#000000`, as the opaque colour it shows. */
+function onBlack(hex: string, alpha: number): string {
+  const channel = (i: number) =>
+    Math.round(parseInt(hex.slice(i, i + 2), 16) * alpha)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
+
 /* ------------------------------------------------------------------ pane ---- */
 
 /**
@@ -185,6 +194,11 @@ export function SwipeActionPane({
   // The armed fill is the colour itself, opaque: the true-black ground must not
   // show through the state that means "this is about to happen".
   const full = hue;
+  // What the eye actually sees through the wash: the pane is drawn over the
+  // true-black ground, so the translucent fill resolves to the colour scaled by
+  // its alpha. A glyph's solid parts are filled with this, and a translucent
+  // fill there would let the lines behind them show straight through.
+  const washOnGround = onBlack(hue, SWIPE_REST_ALPHA);
   const toRight = direction === 'right';
   const ink = swipeInk(visual.tone, hue);
   const glyph = hasGlyph(visual.operation);
@@ -329,10 +343,10 @@ export function SwipeActionPane({
         {glyph ? (
           <View>
             <Animated.View style={lightGlyph}>
-              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.rest} strokeWidth={2} />
+              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.rest} ground={washOnGround} strokeWidth={2} />
             </Animated.View>
             <Animated.View style={[StyleSheet.absoluteFill, darkGlyph]}>
-              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.armed} strokeWidth={2.3} />
+              <SwipeGlyph operation={visual.operation} armed={armed} color={ink.armed} ground={full} strokeWidth={2.3} />
             </Animated.View>
           </View>
         ) : null}

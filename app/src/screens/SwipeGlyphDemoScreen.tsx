@@ -180,7 +180,14 @@ export function SwipeGlyphDemoScreen({ navigation }: Props) {
           {OPERATIONS.map((operation) => (
             <View key={operation} style={s.cell}>
               <View style={s.stage}>
-                <SwipeGlyph armed={armed} color={color.ink} operation={operation} size={44} strokeWidth={1.7} />
+                <SwipeGlyph
+                  armed={armed}
+                  color={color.ink}
+                  ground={color.surface}
+                  operation={operation}
+                  size={44}
+                  strokeWidth={1.7}
+                />
               </View>
               <Text style={s.cellLabel}>{swipeVisual(operation).label}</Text>
               {/* Which way this one is driven, because the two read completely

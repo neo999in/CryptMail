@@ -58,11 +58,12 @@
  * ## Geometry
  *
  * The app's own (`ui/Icon.tsx`) except where an icon was handed over
- * specifically — `archive` and `trash` are the reference library's, path for
- * path. The cost is real and worth stating: those two now differ slightly from
- * the same-named glyphs the message screen's toolbar and the drawer draw. A
- * third exception should mean moving the whole set over rather than keeping two
- * of everything.
+ * specifically — `archive`, `trash`, the two envelopes (`mark-read`,
+ * `mark-unread`), `mark-spam` and `snooze` are the reference libraries',
+ * path for path. The cost is real and worth stating: those now differ slightly
+ * from the same-named glyphs the message screen's toolbar and the drawer draw.
+ * Five exceptions is well past the point at which moving the whole set over
+ * beats keeping two of everything. That move is owed.
  */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -94,6 +95,14 @@ type Track = {
   x?: number[];
   y?: number[];
   rotate?: number[];
+  /**
+   * A turn *out of* the screen, about a horizontal line through `origin` —
+   * with perspective, so the edge that swings towards the reader grows as it
+   * comes. That growth is the whole reason it exists: a flap folded with
+   * `scaleY` has no depth, and a fold with no depth reads as the far side of
+   * the object opening away from you. Positive brings the lower edge forward.
+   */
+  rotateX?: number[];
   scale?: number[];
   scaleY?: number[];
   opacity?: number[];
@@ -103,6 +112,228 @@ type Track = {
 
 const CENTRE: [number, number] = [12, 12];
 const PAIR = [0, 1];
+/** A track that moves nothing — the `whole` of every glyph that has none. */
+const STILL: Track = {};
+
+/**
+ * The envelope — the reference library's `MailOpenIcon`, with its flap drawn as
+ * a part of its own. The sealed state is not a second drawing: it is this one
+ * with the flap folded down over the front (`scaleY` −1 about the hinge), plus
+ * the top edge the hinge becomes once it is closed.
+ */
+/** The walls and floor — the part that is the same open or sealed. */
+const MAIL_BODY = 'M22 10v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10';
+/** The open envelope's lips: the short turn-in at the top of each wall. */
+const MAIL_LIPS = 'M21.2 8.4c.5.38.8.97.8 1.6M2 10a2 2 0 0 1 .8-1.6';
+const MAIL_FOLD = 'm22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10';
+const MAIL_FLAP = 'M2.8 8.4 10.8 2.4a2 2 0 0 1 2.4 0L21.2 8.4';
+/**
+ * The sealed top edge, corners and all. Rounded as the `Mail` family rounds
+ * its corners — as round as the 1.6 between the top and the walls allows —
+ * where the open envelope's lips turn in only a little; a straight edge meeting
+ * those read as square corners on the sealed envelope. The lips and this are
+ * cut over together, never drawn at once, so the corner is never doubled.
+ */
+const MAIL_HINGE = 'M2 10a1.6 1.6 0 0 1 1.6-1.6h16.8a1.6 1.6 0 0 1 1.6 1.6';
+const MAIL_HINGE_Y: [number, number] = [12, 8.4];
+/**
+ * How far the sealed envelope sits above the open one. Sealed, the drawing
+ * spans 8.4–22; open, 2.4–22. Without the lift the sealed state would sit low
+ * in its box, and opening would look like it grew upwards off a shelf.
+ */
+const MAIL_LIFT = -3;
+/**
+ * How far the folded-down flap drops to lie on the inner fold when sealed.
+ * Hung from the hinge it would put the V's corners in the top corners and its
+ * point high; on the fold, the V starts partway down the walls and points a
+ * little past the middle — the proportion `mark-spam`'s envelope has, so the
+ * two envelopes in the same set read as the same envelope.
+ */
+const MAIL_FLAP_DROP = 2.6;
+/**
+ * The sealed V's proportions, to match a sealed envelope's (the `Mail` icon's):
+ * corners about a fifth of the way down the walls, point just past the middle.
+ * This body is squatter than that icon's, so moving the V down alone would put
+ * its point too low — it is made shallower as well. Sealed, the flap is drawn
+ * at this fraction of its length, and the fold under it is moved down and
+ * flattened to lie on it, so the two stay one V.
+ */
+const MAIL_SEALED_FLAP = 0.8;
+const MAIL_FOLD_DROP = 1;
+const MAIL_SEALED_FOLD = 0.84;
+/** The fold's corners, which it flattens towards. */
+const MAIL_FOLD_TOP: [number, number] = [12, 10];
+
+/**
+ * The reference's ease — `cubic-bezier(0.34, 1.4, 0.64, 1)`, a back-out that
+ * overshoots and settles — as the classic back-out polynomial it approximates.
+ */
+function backOut(t: number, overshoot = 1.70158): number {
+  const u = t - 1;
+  return 1 + (overshoot + 1) * u ** 3 + overshoot * u ** 2;
+}
+
+/** `cubic-bezier(0.16, 1, 0.3, 1)` — a fast start that settles long — as the
+ *  exponential ease-out it approximates. */
+function expoOut(t: number): number {
+  return t >= 1 ? 1 : 1 - 2 ** (-10 * t);
+}
+
+/**
+ * A stroke being written: gone at the very start of the sequence, then grown
+ * back from nothing between `start` and `end` along `ease`, sampled (see
+ * `FLAP_TIMES` for why sampled). Returns the `times` and the values for
+ * whichever scale channel does the growing.
+ *
+ * Never exactly zero — a singular transform is not something to hand the
+ * renderer, and 1% of a stroke is not a visible mark.
+ */
+function reveal(start: number, end: number, ease: (t: number) => number): { times: number[]; values: number[] } {
+  const steps = 10;
+  const times = [0, 0.03];
+  const values = [1, 0.01];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    times.push(start + (end - start) * t);
+    values.push(Math.max(0.01, ease(t)));
+  }
+  times.push(1);
+  values.push(1);
+  return { times, values };
+}
+
+/** The reference library's `MailWarningIcon`, fold split at its point. */
+const WARN_BODY = 'M22 10.5V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h12.5';
+const WARN_FOLD_LEFT = 'M2 7l8.97 5.7a1.94 1.94 0 0 0 1.03.3';
+const WARN_FOLD_RIGHT = 'M22 7l-8.97 5.7a1.94 1.94 0 0 1-1.03.3';
+const WARN_STROKE = 'M20 14v4';
+
+/** `mark-spam` — see its entry in `GLYPHS`. */
+function warningMail(): Glyph {
+  const fold = reveal(0.1, 0.5, expoOut);
+  const stroke = reveal(0.3, 0.6, expoOut);
+  // The reference's dot lands at 1.5× and settles; a back-out with this much
+  // overshoot peaks at about that.
+  const dot = reveal(0.5, 0.85, (t) => backOut(t, 5));
+  return {
+    drive: 'play',
+    durationMs: 900,
+    // Down a touch and squashed, then up and swelled, then home — sampled so
+    // the dip turns into the hop rather than cornering into it.
+    whole: {
+      times: [0, 0.08, 0.16, 0.26, 0.36, 0.46, 0.56, 1],
+      y: [0, 0.4, 0.1, -0.9, -1.2, -0.6, 0, 0],
+      scale: [1, 0.97, 0.99, 1.03, 1.05, 1.02, 1, 1],
+    },
+    parts: [
+      { track: {}, draw: (p) => <Path d={WARN_BODY} {...p} /> },
+      { track: { times: fold.times, scale: fold.values, origin: [2, 7] }, draw: (p) => <Path d={WARN_FOLD_LEFT} {...p} /> },
+      { track: { times: fold.times, scale: fold.values, origin: [22, 7] }, draw: (p) => <Path d={WARN_FOLD_RIGHT} {...p} /> },
+      { track: { times: stroke.times, scaleY: stroke.values, origin: [20, 14] }, draw: (p) => <Path d={WARN_STROKE} {...p} /> },
+      {
+        track: { times: dot.times, scale: dot.values, origin: [20, 22] },
+        ink: true,
+        // The width of the pen, so it reads as the full stop under the stroke.
+        draw: (p) => <Circle cx={20} cy={22} r={1.1} {...p} />,
+      },
+    ],
+  };
+}
+
+/**
+ * The flap's motion, sampled. Segments between keyframes are linear, so an
+ * overshoot written as one keyframe at 1.35 is two straight lines with a
+ * corner at the peak — and a corner is exactly what reads as the icon being
+ * *switched* rather than moving. Thirteen samples of the curve keep every
+ * segment short enough that the path is the curve.
+ */
+const FLAP_TIMES = Array.from({ length: 13 }, (_, i) => i / 12);
+/**
+ * An ease-in-out, with no overshoot. The reference overshoots, and every
+ * version of that tried here read as the flap *stretching*: a hold glyph runs
+ * its keyframes backwards on release, so the overshoot comes back at the start
+ * of the close — the flap grew taller before folding, and landing sealed it
+ * dug a V past the envelope's front.
+ */
+const FLAP_CURVE = FLAP_TIMES.map((t) => (1 - Math.cos(Math.PI * t)) / 2);
+
+/** The flap's angle at each sample, in radians: −π folded down, 0 upright. */
+const FLAP_ANGLES = (opening: boolean) => FLAP_CURVE.map((f) => -Math.PI * (opening ? 1 - f : f));
+
+/** How much wider the flap is drawn at this angle — most when edge-on, where a
+ *  flap swinging towards the reader is nearest. 10% is enough to say "in
+ *  front"; more starts to look like the flap itself is growing. */
+const flapWidth = (angle: number) => 1 + 0.1 * Math.abs(Math.sin(angle));
+
+/** The whole envelope, going sealed → open (`opening`) or open → sealed. */
+function envelope(opening: boolean): Glyph {
+  // Where the lift is at each sample — linear, so only the flap overshoots.
+  const lift = (t: number) => MAIL_LIFT * (opening ? 1 - t : t);
+  // How sealed the flap is at each sample, 1 → 0 when opening — the drop onto
+  // the fold follows the flap's own ease, so the V never slides on its own.
+  const sealedness = FLAP_CURVE.map((f) => (opening ? 1 - f : f));
+  return {
+    drive: 'hold',
+    parts: [
+      { track: { y: [lift(0), lift(1)] }, draw: (p) => <Path d={MAIL_BODY} {...p} /> },
+      {
+        // The lips show only while open — the counterpart of the top edge
+        // below, cut over on the same frame.
+        track: {
+          times: [0, 0.5, 0.501, 1],
+          y: [0, 0.5, 0.501, 1].map(lift),
+          opacity: opening ? [0, 0, 1, 1] : [1, 1, 0, 0],
+        },
+        draw: (p) => <Path d={MAIL_LIPS} {...p} />,
+      },
+      {
+        // The inner fold never leaves and never moves on the envelope: it is
+        // the one line that is the envelope in both states, so it is the thing
+        // that says this is one object throughout. Sealed, the flap lies on it.
+        track: {
+          times: FLAP_TIMES,
+          y: FLAP_TIMES.map((t, i) => lift(t) + MAIL_FOLD_DROP * sealedness[i]),
+          scaleY: sealedness.map((s) => 1 - (1 - MAIL_SEALED_FOLD) * s),
+          origin: MAIL_FOLD_TOP,
+        },
+        draw: (p) => <Path d={MAIL_FOLD} {...p} />,
+      },
+      {
+        // The top edge, along the hinge: there while the flap is down, gone
+        // once it is up, as the reference's open envelope has none. It is cut,
+        // never faded — a half-transparent line mid-motion read as a smudge —
+        // and the cut falls on the frame the flap is edge-on over it, halfway
+        // (`FLAP_CURVE` is symmetric), where the eye is on the flap.
+        track: {
+          times: [0, 0.5, 0.501, 1],
+          y: [0, 0.5, 0.501, 1].map(lift),
+          opacity: opening ? [1, 1, 0, 0] : [0, 0, 1, 1],
+        },
+        draw: (p) => <Path d={MAIL_HINGE} {...p} />,
+      },
+      {
+        track: {
+          times: FLAP_TIMES,
+          y: FLAP_TIMES.map((t, i) => lift(t) + MAIL_FLAP_DROP * sealedness[i]),
+          // Folded down (−180°) to upright (0°), drawn as the projection of a
+          // flap turning towards the reader rather than as a real `rotateX`:
+          // its height is the cosine of the angle, and it widens a little as
+          // it passes edge-on, the way a nearer thing is larger. A real turn
+          // with perspective was tried, and Android's camera exaggerates it
+          // wildly at glyph size — the flap ballooned into a spike taller than
+          // the envelope as it came edge-on. A flat flip with no widening at
+          // all reads as the envelope opening from behind.
+          scale: FLAP_ANGLES(opening).map(flapWidth),
+          scaleY: FLAP_ANGLES(opening).map(
+            (a, i) => (Math.cos(a) * (1 - (1 - MAIL_SEALED_FLAP) * sealedness[i])) / flapWidth(a),
+          ),
+          origin: MAIL_HINGE_Y,
+        },
+        draw: (p) => <Path d={MAIL_FLAP} {...p} />,
+      },
+    ],
+  };
+}
 
 /**
  * One part of a glyph: what it draws, and how it moves.
@@ -111,13 +342,36 @@ const PAIR = [0, 1];
  * renders the same glyph twice in two inks and cross-fades them, since an SVG's
  * `stroke` is a prop rather than a style and recolouring it would mean a render.
  */
-type Part = { track: Track; draw: (p: object) => React.ReactNode };
+type Part = {
+  track: Track;
+  /**
+   * Filled with the colour the glyph sits on, so it hides what is drawn before
+   * it. Stroke-only drawing has no front and back — every line shows through
+   * every other — and a letter that is visibly *in front of* the envelope, or a
+   * message that visibly goes *behind* the box's front, needs something to be
+   * opaque. With no `ground` given the fill is none and this does nothing.
+   */
+  solid?: boolean;
+  /**
+   * Filled with the ink and not stroked — a dot. A stroke-only circle small
+   * enough to be a dot was the first try, relying on the pen's width to close
+   * its middle, and Android draws that as a tiny ring.
+   */
+  ink?: boolean;
+  draw: (p: object) => React.ReactNode;
+};
 
 type Glyph = {
   /** See the header: hold an armed pose, or play a sequence through once. */
   drive: 'hold' | 'play';
   /** `play` only — how long the sequence takes. */
   durationMs?: number;
+  /**
+   * A motion of the whole icon at once, on top of each part's own. A part's
+   * scale has one origin, so an icon that hops as a unit while one of its
+   * strokes grows from its own corner cannot say both in that part's track.
+   */
+  whole?: Track;
   parts: Part[];
 };
 
@@ -134,17 +388,49 @@ type Glyph = {
  */
 const GLYPHS: Partial<Record<SwipeOperation, Glyph>> = {
   /**
-   * The lid lifts off a box that settles under it — the message going in.
+   * The message going into the box — a **sequence**, like trash. The lid swings
+   * open on its left hinge, a message drops in through the gap, the box takes
+   * the weight with a short dip, and the lid closes over it.
    *
-   * The reference library's `ArchiveBoxIcon`: paths and both variants exactly
-   * (lid −1.5, every other stroke +1). The lid is drawn last so it sits over the
-   * box it lifts away from.
+   * The paths are the reference library's `ArchiveBoxIcon`; its variants (lid
+   * −1.5, every other stroke +1) are not. At the pane's 22pt size those came to
+   * about one point of travel, which on a device reads as a flicker rather than
+   * as motion — the thing being depicted was simply too small to see. The
+   * message sheet is ours, and is what makes it read as *archiving* rather than
+   * as a box opening.
+   *
+   * The lid opens *towards* the reader, hinged along its back edge, so it is
+   * the box's front that comes up rather than a lid falling away behind it.
+   *
+   * Message first, then the box's solid silhouette, then its strokes, then the
+   * lid: the sheet falls *into* the box — hidden by its front as it goes in —
+   * rather than being drawn across it.
    */
   archive: {
-    drive: 'hold',
+    drive: 'play',
+    durationMs: 900,
     parts: [
       {
-        track: { y: [0, 1] },
+        // Falls from above the box while the lid is up, and goes in *behind*
+        // the box's front — the backing below is what hides it.
+        track: { times: [0, 0.15, 0.55, 0.7, 1], y: [-12, -12, 0, 0, 0], opacity: [0, 1, 1, 0, 0] },
+        draw: (p) => <Rect x={8} y={12.5} width={8} height={5} rx={1} {...p} />,
+      },
+      {
+        // The box's silhouette, filled and unstroked: the front the message
+        // disappears behind. It moves with the box.
+        track: { times: [0, 0.55, 0.72, 1], y: [0, 0, 1.5, 0] },
+        solid: true,
+        draw: (p) => (
+          <Path
+            d="M3.75 7.5L4.37542 18.1321C4.44538 19.3214 5.43022 20.25 6.62154 20.25H17.3785C18.5698 20.25 19.5546 19.3214 19.6246 18.1321L20.25 7.5Z"
+            {...p}
+            stroke="none"
+          />
+        ),
+      },
+      {
+        track: { times: [0, 0.55, 0.72, 1], y: [0, 0, 1.5, 0] },
         draw: (p) => (
           <Path
             d="M19.6246 18.1321C19.5546 19.3214 18.5698 20.25 17.3785 20.25H6.62154C5.43022 20.25 4.44538 19.3214 4.37542 18.1321"
@@ -152,11 +438,27 @@ const GLYPHS: Partial<Record<SwipeOperation, Glyph>> = {
           />
         ),
       },
-      { track: { y: [0, 1] }, draw: (p) => <Path d="M20.25 7.5L19.6246 18.1321" {...p} /> },
-      { track: { y: [0, 1] }, draw: (p) => <Path d="M3.75 7.5L4.37542 18.1321" {...p} /> },
-      { track: { y: [0, 1] }, draw: (p) => <Path d="M9.99976 11.25H13.9998" {...p} /> },
       {
-        track: { y: [0, -1.5] },
+        track: { times: [0, 0.55, 0.72, 1], y: [0, 0, 1.5, 0] },
+        draw: (p) => <Path d="M20.25 7.5L19.6246 18.1321" {...p} />,
+      },
+      {
+        track: { times: [0, 0.55, 0.72, 1], y: [0, 0, 1.5, 0] },
+        draw: (p) => <Path d="M3.75 7.5L4.37542 18.1321" {...p} />,
+      },
+      {
+        track: { times: [0, 0.55, 0.72, 1], y: [0, 0, 1.5, 0] },
+        draw: (p) => <Path d="M9.99976 11.25H13.9998" {...p} />,
+      },
+      {
+        // Hinged along its back edge, so its front edge swings up and towards
+        // the reader — past edge-on, showing a sliver of its underside.
+        track: {
+          times: [0, 0.2, 0.6, 0.8, 1],
+          y: [0, -1, -1, 0, 0],
+          rotateX: [0, 115, 115, 0, 0],
+          origin: [12, 3.75],
+        },
         draw: (p) => (
           <Path
             d="M3.375 7.5H20.625C21.2463 7.5 21.75 6.99632 21.75 6.375V4.875C21.75 4.25368 21.2463 3.75 20.625 3.75H3.375C2.75368 3.75 2.25 4.25368 2.25 4.875V6.375C2.25 6.99632 2.75368 7.5 3.375 7.5Z"
@@ -225,23 +527,32 @@ const GLYPHS: Partial<Record<SwipeOperation, Glyph>> = {
     ],
   },
 
-  // The badge presses into the folder: the mark being applied to it.
-  'mark-spam': {
-    drive: 'hold',
-    parts: [
-      { track: { x: [0, -1], y: [0, -0.5] }, draw: (p) => <Path d="M3 7V6a2 2 0 0 1 2-2h3.5l2 2H15" {...p} /> },
-      { track: { x: [0, -1], y: [0, -0.5] }, draw: (p) => <Path d="M3 9h9" {...p} /> },
-      { track: { x: [0, -1], y: [0, -0.5] }, draw: (p) => <Path d="M3 9v9a2 2 0 0 0 2 2h8" {...p} /> },
-      {
-        track: { scale: [1, 1.14], origin: [17.5, 15.5] },
-        draw: (p) => <Circle cx={17.5} cy={15.5} r={4.5} {...p} />,
-      },
-      {
-        track: { scale: [1, 1.14], origin: [17.5, 15.5] },
-        draw: (p) => <Path d="m14.3 18.7 6.4-6.4" {...p} />,
-      },
-    ],
-  },
+  /**
+   * A message being flagged: the envelope takes a breath and hops, its fold
+   * draws itself in, and the warning mark is written beside it — the stroke,
+   * then the dot, which lands with a pop.
+   *
+   * The reference library's `MailWarningIcon`, paths exactly. Its motion is
+   * rebuilt rather than transferred, and improved on where a swipe pane asks
+   * for it:
+   *
+   *  - It "draws" with `pathLength`, an SVG prop, which Fabric does not apply
+   *    per frame (see the header). The same reading comes from transforms: the
+   *    fold is split at its point and each half grows out of its own corner, so
+   *    the V closes inwards the way a pen would make it, and the stroke of the
+   *    mark grows down from its top.
+   *  - Its lift is a flat 4% scale. Here the envelope dips first and then
+   *    hops — anticipation, then release — which is what makes the flag read as
+   *    something *happening* to the message rather than an icon breathing.
+   *  - Its dot blinks its opacity after landing. At 22pt on a coloured block
+   *    that reads as a flicker, so the pop's overshoot carries it alone.
+   *
+   * A `play` glyph, like trash: it ends as it began, the full warning mark, so
+   * the pane at rest already says "spam". Every stroke is drawn at rest; the
+   * sequence takes them away for an instant and writes them back, as the
+   * reference does on hover.
+   */
+  'mark-spam': warningMail(),
 
   // A single stroke, so the motion is the whole of it: the tick lands.
   'mark-not-spam': {
@@ -249,30 +560,45 @@ const GLYPHS: Partial<Record<SwipeOperation, Glyph>> = {
     parts: [{ track: { scale: [1, 1.16], y: [0, 0.5] }, draw: (p) => <Path d="M20 6 9 17l-5-5" {...p} /> }],
   },
 
-  // The flap folds down onto a closed envelope, and lifts off an opened one —
-  // the two states this action flips between, drawn.
-  'mark-read': {
-    drive: 'hold',
-    parts: [
-      { track: {}, draw: (p) => <Rect x={3} y={5} width={18} height={14} rx={2} {...p} /> },
-      { track: { y: [0, 1.5] }, draw: (p) => <Path d="m3 7 9 6 9-6" {...p} /> },
-    ],
-  },
-  'mark-unread': {
-    drive: 'hold',
-    parts: [
-      { track: {}, draw: (p) => <Rect x={3} y={5} width={18} height={14} rx={2} {...p} /> },
-      { track: { y: [0, -1.5] }, draw: (p) => <Path d="m3 7 9 6 9-6" {...p} /> },
-    ],
-  },
+  /**
+   * The envelope opening, and closing again — the two states this action flips
+   * between, acted out rather than nudged.
+   *
+   * **One envelope, not two drawings.** The open state is the reference
+   * library's `MailOpenIcon`, and the sealed state is the same drawing with its
+   * flap folded down over the front. So opening is the flap swinging up over
+   * its hinge — towards the reader — and nothing else. A cross-fade between a
+   * sealed and an open icon was tried first, and read as the icon being
+   * swapped; a flat flip read as the envelope opening from behind; a real 3D
+   * turn ballooned on Android. What is left is a flat flip that widens as it
+   * passes edge-on, which is the cue the 3D turn was there to give.
+   *
+   * The flap's travel is an ease-in-out with no overshoot (`FLAP_CURVE` says
+   * why the reference's overshoot was dropped). The whole envelope rises as it
+   * opens, because an open envelope is taller than a sealed one.
+   *
+   * Read goes sealed → open; unread is the film backwards. So each rest pose
+   * is the state the message is *in*.
+   */
+  'mark-read': envelope(true),
+  'mark-unread': envelope(false),
 
-  // The face holds still and the hands move on, which is the only part of a
-  // clock that ever does.
+  /**
+   * Time moving on: the minute hand sweeps a full turn while the hour hand
+   * steps forward one hour — the face holds still, as a clock's does.
+   *
+   * The reference library's clock, paths and motion exactly: minute hand
+   * +360°, hour hand +30°, both about the centre. Its hour hand finishes a
+   * little sooner (0.5s against 0.6s), which is the 0.83 stop. A full turn
+   * ends where it began, so the armed pose looks like the rest pose; the sweep
+   * is the whole of it, and it runs back on a pull that is let go.
+   */
   snooze: {
     drive: 'hold',
     parts: [
-      { track: {}, draw: (p) => <Circle cx={12} cy={12} r={9} {...p} /> },
-      { track: { rotate: [0, 40] }, draw: (p) => <Path d="M12 7.5V12l3 2" {...p} /> },
+      { track: {}, draw: (p) => <Circle cx={12} cy={12} r={10} {...p} /> },
+      { track: { rotate: [0, 360] }, draw: (p) => <Path d="M12 6v6" {...p} /> },
+      { track: { times: [0, 0.83, 1], rotate: [0, 30, 30] }, draw: (p) => <Path d="M12 12l4 2" {...p} /> },
     ],
   },
 };
@@ -322,34 +648,7 @@ function GlyphPart({
   size: number;
   children: React.ReactNode;
 }) {
-  const times = track.times ?? PAIR;
-  const { x, y, rotate, scale, scaleY, opacity, origin = CENTRE } = track;
-  /** One glyph unit, in points. */
-  const unit = size / 24;
-  const ox = (origin[0] - CENTRE[0]) * unit;
-  const oy = (origin[1] - CENTRE[1]) * unit;
-
-  const style = useAnimatedStyle(() => {
-    const at = (values: number[] | undefined, fallback: number) =>
-      values === undefined ? fallback : interpolate(progress.value, times, values, Extrapolation.CLAMP);
-
-    const s = at(scale, 1);
-    return {
-      opacity: at(opacity, 1),
-      transform: [
-        { translateX: at(x, 0) * unit },
-        { translateY: at(y, 0) * unit },
-        { translateX: ox },
-        { translateY: oy },
-        { rotate: `${at(rotate, 0)}deg` },
-        { scaleX: s },
-        { scaleY: s * at(scaleY, 1) },
-        { translateX: -ox },
-        { translateY: -oy },
-      ],
-    };
-  }, [opacity, ox, oy, progress, rotate, scale, scaleY, times, unit, x, y]);
-
+  const style = useTrackStyle(progress, track, size);
   return (
     <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
       <Svg width={size} height={size} viewBox="0 0 24 24">
@@ -357,6 +656,64 @@ function GlyphPart({
       </Svg>
     </Animated.View>
   );
+}
+
+/** The whole icon, following a glyph's `whole` track, with its parts inside. */
+function GlyphWhole({
+  progress,
+  track,
+  size,
+  children,
+}: {
+  progress: SharedValue<number>;
+  track: Track;
+  size: number;
+  children: React.ReactNode;
+}) {
+  const style = useTrackStyle(progress, track, size);
+  return (
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+/** A track, as the animated style of the view that follows it. */
+function useTrackStyle(progress: SharedValue<number>, track: Track, size: number) {
+  const times = track.times ?? PAIR;
+  const { x, y, rotate, rotateX, scale, scaleY, opacity, origin = CENTRE } = track;
+  /** How far the eye is from the glyph, for `rotateX`. Far: Android's camera
+   *  exaggerates perspective at this size well beyond what the number says,
+   *  and at 2.5× a part turning edge-on ballooned past the glyph's bounds. */
+  const perspective = size * 8;
+  /** One glyph unit, in points. */
+  const unit = size / 24;
+  const ox = (origin[0] - CENTRE[0]) * unit;
+  const oy = (origin[1] - CENTRE[1]) * unit;
+
+  return useAnimatedStyle(() => {
+    const at = (values: number[] | undefined, fallback: number) =>
+      values === undefined ? fallback : interpolate(progress.value, times, values, Extrapolation.CLAMP);
+
+    const s = at(scale, 1);
+    return {
+      opacity: at(opacity, 1),
+      // Perspective has to come first in the list to apply to what follows.
+      transform: [
+        { perspective },
+        { translateX: at(x, 0) * unit },
+        { translateY: at(y, 0) * unit },
+        { translateX: ox },
+        { translateY: oy },
+        { rotate: `${at(rotate, 0)}deg` },
+        { rotateX: `${at(rotateX, 0)}deg` },
+        { scaleX: s },
+        { scaleY: s * at(scaleY, 1) },
+        { translateX: -ox },
+        { translateY: -oy },
+      ],
+    };
+  }, [opacity, ox, oy, perspective, progress, rotate, rotateX, scale, scaleY, times, unit, x, y]);
 }
 
 /**
@@ -369,6 +726,7 @@ export function SwipeGlyph({
   operation,
   armed,
   color,
+  ground,
   size = 22,
   strokeWidth = 2,
 }: {
@@ -376,6 +734,12 @@ export function SwipeGlyph({
   /** 0 at rest, 1 at the end of the motion. Driven by the caller. */
   armed: SharedValue<number>;
   color: string;
+  /**
+   * The opaque colour directly behind the glyph, which `solid` parts fill with
+   * so they hide what is behind them. Must be what is actually painted there —
+   * a translucent wash has to be resolved against its ground first.
+   */
+  ground?: string;
   size?: number;
   strokeWidth?: number;
 }) {
@@ -387,18 +751,22 @@ export function SwipeGlyph({
     strokeWidth,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
-    fill: 'none' as const,
+    fill: 'none',
   };
+  const solid = { ...common, fill: ground ?? 'none' };
+  const inked = { fill: color, stroke: 'none' };
 
   return (
     <View style={{ height: size, width: size }}>
-      {glyph.parts.map((part, i) => (
-        // The index is the key: this list is a constant, and its order is the
-        // drawing order the parts are stacked in.
-        <GlyphPart key={i} progress={armed} size={size} track={part.track}>
-          {part.draw(common)}
-        </GlyphPart>
-      ))}
+      <GlyphWhole progress={armed} size={size} track={glyph.whole ?? STILL}>
+        {glyph.parts.map((part, i) => (
+          // The index is the key: this list is a constant, and its order is the
+          // drawing order the parts are stacked in.
+          <GlyphPart key={i} progress={armed} size={size} track={part.track}>
+            {part.draw(part.ink ? inked : part.solid ? solid : common)}
+          </GlyphPart>
+        ))}
+      </GlyphWhole>
     </View>
   );
 }
