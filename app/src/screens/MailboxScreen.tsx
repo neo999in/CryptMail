@@ -186,9 +186,9 @@ export function MailboxBody({
         padding={rowPadding}
         selfAddress={session?.email}
         onPress={openMail}
-        // The list itself is the context. Archive resolves to nothing in all
-        // three of these — there is no un-archive operation and nothing here to
-        // take out of an inbox — while Delete becomes Restore in Trash
+        // The list itself is the context. Sent swipes to Delete alone and
+        // Archive to Delete and Move to inbox, whatever the preference says;
+        // Trash follows the preference, with Delete becoming Restore
         // (`swipe/swipe.ts`). These lists are the active account's alone, so no
         // row here is ever another mailbox's.
         swipe={{ box, junk: false, category: null, foreign: false }}

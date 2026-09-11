@@ -70,24 +70,47 @@ Adding one later is a case in `resolveSwipe`, an entry in `SWIPE_ACTIONS` and
 
 ## Context
 
-The preference is a preference. It is never rewritten because of where you are —
-the resolver decides what it *means* here, at the moment of the swipe:
+In the inbox (and every category over it except Spam) and in Trash, the
+preference is a preference. It is never rewritten because of where you are —
+the resolver decides what it *means* there, at the moment of the swipe:
 
-| Configured | Inbox (and categories) | Sent | Archive | Trash |
-|---|---|---|---|---|
-| No action | — | — | — | — |
-| Set Up | opens settings | opens settings | opens settings | opens settings |
-| Archive | Archive | — | **Move to inbox** | — |
-| Delete | Delete | Delete | Delete | **Restore** |
-| Mark as spam | Spam / Not spam | — | — | — |
-| Read | toggles | toggles | toggles | toggles |
-| Snooze | Snooze | — | — | — |
+| Configured | Inbox (and categories) | Trash |
+|---|---|---|
+| No action | — | — |
+| Set Up | opens settings | opens settings |
+| Archive | Archive | — |
+| Delete | Delete | **Restore** |
+| Mark as spam | Spam / Not spam | — |
+| Read | toggles | toggles |
+| Snooze | Snooze | — |
 
 A dash is a real answer: **the row does not move at all**, exactly as a side set
-to *No action* does not. Sent and Trash have no INBOX label to remove and are
-not the archive to come back from, so Archive means nothing there — and a row
-that slid away under an "Archived" toast having done nothing would be a lie
-about the mailbox.
+to *No action* does not. Trash has no INBOX label to remove and is not the
+archive to come back from, so Archive means nothing there — and a row that slid
+away under an "Archived" toast having done nothing would be a lie about the
+mailbox.
+
+### Lists with a fixed layout
+
+Sent, Drafts, Archive and Spam do not follow the preference. Most of it means
+nothing there, so instead of leaving sides dead each list gets the two things you
+actually do in it (`resolveSwipePair` / `fixedSwipes` in `swipe.ts`):
+
+| List | Delete side | Other side |
+|---|---|---|
+| Sent | Delete | — |
+| Drafts | Delete (discards the draft; Undo re-saves it) | — |
+| Archive | Delete | **Move to inbox** |
+| Spam (the inbox's Spam category) | Delete | **Not spam** |
+
+**Delete sits wherever the user has configured Delete** — right if only the
+right side is Delete, left if the left side is (left wins if both are) — **and
+on the left if neither is.** The other side is whichever is left over. The preference
+only chooses the side; nothing else about it applies in these lists, and they
+never offer Set Up.
+
+Not spam is still unavailable on another mailbox's row in a merged Spam list,
+for the reason below; Delete is not.
 
 Two actions are also unavailable on **another mailbox's row in a merged inbox**:
 a spam mark trains the active account's model and a snooze is written to the
@@ -238,5 +261,7 @@ the inbox; Delete's longer threshold refusing the
 pull that would already have archived; delete → Trash → swipe → back in the
 inbox; and Archive sitting inert in Trash, where it has nothing to do.
 
-Drafts, Scheduled and Contacts do not swipe: none of them is provider mail, and
-none of these operations means anything there.
+Drafts swipes too, with its fixed Delete layout, through its own card rows
+(`screens/DraftsScreen.tsx`) — it runs `deleteDraft` rather than a mail
+operation, since a draft is not provider mail. Scheduled and Contacts do not
+swipe: none of these operations means anything there.

@@ -18,7 +18,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MailSummary } from '../mail/types';
 import { EncryptionState } from '../state/types';
-import { resolveSwipe, SwipeContext, SwipeVisual, swipeRemovesRow } from '../swipe/swipe';
+import { resolveSwipePair, SwipeContext, SwipeVisual, swipeRemovesRow } from '../swipe/swipe';
 import { color, font, radius, shadow, space, type } from '../theme';
 import { Icon } from './Icon';
 import { OriginRect, useOriginRef } from './expand';
@@ -92,8 +92,12 @@ function MailListRowImpl({
     () => (swipe && onSwipe ? { ...swipe, unread: summary.unread } : null),
     [onSwipe, summary.unread, swipe],
   );
-  const left = React.useMemo(() => (context ? resolveSwipe(swipeLeft, context) : null), [context, swipeLeft]);
-  const right = React.useMemo(() => (context ? resolveSwipe(swipeRight, context) : null), [context, swipeRight]);
+  // Sent, Archive and Spam wear a fixed layout rather than the preference —
+  // see `resolveSwipePair`.
+  const { left, right } = React.useMemo(
+    () => (context ? resolveSwipePair(swipeLeft, swipeRight, context) : { left: null, right: null }),
+    [context, swipeLeft, swipeRight],
+  );
 
   // Held steady for `SwipeableRow`, which builds its gesture from these: a new
   // function on each render is a new gesture on each render.

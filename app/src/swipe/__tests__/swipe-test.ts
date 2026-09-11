@@ -17,7 +17,11 @@
  * two states switched at the line rather than a shade that creeps.
  */
 import {
+  deleteSide,
+  fixedSwipeList,
+  fixedSwipes,
   resolveSwipe,
+  resolveSwipePair,
   SWIPE_ACTION_HINT,
   SWIPE_ACTION_LABEL,
   SWIPE_ACTIONS,
@@ -185,6 +189,65 @@ describe('resolveSwipe — snooze', () => {
   it('does nothing elsewhere, or on another mailbox’s row', () => {
     expect(resolveSwipe('snooze', ctx({ box: 'archive' }))).toBeNull();
     expect(resolveSwipe('snooze', ctx({ foreign: true }))).toBeNull();
+  });
+});
+
+describe('fixed layouts — Sent, Drafts, Archive, Spam', () => {
+  const SPAM = ctx({ category: 'spam', junk: true });
+
+  it('knows which lists wear one, and leaves the inbox and Trash to the preference', () => {
+    expect(fixedSwipeList(ctx({ box: 'sent' }))).toBe('sent');
+    expect(fixedSwipeList(ctx({ box: 'archive' }))).toBe('archive');
+    expect(fixedSwipeList(SPAM)).toBe('spam');
+    expect(fixedSwipeList(INBOX)).toBeNull();
+    expect(fixedSwipeList(ctx({ category: 'bills' }))).toBeNull();
+    expect(fixedSwipeList(ctx({ box: 'trash' }))).toBeNull();
+  });
+
+  it('puts Delete where Delete is configured, and on the left otherwise', () => {
+    expect(deleteSide('trash', 'none')).toBe('left');
+    expect(deleteSide('archive', 'trash')).toBe('right');
+    expect(deleteSide('archive', 'none')).toBe('left');
+    expect(deleteSide('trash', 'trash')).toBe('left');
+  });
+
+  it('gives Sent and Drafts Delete alone', () => {
+    for (const list of ['sent', 'drafts'] as const) {
+      expect(fixedSwipes(list, 'archive', 'none')).toEqual({ left: expect.objectContaining({ operation: 'trash' }), right: null });
+      expect(fixedSwipes(list, 'read', 'trash')).toEqual({ left: null, right: expect.objectContaining({ operation: 'trash' }) });
+    }
+  });
+
+  it('gives Archive Delete and Move to inbox', () => {
+    const pair = resolveSwipePair('archive', 'none', ctx({ box: 'archive' }));
+    expect(pair.left?.operation).toBe('trash');
+    expect(pair.right?.operation).toBe('unarchive');
+    const flipped = resolveSwipePair('archive', 'trash', ctx({ box: 'archive' }));
+    expect(flipped.left?.operation).toBe('unarchive');
+    expect(flipped.right?.operation).toBe('trash');
+  });
+
+  it('gives Spam Delete and Not spam — but not Not spam on another mailbox’s row', () => {
+    const pair = resolveSwipePair('archive', 'none', SPAM);
+    expect(pair.left?.operation).toBe('trash');
+    expect(pair.right?.operation).toBe('mark-not-spam');
+    expect(resolveSwipePair('archive', 'none', { ...SPAM, foreign: true })).toEqual({
+      left: expect.objectContaining({ operation: 'trash' }),
+      right: null,
+    });
+  });
+
+  it('takes the row out of the list either way', () => {
+    expect(swipeRemovesRow('trash', SPAM)).toBe(true);
+    expect(swipeRemovesRow('mark-not-spam', SPAM)).toBe(true);
+    expect(swipeRemovesRow('unarchive', ctx({ box: 'archive' }))).toBe(true);
+  });
+
+  it('leaves the inbox exactly as the preference says', () => {
+    expect(resolveSwipePair('archive', 'none', INBOX)).toEqual({
+      left: resolveSwipe('archive', INBOX),
+      right: resolveSwipe('none', INBOX),
+    });
   });
 });
 

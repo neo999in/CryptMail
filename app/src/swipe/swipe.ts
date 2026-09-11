@@ -201,6 +201,66 @@ export function resolveSwipe(action: SwipeAction, ctx: SwipeContext): SwipeVisua
   }
 }
 
+/* ---------------------------------------------------- lists with a layout ---- */
+
+/**
+ * The lists whose swipes are fixed rather than configured.
+ *
+ * The preference is written for the inbox, and most of it means nothing in
+ * these: there is nothing to archive in Archive, nothing to file as spam in
+ * Spam, and a draft is not provider mail at all. Instead of leaving one side
+ * dead, each gets the two things you actually do there — Delete, and the move
+ * that takes a message back where it came from.
+ *
+ * `sent` and `drafts` have no way back to offer, so they get Delete alone.
+ */
+export type FixedSwipeList = 'sent' | 'drafts' | 'archive' | 'spam';
+
+/** Which fixed layout this list wears, or `null` for one that follows the preference. */
+export function fixedSwipeList(ctx: SwipeContext): FixedSwipeList | null {
+  if (ctx.box === 'sent' || ctx.box === 'archive') return ctx.box;
+  if (ctx.box === null && ctx.category === 'spam') return 'spam';
+  return null;
+}
+
+/**
+ * The side Delete sits on in a fixed layout: wherever the user already put
+ * Delete, so the thumb that deletes in the inbox deletes here too — and the
+ * left when they haven't put it anywhere, or have put it on both.
+ */
+export function deleteSide(left: SwipeAction, right: SwipeAction): SwipeDirection {
+  return right === 'trash' && left !== 'trash' ? 'right' : 'left';
+}
+
+export type SwipePair = { left: SwipeVisual | null; right: SwipeVisual | null };
+
+/**
+ * The fixed layout of one of those lists: Delete on `deleteSide`, and on the
+ * other side the way back — Move to inbox in Archive, Not spam in Spam — or
+ * nothing, in Sent and Drafts.
+ *
+ * `foreign` takes Not spam away, for the same reason `resolveSwipe` does: the
+ * mark trains the active account's model and would quietly not apply.
+ */
+export function fixedSwipes(
+  list: FixedSwipeList,
+  left: SwipeAction,
+  right: SwipeAction,
+  foreign = false,
+): SwipePair {
+  const other =
+    list === 'archive' ? swipeVisual('unarchive') : list === 'spam' && !foreign ? swipeVisual('mark-not-spam') : null;
+  const trash = swipeVisual('trash');
+  return deleteSide(left, right) === 'right' ? { left: other, right: trash } : { left: trash, right: other };
+}
+
+/** Both sides of a row, in the list it is in — the one thing a mail row asks. */
+export function resolveSwipePair(left: SwipeAction, right: SwipeAction, ctx: SwipeContext): SwipePair {
+  const list = fixedSwipeList(ctx);
+  if (list) return fixedSwipes(list, left, right, ctx.foreign);
+  return { left: resolveSwipe(left, ctx), right: resolveSwipe(right, ctx) };
+}
+
 /* ------------------------------------------------------------ the picker ---- */
 
 /**

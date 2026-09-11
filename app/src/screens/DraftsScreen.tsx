@@ -6,9 +6,13 @@ import { Draft, listDrafts } from '../drafts/drafts';
 import { relativeTime } from '../lib/format';
 import { textMatchesQuery } from '../search/search';
 import { useApp } from '../state/AppState';
-import { color, font, glass, radius, type } from '../theme';
+import { fixedSwipes } from '../swipe/swipe';
+import { color, font, radius, type } from '../theme';
 import { Icon } from '../ui/Icon';
+import { useMailPrefs } from '../ui/mailPrefs';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
+import { SwipeableRow } from '../ui/swipeRow';
+import { useToast } from '../ui/ToastContext';
 import { BodyProps } from './HomeScreen';
 
 /**
@@ -21,8 +25,28 @@ import { BodyProps } from './HomeScreen';
  * would invite tapping it to read rather than to resume.
  */
 export function DraftsBody({ navigation, query, clearSearch }: BodyProps) {
-  const { drafts, deleteDraft } = useApp();
+  const { drafts, deleteDraft, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
+  const { showToast } = useToast();
+  const { swipeLeft, swipeRight } = useMailPrefs();
+  // Delete alone, on the side Delete is configured on — else the left
+  // (`swipe/swipe.ts`, `fixedSwipes`).
+  const { left, right } = React.useMemo(() => fixedSwipes('drafts', swipeLeft, swipeRight), [swipeLeft, swipeRight]);
+
+  /** Discard by swipe, with the draft itself kept for five seconds as the way back. */
+  const discard = (d: Draft) => {
+    deleteDraft(d.id).then(
+      () =>
+        showToast({
+          message: 'Draft discarded',
+          icon: 'trash',
+          durationMs: 5000,
+          actionLabel: 'Undo',
+          onAction: () => void saveDraft(d),
+        }),
+      () => showToast({ message: 'Couldn’t discard that draft', icon: 'alert', durationMs: 5000 }),
+    );
+  };
   const all = listDrafts(drafts);
   // A draft is text this device wrote, so the bar's search box reads it
   // directly — there is no index to consult and no ciphertext to avoid.
@@ -55,7 +79,15 @@ export function DraftsBody({ navigation, query, clearSearch }: BodyProps) {
         showsVerticalScrollIndicator={false}
       >
         {items.map((d) => (
-          <View key={d.id} style={s.row}>
+          <SwipeableRow
+            key={d.id}
+            left={left}
+            right={right}
+            onAction={() => discard(d)}
+            resetKey={d.id}
+            style={s.swipe}
+          >
+          <View style={s.row}>
             <Pressable
               accessibilityRole="button"
               onPress={() => navigation.navigate('Compose', { draftId: d.id })}
@@ -92,6 +124,7 @@ export function DraftsBody({ navigation, query, clearSearch }: BodyProps) {
               <Icon name="close" size={15} color={color.inkDim} />
             </Pressable>
           </View>
+          </SwipeableRow>
         ))}
       </ScrollView>
       )}
@@ -112,6 +145,9 @@ function previewOf(d: Draft): string {
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
+
+  /** The swipe wrapper clips to the card's corners, so the pane does too. */
+  swipe: { borderRadius: radius.xl },
 
   row: {
     alignItems: 'stretch',
