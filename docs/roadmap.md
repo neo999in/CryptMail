@@ -172,7 +172,8 @@ crypto is.
 | Scheduled send / send later | 🆕 | M | S | Local queue; must survive app kill. |
 | Snooze | 🆕 | S | S | Client-side; provider can't do it for encrypted mail. |
 | Undo send | 🆕 | S | S | Hold-then-release window before the connector fires. |
-| Labels / archive / star / bulk + swipe actions | 🆕 | M | M | Maps to `updateFlags` in the connector interface. |
+| Labels / archive / star / bulk | 🆕 | M | M | Maps to `updateFlags` in the connector interface. |
+| Configurable swipe actions | ✅ | M | S | Built: one action per direction, resolved against the list being swiped, Archive left and nothing right by default ([swipe-actions.md](swipe-actions.md)). |
 | **Client-side filters / rules** | 🆕 | M | M | Server can't read content, so rules (auto-label, mute, forward) must run locally after decrypt. |
 | Multiple accounts + unified inbox | ✅ | M | M | Built: every store keyed by `account_id`, one account active at a time even when merged (features.md 0.11). Gmail still holds one session, so one mailbox is reachable today; the N-account plumbing is covered by fakes in `accounts-test`. |
 | Address book / contacts + per-contact trust | 🆕 | M | M | Surfaces `contact_keys.trust` where the user picks recipients. |

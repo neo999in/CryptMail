@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View, Pressable, Platform, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { color, radius, shadow, type, font } from '../theme';
+import { color, fabClearance, radius, shadow, type, font } from '../theme';
 import { useAccent } from './appearance';
 import { Icon, IconName } from './Icon';
 
@@ -52,7 +52,8 @@ export function Toast({
     <View
       style={[
         styles.container,
-        { bottom: insets.bottom + 16 }
+        // Clear of the compose button — see `fabClearance`.
+        { bottom: insets.bottom + fabClearance }
       ]}
     >
       <View style={styles.content}>

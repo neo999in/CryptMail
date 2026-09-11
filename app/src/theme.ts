@@ -256,6 +256,47 @@ export const radius = {
   pill: 999,
 } as const;
 
+/**
+ * The colours a swipe block wears.
+ *
+ * Their own family, and deliberately not the trust pair. `mint` and `coral` mean
+ * *verified* and *key changed* — they are fixed at every accent because a user
+ * must not be able to recolour what a signature proved — and a block the size of
+ * a mail row is the loudest thing on the screen to say them with. An archive is
+ * not a claim about who sent the message.
+ *
+ * So these are chosen as action colours: a deep green that reads as "filed,
+ * safely" and a deep red that reads as "gone", rather than the softer mint and
+ * salmon the trust badges use.
+ *
+ * Deep rather than bright, because of the ground they sit on. A saturated block
+ * the height of a mail row is the largest lit area the app ever draws, and on a
+ * true-black OLED screen a vivid one is a lamp — it reads as an alert rather
+ * than as the quiet, reversible filing action it is. These are dark enough to
+ * belong to the same screen as the mail, and still unmistakably green and red.
+ *
+ * Each is a 6-digit hex, which is what `tint()` needs to wash it down the pull
+ * (`swipe/swipe.ts`).
+ */
+export const swipeColor = {
+  /** Archive, Move to inbox, Not spam. */
+  positive: '#0E7A41',
+  /** Delete, Spam. */
+  destructive: '#A83239',
+} as const;
+
+/**
+ * How much room the floating compose button takes above the bottom edge — its
+ * own height plus the gap it sits in (`ComposeFab` in `ui/mailList.tsx`).
+ *
+ * Anything else that floats at the bottom of a mail list clears it by this much.
+ * The toast used to sit at `insets.bottom + 16` and overlap it almost exactly,
+ * which hid the button — and, worse, made the toast's **Undo untappable**: the
+ * button took the touch even though the toast painted on top of it. An undo you
+ * cannot press is not an undo, so this is load-bearing rather than cosmetic.
+ */
+export const fabClearance = 86;
+
 export const space = {
   xs: 4,
   sm: 8,

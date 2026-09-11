@@ -98,7 +98,10 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
       if (patch.starred === false) removeLabelIds.push('STARRED');
       if (patch.unread === true) addLabelIds.push('UNREAD');
       if (patch.unread === false) removeLabelIds.push('UNREAD');
-      if (patch.archived) removeLabelIds.push('INBOX');
+      // Archiving is the removal of the INBOX label, and un-archiving is
+      // putting it back — Gmail has no archive folder to move between.
+      if (patch.archived === true) removeLabelIds.push('INBOX');
+      if (patch.archived === false) addLabelIds.push('INBOX');
       if (addLabelIds.length === 0 && removeLabelIds.length === 0) return;
       // Requires the gmail.modify scope, which `config.ts` requests. Verified
       // against a real mailbox on 2026-08-08: a star set here survives a cold

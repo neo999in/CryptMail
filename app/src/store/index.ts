@@ -15,6 +15,7 @@ import { resealPlaintext } from './secureJson';
 import { DRAFTS_STORE_KEY } from './draftsStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
+import { MAIL_PREFS_STORE_KEY } from './mailPrefsStore';
 import { OUTBOX_STORE_KEY } from './outboxStore';
 import { PREFS_STORE_KEY } from './prefsStore';
 import { PUBLISH_STORE_KEY } from './publishStore';
@@ -51,7 +52,12 @@ export const PER_ACCOUNT_STORE_KEYS = [
  * install that predates either encryption or accounts — and the second of those
  * is read once more, by `loadScopedJson`, on the way into an account.
  */
-export const SEALED_STORE_KEYS = [...PER_ACCOUNT_STORE_KEYS, ACCOUNTS_STORE_KEY, PREFS_STORE_KEY];
+export const SEALED_STORE_KEYS = [
+  ...PER_ACCOUNT_STORE_KEYS,
+  ACCOUNTS_STORE_KEY,
+  PREFS_STORE_KEY,
+  MAIL_PREFS_STORE_KEY,
+];
 
 /**
  * Pick where the data-encryption key lives.

@@ -130,6 +130,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleStar: services.mailbox.toggleStar,
       setUnread: services.mailbox.setUnread,
       archiveMessage: services.mailbox.archiveMessage,
+      unarchiveMessage: services.mailbox.unarchiveMessage,
       trashMessage: services.mailbox.trashMessage,
       restoreMessage: services.mailbox.restoreMessage,
       scheduleSend: services.scheduler.scheduleSend,

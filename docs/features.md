@@ -53,6 +53,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Contacts + per-contact trust dashboard (0.5) | [`contacts/contacts.ts`](../app/src/contacts/contacts.ts), [`contacts/useContacts.ts`](../app/src/contacts/useContacts.ts) | `ContactsScreen`, Compose autocomplete | 26 |
 | Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
 | The provider's junk folder, fetched and filed under Spam ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Spam | 20 |
+| Configurable swipe actions ([swipe-actions.md](swipe-actions.md)) | [`swipe/swipe.ts`](../app/src/swipe/swipe.ts), [`store/mailPrefsStore.ts`](../app/src/store/mailPrefsStore.ts) | Mail rows, `Settings → Mail → Swipe options` | 56 |
 
 942 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
@@ -103,8 +104,9 @@ been decrypted on this device.
 
 ### 0.2 Labels / folders + bulk selection · Impact M · Effort M
 
-**What.** Local labels, multi-select in the inbox, bulk archive/star/mark-read,
-swipe actions on mobile.
+**What.** Local labels, multi-select in the inbox, bulk archive/star/mark-read.
+Swipe actions are **built** — see [swipe-actions.md](swipe-actions.md); what is
+left here is labels and multi-select.
 
 **Why.** `updateFlags` already exists in the connector and Gmail maps labels
 natively; the inbox is currently a flat single-action list. This is table stakes

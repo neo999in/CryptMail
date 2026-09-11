@@ -346,6 +346,8 @@ export type Actions = {
   toggleStar(id: string): Promise<void>;
   setUnread(id: string, unread: boolean): Promise<void>;
   archiveMessage(id: string): Promise<void>;
+  /** Put an archived message back in the inbox — what undoes an archive. */
+  unarchiveMessage(id: string): Promise<void>;
   /**
    * Move a message to the provider's trash, or bring it back out.
    *

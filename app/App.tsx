@@ -29,12 +29,15 @@ import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { AccountScreen } from './src/screens/AccountScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
+import { MailScreen } from './src/screens/MailScreen';
+import { SwipeOptionsScreen } from './src/screens/SwipeOptionsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider } from './src/ui/appearance';
+import { MailPrefsProvider } from './src/ui/mailPrefs';
 import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
 import { DestinationProvider } from './src/ui/destination';
@@ -140,6 +143,9 @@ function FullStack() {
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
+      {/* Settings → Mail → Swipe options. Both are pushes, like Accounts. */}
+      <Stack.Screen name="Mail" component={MailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="SwipeOptions" component={SwipeOptionsScreen} options={{ headerShown: false }} />
       {/* Managing a mailbox is a detail screen, not a destination: the drawer
           sets destinations and never pushes, and these two are reached from
           Settings. Both draw their own top bar, like Settings. */}
@@ -209,22 +215,27 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar style="light" />
         <AppearanceProvider>
-          <AppProvider>
-            <AppBackground>
-              <ToastProvider>
-                {fontsLoaded ? (
-                  <>
-                    <Root />
-                    <DialogHost />
-                  </>
-                ) : (
-                  <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-                    <ActivityIndicator color={defaultAccent} />
-                  </View>
-                )}
-              </ToastProvider>
-            </AppBackground>
-          </AppProvider>
+          {/* Sibling of `AppState`'s provider, like appearance's and for the
+              same reason: a swipe preference is view state that is persisted,
+              not one of the five subsystems. */}
+          <MailPrefsProvider>
+            <AppProvider>
+              <AppBackground>
+                <ToastProvider>
+                  {fontsLoaded ? (
+                    <>
+                      <Root />
+                      <DialogHost />
+                    </>
+                  ) : (
+                    <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+                      <ActivityIndicator color={defaultAccent} />
+                    </View>
+                  )}
+                </ToastProvider>
+              </AppBackground>
+            </AppProvider>
+          </MailPrefsProvider>
         </AppearanceProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

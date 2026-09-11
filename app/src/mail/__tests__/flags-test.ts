@@ -18,6 +18,20 @@ function msg(id: string, over: Partial<MailSummary> = {}): MailSummary {
 describe('applyFlagPatch', () => {
   const list = [msg('m1'), msg('m2', { starred: true })];
 
+  /**
+   * Archiving and un-archiving are one move in two directions, and each takes
+   * the row out of the list it was patched in: out of the inbox one way, out of
+   * Archive the other. Undoing an archive from a toast is the second of those,
+   * so `archived: false` dropping the row is what makes the undo look right.
+   */
+  test('drops the message from the list it was archived out of', () => {
+    expect(applyFlagPatch(list, 'm1', { archived: true }).map((m) => m.id)).toEqual(['m2']);
+  });
+
+  test('drops it again when un-archived, from the archive it left', () => {
+    expect(applyFlagPatch(list, 'm1', { archived: false }).map((m) => m.id)).toEqual(['m2']);
+  });
+
   test('stars the matching message and leaves others unchanged', () => {
     const next = applyFlagPatch(list, 'm1', { starred: true });
     expect(next.find((m) => m.id === 'm1')!.starred).toBe(true);

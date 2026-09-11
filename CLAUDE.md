@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+Do not ever create artifacts
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this is
@@ -180,6 +182,23 @@ composing, sending and decrypting always use the active account. Every scoped
 store write goes through `services.accounts.requireActive()`; if you add a
 store, key it by account and add its base key to `PER_ACCOUNT_STORE_KEYS`, or
 removing an account will leave its data behind.
+
+A mail row swipes, and what each direction does is one preference per side
+([docs/swipe-actions.md](docs/swipe-actions.md)) — Archive left, and right
+**unconfigured** until the user says otherwise: it reveals a neutral "Swipe to
+set up actions" block and opens that screen, and does nothing whatever to the
+message. The layering is the point:
+[app/src/swipe/swipe.ts](app/src/swipe/swipe.ts) is pure (the action ids, and
+`resolveSwipe`, which decides what a configured action *means* in the list being
+swiped, or that it means nothing and the row must not move);
+[app/src/ui/swipeRow.tsx](app/src/ui/swipeRow.tsx) is the gesture and the pane;
+[app/src/ui/swipeRun.tsx](app/src/ui/swipeRun.tsx) runs it through the same
+`useApp()` actions the message screen calls — never a second implementation of
+archive, trash or spam. The preference is global, like appearance
+(`store/mailPrefsStore.ts`, `ui/mailPrefs.tsx`, a sibling provider of
+`AppState`'s), so it is **not** in `PER_ACCOUNT_STORE_KEYS`. Never resolve an
+action into a different one to give a swipe something to do, and never report a
+success the operation did not return.
 
 Trust state is derived, not stored twice: inbox rows call `encryptionFor()`
 (headers only, no network, no decryption), while opening a message upgrades trust

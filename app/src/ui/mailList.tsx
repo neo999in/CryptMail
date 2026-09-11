@@ -18,11 +18,14 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MailSummary } from '../mail/types';
 import { EncryptionState } from '../state/types';
+import { resolveSwipe, SwipeContext, SwipeVisual, swipeRemovesRow } from '../swipe/swipe';
 import { color, font, radius, shadow, space, type } from '../theme';
 import { Icon } from './Icon';
 import { OriginRect, useOriginRef } from './expand';
 import { MailRowCard } from './mailRow';
+import { useMailPrefs } from './mailPrefs';
 import { Skeleton } from './primitives';
+import { SwipeableRow } from './swipeRow';
 
 export function MailListRow({
   summary,
@@ -33,6 +36,8 @@ export function MailListRow({
   padding,
   selfAddress,
   onPress,
+  swipe,
+  onSwipe,
 }: {
   summary: MailSummary;
   encryption: EncryptionState;
@@ -48,10 +53,30 @@ export function MailListRow({
   /** Handed the row's own rectangle, when it could be measured, so the message
    *  screen can collapse back onto it — see `ui/expand.tsx`. */
   onPress: (origin?: OriginRect) => void;
+  /**
+   * Where this row is, so a configured swipe can resolve to what it means here
+   * — or to nothing (`swipe/swipe.ts`).
+   *
+   * Absent on a list that does not swipe. The two mail lists pass it; the
+   * message screen's closing ghost draws `MailRowCard` directly and never
+   * reaches this component, so a mail cannot collapse back onto a row that is
+   * half-swiped.
+   */
+  swipe?: Omit<SwipeContext, 'unread'>;
+  /** Run what the swipe resolved to. `ui/swipeRun.tsx` is what a list hands in. */
+  onSwipe?: (visual: SwipeVisual, summary: MailSummary) => void;
 }) {
   const [rowRef, measureOrigin] = useOriginRef();
+  const { swipeLeft, swipeRight } = useMailPrefs();
 
-  return (
+  // Both sides, resolved for *this* row in *this* list. `null` on a side is the
+  // honest answer for an unconfigured direction and for an action with no
+  // meaning here, and the gesture treats the two the same: the row does not move.
+  const context: SwipeContext | null = swipe && onSwipe ? { ...swipe, unread: summary.unread } : null;
+  const left = context ? resolveSwipe(swipeLeft, context) : null;
+  const right = context ? resolveSwipe(swipeRight, context) : null;
+
+  const row = (
     <MotiView
       from={{ opacity: 0, translateY: 8 }}
       animate={{ opacity: 1, translateY: 0 }}
@@ -75,6 +100,27 @@ export function MailListRow({
         </Pressable>
       </View>
     </MotiView>
+  );
+
+  // No swipe on this list: the row carries its own gap, since there is no
+  // wrapper to put it on.
+  if (!context || !onSwipe) return <View style={s.rowGap}>{row}</View>;
+
+  return (
+    <SwipeableRow
+      left={left}
+      right={right}
+      onAction={(visual) => onSwipe(visual, summary)}
+      removes={(visual) => swipeRemovesRow(visual.operation, context)}
+      // The hairline between rows lives out here, on the wrapper: inside it, it
+      // is a strip the row does not cover and the action's colour shows through
+      // it. See `SwipeableRow`'s `style`.
+      style={s.rowGap}
+      // So an offset never outlives the message it belonged to.
+      resetKey={summary.id}
+    >
+      {row}
+    </SwipeableRow>
   );
 }
 
@@ -171,7 +217,9 @@ const s = StyleSheet.create({
    * the ground showing through a hairline gap, which is the bordered card's
    * separation with none of its ink.
    */
-  row: { backgroundColor: color.card, marginBottom: 2 },
+  row: { backgroundColor: color.card },
+  /** The gap between rows. On the swipe wrapper — see `MailListRow`. */
+  rowGap: { marginBottom: 2 },
   rowPressed: { backgroundColor: color.cardPress },
 
   sectionHead: {

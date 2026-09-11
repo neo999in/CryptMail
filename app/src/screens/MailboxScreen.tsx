@@ -48,6 +48,7 @@ import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
+import { useSwipeRunner } from '../ui/swipeRun';
 import { BodyProps } from './HomeScreen';
 
 const COPY: Record<SecondaryBox, { title: string; empty: string; hint: string; icon: IconName }> = {
@@ -88,6 +89,11 @@ export function MailboxBody({
   const insets = useSafeAreaInsets();
   const { setOverlay } = useChrome();
   const isFocused = useIsFocused();
+  // One runner, and one snooze sheet, for the whole list — see `ui/swipeRun.tsx`.
+  // A side nobody has configured offers the setup screen rather than an action.
+  const { runSwipe, snoozePicker } = useSwipeRunner({
+    onSetUp: () => navigation.navigate('SwipeOptions'),
+  });
   const copy = COPY[box];
 
   useEffect(() => {
@@ -159,9 +165,17 @@ export function MailboxBody({
         padding={rowPadding}
         selfAddress={session?.email}
         onPress={(origin) => openMail(item.item.id, origin)}
+        // The list itself is the context. Archive resolves to nothing in all
+        // three of these — there is no un-archive operation and nothing here to
+        // take out of an inbox — while Delete becomes Restore in Trash
+        // (`swipe/swipe.ts`). These lists are the active account's alone, so no
+        // row here is ever another mailbox's.
+        swipe={{ box, junk: false, category: null, foreign: false }}
+        // One message, not a conversation: these lists are not threaded.
+        onSwipe={(visual) => runSwipe(visual, [item.item], box)}
       />
     ),
-    [openMail, rowPadding, session?.email],
+    [box, openMail, rowPadding, runSwipe, session?.email],
   );
 
   return (
@@ -217,6 +231,10 @@ export function MailboxBody({
         />
       )}
 
+      {/* Mounted once by the list rather than once per row. Nothing in these
+          three lists resolves to Snooze today; it is here so that stays a fact
+          about the resolver rather than about which screen wired what. */}
+      {snoozePicker}
     </View>
   );
 }

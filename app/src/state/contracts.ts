@@ -70,6 +70,14 @@ export type MailboxService = {
   setUnread(id: string, unread: boolean): Promise<void>;
   archiveMessage(id: string): Promise<void>;
   /**
+   * Put an archived message back in the inbox.
+   *
+   * The other half of `archiveMessage`, and the reason it exists is undo: a
+   * swipe can archive a message with one gesture, so there has to be one gesture
+   * back. Symmetrical with `trashMessage`/`restoreMessage` in every way.
+   */
+  unarchiveMessage(id: string): Promise<void>;
+  /**
    * Move a message to the provider's trash, or bring it back out.
    *
    * A move, not an erasure: the mail is still on the server, in the Trash
@@ -107,6 +115,8 @@ export type PublishService = {
   declinePublish(): Promise<PublishState>;
   /** Notice that a pending publication has been confirmed. Cheap when it is not. */
   refreshPublish(): Promise<void>;
+  /** Adopt the listing a restored key already had, so it is not published twice. */
+  reconcilePublish(): Promise<void>;
 };
 
 export type SendService = {

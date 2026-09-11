@@ -50,6 +50,10 @@ export type RootStackParamList = {
   Recovery: undefined;
   Settings: undefined;
   Appearance: undefined;
+  /** How mail behaves, as against how it looks. Swipe gestures live under it. */
+  Mail: undefined;
+  /** What each swipe direction does, and a live preview of both. */
+  SwipeOptions: undefined;
   /** The connected mailboxes. Switching stays in the drawer; managing is here. */
   Accounts: undefined;
   /** One mailbox's own name, avatar, image policy, sync window and storage. */

@@ -14,10 +14,14 @@ import { FlagPatch, MailSummary } from './types';
  * keeps them instead of being widened back to a bare `MailSummary`.
  */
 export function applyFlagPatch<T extends MailSummary>(messages: T[], id: string, patch: FlagPatch): T[] {
-  // A move leaves whichever list is being patched, in both directions: deleting
-  // takes the row out of the inbox, and restoring takes it out of Trash. Which
-  // list gains it is not this function's business — that list refetches.
-  if (patch.archived || patch.trashed !== undefined) return messages.filter((m) => m.id !== id);
+  // A move leaves whichever list is being patched, in all four directions:
+  // archiving takes the row out of the inbox and un-archiving takes it out of
+  // Archive; deleting takes it out of wherever it was and restoring takes it out
+  // of Trash. Which list gains it is not this function's business — that list
+  // refetches.
+  if (patch.archived !== undefined || patch.trashed !== undefined) {
+    return messages.filter((m) => m.id !== id);
+  }
   return messages.map((m) => {
     if (m.id !== id) return m;
     const next: T = { ...m };

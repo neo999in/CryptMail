@@ -19,11 +19,13 @@ import { cryptoMode } from '../config';
 import { RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel } from '../store/accountScope';
+import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { useAppearance } from '../ui/appearance';
 import { Destination, useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { IconName } from '../ui/Icon';
+import { useMailPrefs } from '../ui/mailPrefs';
 import { Group, GroupHeading, IconButton, SettingsRow } from '../ui/primitives';
 import { CAPITALISED_DENSITY, THEME_LABEL } from './AppearanceScreen';
 
@@ -40,6 +42,7 @@ type Row = {
 export function SettingsScreen({ navigation }: Props) {
   const { session, accounts, activeAccount, signOut } = useApp();
   const { auroraColors, density, theme } = useAppearance();
+  const { swipeLeft, swipeRight } = useMailPrefs();
   const { setDestination } = useDestination();
   const insets = useSafeAreaInsets();
 
@@ -97,6 +100,15 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Accounts'),
           },
           {
+            icon: 'mail',
+            label: 'Mail',
+            // Behaviour, not looks — Display & Appearance keeps the latter.
+            // Today that is the swipe gestures, said here so the current setup
+            // reads without opening either screen.
+            value: `Swipe: ${SWIPE_ACTION_LABEL[swipeLeft]} left · ${SWIPE_ACTION_LABEL[swipeRight]} right`,
+            onPress: () => navigation.navigate('Mail'),
+          },
+          {
             icon: 'users',
             label: 'Contacts and trust',
             value: 'Everyone this device has seen, and how far each is trusted',
@@ -116,7 +128,7 @@ export function SettingsScreen({ navigation }: Props) {
     // `confirmSignOut` closes over `signOut` only, which is stable for the life
     // of the app — see the note on the actions `useApp()` exposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, theme],
+    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, swipeLeft, swipeRight, theme],
   );
 
   return (

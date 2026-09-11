@@ -21,6 +21,7 @@ import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
+import { useSwipeRunner } from '../ui/swipeRun';
 import { BodyProps } from './HomeScreen';
 
 /**
@@ -36,6 +37,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
   const {
     session,
     accounts,
+    activeAccount,
     unified,
     switchingAccount,
     messages,
@@ -57,6 +59,11 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { setOverlay } = useChrome();
+  // One runner, and one snooze sheet, for the whole list — see `ui/swipeRun.tsx`.
+  // A side nobody has configured offers the setup screen rather than an action.
+  const { runSwipe, snoozePicker } = useSwipeRunner({
+    onSetUp: () => navigation.navigate('SwipeOptions'),
+  });
 
   useEffect(() => {
     void refreshInbox();
@@ -77,15 +84,25 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     const now = new Date().toISOString();
     const visible = messages
       .filter((summary) => !isSnoozed(snoozed, summary.id, now))
-      .map((summary) => ({ summary, encryption: encryptionFor(summary) }))
-      .filter(({ summary, encryption }) => {
+      .map((summary) => {
+        const encryption = encryptionFor(summary);
+        return {
+          summary,
+          encryption,
+          // Kept rather than recomputed below: the swipe needs the same verdict
+          // to know whether Spam means file or rescue, and categorizing the
+          // whole list twice to answer that would be a second pass for nothing.
+          category: categorizeMessage(summary, encryption.kind === 'encrypted', searchIndex, spamContext),
+        };
+      })
+      .filter(({ summary, encryption, category: messageCategory }) => {
         const encrypted = encryption.kind === 'encrypted';
         if (filter === 'attention' && !needsAttention(encryption)) return false;
         // The drawer's category filter sorts plaintext mail only:
         // categorizeMessage leaves every encrypted message in 'primary', opened
         // or not, so encrypted mail is never filed away from the main list
         // (categorizer/categorizer.ts).
-        const messageCategory = categorizeMessage(summary, encrypted, searchIndex, spamContext);
+        //
         // A chosen category is the more specific request, so it wins over the
         // tab — otherwise picking Promotions from the drawer while Primary is
         // selected would show an empty list and look broken. The Encrypted tab
@@ -98,13 +115,15 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
         }
         // Encrypted mail is matched on its decrypted content once opened (search/search.ts).
         return messageMatchesQuery(summary, encrypted, searchIndex, query);
-      })
-      .map((r) => r.summary);
+      });
+
+    const junkIds = new Set(visible.filter((r) => r.category === 'spam').map((r) => r.summary.id));
 
     // One row per conversation; the row stands for the thread's latest message.
-    const rows = groupIntoThreads(visible).map((thread) => ({
+    const rows = groupIntoThreads(visible.map((r) => r.summary)).map((thread) => ({
       thread,
       encryption: encryptionFor(thread.latest),
+      junk: junkIds.has(thread.latest.id),
     }));
 
     return groupByDay(rows, (row) => row.thread.latest.date);
@@ -148,7 +167,13 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
   }, [isFocused, setOverlay]);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: { thread: Thread<InboxItem>; encryption: EncryptionState }; index: number }) => (
+    ({
+      item,
+      index,
+    }: {
+      item: { thread: Thread<InboxItem>; encryption: EncryptionState; junk: boolean };
+      index: number;
+    }) => (
       <MailListRow
         summary={item.thread.latest}
         encryption={item.encryption}
@@ -164,12 +189,26 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
             ? navigation.navigate('Conversation', { threadId: item.thread.id })
             : openMail(item.thread.latest.id, origin)
         }
+        // `box: null` is the inbox — including every category filter over it,
+        // which is what `category` then tells the row apart for.
+        swipe={{
+          box: null,
+          junk: item.junk,
+          category,
+          // Marking spam and snoozing are written against the mailbox in front.
+          // A merged row from another one is left alone rather than appearing
+          // to work — see `swipe/swipe.ts`.
+          foreign: item.thread.latest.account !== activeAccount,
+        }}
+        // The conversation, not just its newest message: a row that archived one
+        // of three messages would spring straight back.
+        onSwipe={(visual) => runSwipe(visual, item.thread.messages, null)}
       />
     ),
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, openMail, navigation, rowPadding, session?.email, unified],
+    [accounts, activeAccount, category, openMail, navigation, rowPadding, runSwipe, session?.email, unified],
   );
 
   return (
@@ -247,6 +286,10 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
           }
         />
       )}
+
+      {/* The Snooze swipe's picker. Mounted once, by the list, rather than once
+          per row — a mail list holds hundreds of them. */}
+      {snoozePicker}
     </View>
   );
 }

@@ -101,11 +101,18 @@ export type MailPage = {
 /**
  * A change to a message's flags.
  *
- * `archived: true` removes it from the inbox. `trashed` moves it to and from the
- * provider's trash — `true` deletes, `false` restores — and unlike the others it
- * is not a label edit on most providers, so a connector is expected to translate
- * it (see `mail/gmail.ts`). Nothing here erases mail permanently: emptying the
- * trash is the provider's own action, not a flag.
+ * Both moves are two-way. `archived` takes a message out of the inbox and puts
+ * it back — `true` archives, `false` un-archives — and `trashed` does the same
+ * for the provider's trash, where unlike the others it is not a label edit on
+ * most providers, so a connector is expected to translate it (see
+ * `mail/gmail.ts`).
+ *
+ * `archived: false` exists so that archiving can be *undone*: it was one-way
+ * until the swipe gestures landed, which meant the one action a thumb reaches by
+ * accident was the one action with no way back (docs/swipe-actions.md).
+ *
+ * Nothing here erases mail permanently: emptying the trash is the provider's own
+ * action, not a flag.
  */
 export type FlagPatch = {
   unread?: boolean;

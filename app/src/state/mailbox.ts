@@ -501,6 +501,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
 
     archiveMessage: (id) => service.setFlags(id, { archived: true }),
 
+    unarchiveMessage: (id) => service.setFlags(id, { archived: false }),
+
     // A move to the provider's trash and back out of it — never an erasure. The
     // message stays on the server either way, which is why the pair is
     // symmetrical and why neither of them has to ask before acting.
