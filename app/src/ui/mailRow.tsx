@@ -88,12 +88,7 @@ export function MailRowCard({
           {/* The lock is furniture: it must be findable on every row without
               out-shouting the subject, so it sits beside the date at the size
               of the date, not as a captioned badge. */}
-          <Icon
-            name={lock.icon}
-            size={13}
-            color={lock.tint}
-            {...(lock.icon === 'lock' ? { fill: lock.tint } : {})}
-          />
+          <Icon name={lock.icon} size={13} color={lock.tint} />
           <Text style={[s.time, { color: accent }]} accessibilityLabel={lock.label}>
             {relativeTime(summary.date)}
           </Text>
