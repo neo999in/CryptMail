@@ -186,10 +186,22 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     (threadId: string, origin?: OriginRect) => {
       const thread = threads.current.get(threadId);
       if (!thread) return;
-      if (thread.count > 1) navigation.navigate('Conversation', { threadId: thread.id });
-      else openMail(thread.latest.id, origin);
+      if (thread.count === 1) {
+        openMail(thread.latest.id, origin);
+        return;
+      }
+      // A conversation grows out of its row exactly as one message does — the
+      // same rectangle, the same inset, the same bar held running above it.
+      setOverlay('open');
+      const topInset = mailTopInset(insets.top, headerHeight);
+      navigation.navigate('Conversation', {
+        threadId: thread.id,
+        origin,
+        topInset,
+        bandInset: mailBandBelow(barHeight, topInset),
+      });
     },
-    [navigation, openMail, threads],
+    [barHeight, headerHeight, insets.top, navigation, openMail, setOverlay, threads],
   );
 
   // The conversation, not just its newest message: a row that archived one of

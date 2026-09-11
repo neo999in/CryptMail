@@ -116,7 +116,19 @@ function FullStack() {
   return (
     <Stack.Navigator screenOptions={screenOptions}>
       <Stack.Screen name="Home" component={InboxDrawer} options={{ headerShown: false }} />
-      <Stack.Screen name="Conversation" component={ConversationScreen} options={{ title: 'Conversation' }} />
+      {/* Grows out of its inbox row like a single message does, so it needs
+          the same four options as `Message` below, for the same reasons. */}
+      <Stack.Screen
+        name="Conversation"
+        component={ConversationScreen}
+        options={{
+          animation: 'none',
+          contentStyle: { backgroundColor: 'transparent' },
+          gestureEnabled: false,
+          headerShown: false,
+          presentation: 'transparentModal',
+        }}
+      />
       {/* The one screen that is not a push: a message opens by growing out of
           the row that was tapped, which needs the list left visible underneath
           (`transparentModal`), no stack animation of its own, and no native

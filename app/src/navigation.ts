@@ -34,7 +34,9 @@ export type RootStackParamList = {
      *  rather than on the ground. Absent wherever `topInset` is. */
     bandInset?: number;
   };
-  Conversation: { threadId: string };
+  /** A thread opens the way a message does — out of its row — so it carries
+   *  the same three optional params, meaning the same things. */
+  Conversation: { threadId: string; origin?: OriginRect; topInset?: number; bandInset?: number };
   Compose: {
     to?: string[];
     subject?: string;
