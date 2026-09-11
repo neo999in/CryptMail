@@ -13,12 +13,20 @@
  * configures cannot drift away from what their thumb will do. That is the only
  * reason the pane is a separate component.
  *
- * **Nothing here re-renders while a finger is down.** Both panes are mounted
- * once and everything that moves — the fill deepening, the glyph flipping to
- * dark ink, the label appearing, the row itself — is an animated style driven
- * from one shared value on the UI thread. A version of this that pushed the
- * pull into React state re-rendered the row (and rebuilt the gesture under it)
- * on every frame of every swipe.
+ * **Nothing here re-renders while a finger is dragging.** Both panes are
+ * mounted once, on the frame a sideways drag starts, and everything that moves
+ * — the fill deepening, the glyph flipping to dark ink, the label appearing, the
+ * row itself — is an animated style driven from one shared value on the UI
+ * thread. A version of this that pushed the pull into React state re-rendered
+ * the row (and rebuilt the gesture under it) on every frame of every swipe.
+ *
+ * **And nothing is mounted for a row nobody is swiping.** A pane is a stack of
+ * per-part `<Svg>`s, twice over (one per ink), each with its own animated style
+ * — about twenty worklets for one row. Mounted up front on every row of a mail
+ * list, that was thousands of them built on every list mount and torn down on
+ * every destination switch: multi-second frames, rows stuck at their fade-in's
+ * zero opacity, and Reanimated writing to views Fabric had already dropped. So
+ * the panes exist only from the start of a drag until the row settles home.
  *
  * Deliberately knows nothing about what an operation *does*: it is handed a
  * resolved visual and calls back with it. Running it is `ui/swipeRun.tsx`,
@@ -169,8 +177,9 @@ function onBlack(hex: string, alpha: number): string {
  * recolour it is exactly what this component exists not to do. The label's
  * colour *is* a style, so that one is interpolated in place.
  *
- * Mounted for both sides at once and shown by the sign of `dx`, so a gesture
- * never mounts anything. The settings preview drives the same component from a
+ * Mounted for both sides at once and shown by the sign of `dx`, so nothing
+ * mounts part-way through a pull — `SwipeableRow` mounts the pair on the frame
+ * its drag starts, and only for that row (`engaged`). The settings preview drives the same component from a
  * shared value it simply never changes — a still frame of the real thing rather
  * than a drawing of it.
  */
@@ -414,11 +423,22 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
   const fired = useSharedValue(false);
   const reducedMotion = useReducedMotion();
   const recovery = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Whether the panes are mounted. True from the frame a sideways drag starts
+   * until the row has settled back at rest — see the header for why a row at
+   * rest carries none. A drag can only start once the pull is past
+   * `SWIPE_ENGAGE_PX`, and the one render this costs lands well before the pull
+   * gets anywhere near the trigger line.
+   */
+  const [engaged, setEngaged] = useState(false);
+  const engage = useCallback(() => setEngaged(true), []);
+  const release = useCallback(() => setEngaged(false), []);
 
   // Whatever this row was doing, it was doing it to a different message.
   useEffect(() => {
     dx.value = 0;
     fired.value = false;
+    setEngaged(false);
   }, [dx, fired, resetKey]);
 
   /**
@@ -431,13 +451,26 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
    * mailbox must not sit parked off-screen behind a block of colour. So the row
    * comes back, and the toast is left to say what actually happened.
    */
+  /**
+   * Handed to every spring that brings the row home: once it has actually
+   * arrived, the panes go. A spring interrupted by a new drag reports
+   * `finished: false`, so a row being grabbed again keeps them.
+   */
+  const settled = useCallback(
+    (finished?: boolean) => {
+      'worklet';
+      if (finished) runOnJS(release)();
+    },
+    [release],
+  );
+
   const recoverIfStillHere = useCallback(() => {
     if (recovery.current) clearTimeout(recovery.current);
     recovery.current = setTimeout(() => {
       fired.value = false;
-      dx.value = withSpring(0, SETTLE);
+      dx.value = withSpring(0, SETTLE, settled);
     }, 700);
-  }, [dx, fired]);
+  }, [dx, fired, settled]);
 
   useEffect(
     () => () => {
@@ -483,6 +516,11 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
         .onBegin(() => {
           fired.value = false;
         })
+        // Only now — a real sideways drag, not a tap or a scroll — do the panes
+        // mount. See `engaged`.
+        .onStart(() => {
+          runOnJS(engage)();
+        })
         .onUpdate((e) => {
           const side = e.translationX > 0 ? sides.right : sides.left;
           // A side with nothing configured — or nothing that means anything in
@@ -505,7 +543,7 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
 
           if (swipeRelease(e.translationX, side.threshold) === 'cancel') {
             // Below the line: nothing ran, nothing changed, and the row goes back.
-            dx.value = withSpring(0, SETTLE);
+            dx.value = withSpring(0, SETTLE, settled);
             return;
           }
 
@@ -517,15 +555,17 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
               if (done) runOnJS(recoverIfStillHere)();
             });
           } else {
-            dx.value = withSpring(0, SETTLE);
+            dx.value = withSpring(0, SETTLE, settled);
           }
           runOnJS(toRight ? runRight : runLeft)();
         })
         .onFinalize(() => {
-          // A gesture the system cancelled mid-pull leaves nothing half-open.
-          if (!fired.value) dx.value = withSpring(0, SETTLE);
+          // A gesture the system cancelled mid-pull leaves nothing half-open —
+          // and a drag on a side that does nothing ends here too, which is what
+          // lets its panes go.
+          if (!fired.value) dx.value = withSpring(0, SETTLE, settled);
         }),
-    [dx, fired, recoverIfStillHere, reducedMotion, runLeft, runRight, sides],
+    [dx, engage, fired, recoverIfStillHere, reducedMotion, runLeft, runRight, settled, sides],
   );
 
   const rowStyle = useAnimatedStyle(() => ({
@@ -571,10 +611,11 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
       onLayout={onLayout}
       style={[s.wrap, style]}
     >
-      {left && sides.left ? (
+      {/* Only for the row being swiped — see `engaged`. */}
+      {engaged && left && sides.left ? (
         <SwipeActionPane visual={left} direction="left" dx={dx} threshold={sides.left.threshold} />
       ) : null}
-      {right && sides.right ? (
+      {engaged && right && sides.right ? (
         <SwipeActionPane visual={right} direction="right" dx={dx} threshold={sides.right.threshold} />
       ) : null}
       <GestureDetector gesture={pan}>
