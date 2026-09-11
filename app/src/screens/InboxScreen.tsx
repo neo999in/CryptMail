@@ -7,6 +7,7 @@ import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
 import { AccountId, AccountRef } from '../store/accountScope';
 import { messageMatchesQuery } from '../search/search';
 import { isSnoozed } from '../snooze/snooze';
+import { SwipeVisual } from '../swipe/swipe';
 import { groupIntoThreads, Thread } from '../threads/threads';
 import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem } from '../state/types';
@@ -22,6 +23,7 @@ import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useSwipeRunner } from '../ui/swipeRun';
+import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
 
 /**
@@ -166,6 +168,40 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     if (isFocused) setOverlay('none');
   }, [isFocused, setOverlay]);
 
+  /**
+   * The conversations on screen, by id — what a row's tap and swipe act on.
+   *
+   * Read through `useLatest` so the two handlers below are built once: a row
+   * hands back its thread id and the handler finds the thread as it is *now*.
+   * Closing over `sections` instead would rebuild both whenever the list's data
+   * changed, and a new handler re-renders every memoised row (`ui/mailList.tsx`).
+   */
+  const threadsById = useMemo(
+    () => new Map(sections.flatMap((section) => section.data.map((row) => [row.thread.id, row.thread] as const))),
+    [sections],
+  );
+  const threads = useLatest(threadsById);
+
+  const openRow = useCallback(
+    (threadId: string, origin?: OriginRect) => {
+      const thread = threads.current.get(threadId);
+      if (!thread) return;
+      if (thread.count > 1) navigation.navigate('Conversation', { threadId: thread.id });
+      else openMail(thread.latest.id, origin);
+    },
+    [navigation, openMail, threads],
+  );
+
+  // The conversation, not just its newest message: a row that archived one of
+  // three messages would spring straight back.
+  const swipeRow = useCallback(
+    (visual: SwipeVisual, threadId: string) => {
+      const thread = threads.current.get(threadId);
+      if (thread) runSwipe(visual, thread.messages, null);
+    },
+    [runSwipe, threads],
+  );
+
   const renderItem = useCallback(
     ({
       item,
@@ -175,6 +211,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
       index: number;
     }) => (
       <MailListRow
+        id={item.thread.id}
         summary={item.thread.latest}
         encryption={item.encryption}
         // Only while merged: in a single-account inbox every row is from the
@@ -184,11 +221,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
         index={index}
         padding={rowPadding}
         selfAddress={session?.email}
-        onPress={(origin) =>
-          item.thread.count > 1
-            ? navigation.navigate('Conversation', { threadId: item.thread.id })
-            : openMail(item.thread.latest.id, origin)
-        }
+        onPress={openRow}
         // `box: null` is the inbox — including every category filter over it,
         // which is what `category` then tells the row apart for.
         swipe={{
@@ -200,15 +233,13 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
           // to work — see `swipe/swipe.ts`.
           foreign: item.thread.latest.account !== activeAccount,
         }}
-        // The conversation, not just its newest message: a row that archived one
-        // of three messages would spring straight back.
-        onSwipe={(visual) => runSwipe(visual, item.thread.messages, null)}
+        onSwipe={swipeRow}
       />
     ),
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, activeAccount, category, openMail, navigation, rowPadding, runSwipe, session?.email, unified],
+    [accounts, activeAccount, category, openRow, rowPadding, swipeRow, session?.email, unified],
   );
 
   return (

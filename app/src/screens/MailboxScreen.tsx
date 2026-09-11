@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { messageMatchesQuery } from '../search/search';
 import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem, SecondaryBox } from '../state/types';
+import { SwipeVisual } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
 import { useAccent, useAppearance } from '../ui/appearance';
@@ -49,6 +50,7 @@ import { needsAttention } from '../ui/mailFilter';
 import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useSwipeRunner } from '../ui/swipeRun';
+import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
 
 const COPY: Record<SecondaryBox, { title: string; empty: string; hint: string; icon: IconName }> = {
@@ -156,26 +158,44 @@ export function MailboxBody({
     if (isFocused) setOverlay('none');
   }, [isFocused, setOverlay]);
 
+  /**
+   * The messages in this box, by id, read through `useLatest` so the swipe
+   * handler is built once — the same arrangement as the inbox, and for the same
+   * reason: a handler that changed with the data would re-render every
+   * memoised row (`ui/mailList.tsx`).
+   */
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item] as const)), [items]);
+  const latestItems = useLatest(itemsById);
+
+  // One message, not a conversation: these lists are not threaded.
+  const swipeRow = useCallback(
+    (visual: SwipeVisual, id: string) => {
+      const item = latestItems.current.get(id);
+      if (item) runSwipe(visual, [item], box);
+    },
+    [box, latestItems, runSwipe],
+  );
+
   const renderItem = useCallback(
     ({ item, index }: { item: { item: InboxItem; encryption: EncryptionState }; index: number }) => (
       <MailListRow
+        id={item.item.id}
         summary={item.item}
         encryption={item.encryption}
         index={index}
         padding={rowPadding}
         selfAddress={session?.email}
-        onPress={(origin) => openMail(item.item.id, origin)}
+        onPress={openMail}
         // The list itself is the context. Archive resolves to nothing in all
         // three of these — there is no un-archive operation and nothing here to
         // take out of an inbox — while Delete becomes Restore in Trash
         // (`swipe/swipe.ts`). These lists are the active account's alone, so no
         // row here is ever another mailbox's.
         swipe={{ box, junk: false, category: null, foreign: false }}
-        // One message, not a conversation: these lists are not threaded.
-        onSwipe={(visual) => runSwipe(visual, [item.item], box)}
+        onSwipe={swipeRow}
       />
     ),
-    [box, openMail, rowPadding, runSwipe, session?.email],
+    [box, openMail, rowPadding, swipeRow, session?.email],
   );
 
   return (

@@ -27,18 +27,19 @@ import { useMailPrefs } from './mailPrefs';
 import { Skeleton } from './primitives';
 import { SwipeableRow } from './swipeRow';
 
-export function MailListRow({
-  summary,
-  encryption,
-  mailbox,
-  count = 1,
-  index,
-  padding,
-  selfAddress,
-  onPress,
-  swipe,
-  onSwipe,
-}: {
+type MailListRowProps = {
+  /**
+   * What this row stands for, handed back to `onPress` and `onSwipe` — a
+   * message id, or a thread id in the threaded inbox.
+   *
+   * An id rather than a closure over the row's data, and that is what lets the
+   * row be memoised: the list hands every row the *same* two callbacks, and each
+   * looks the id up in the list's current data when it fires. A per-row arrow is
+   * a new prop on every render of the list, so every render of the list — every
+   * store patch, including the ones an opening message makes mid-transition —
+   * re-rendered every row in it and rebuilt each one's swipe gesture.
+   */
+  id: string;
   summary: MailSummary;
   encryption: EncryptionState;
   /** Which mailbox this row came from, shown only while the inbox is merged. */
@@ -50,9 +51,9 @@ export function MailListRow({
   padding: number;
   /** The active account, so a message you sent leads with who it went to. */
   selfAddress?: string;
-  /** Handed the row's own rectangle, when it could be measured, so the message
-   *  screen can collapse back onto it — see `ui/expand.tsx`. */
-  onPress: (origin?: OriginRect) => void;
+  /** Handed the row's `id` and its own rectangle, when it could be measured, so
+   *  the message screen can collapse back onto it — see `ui/expand.tsx`. */
+  onPress: (id: string, origin?: OriginRect) => void;
   /**
    * Where this row is, so a configured swipe can resolve to what it means here
    * — or to nothing (`swipe/swipe.ts`).
@@ -63,18 +64,48 @@ export function MailListRow({
    * half-swiped.
    */
   swipe?: Omit<SwipeContext, 'unread'>;
-  /** Run what the swipe resolved to. `ui/swipeRun.tsx` is what a list hands in. */
-  onSwipe?: (visual: SwipeVisual, summary: MailSummary) => void;
-}) {
+  /** Run what the swipe resolved to, for the row's `id`. `ui/swipeRun.tsx` is
+   *  what a list hands in. */
+  onSwipe?: (visual: SwipeVisual, id: string) => void;
+};
+
+function MailListRowImpl({
+  id,
+  summary,
+  encryption,
+  mailbox,
+  count = 1,
+  index,
+  padding,
+  selfAddress,
+  onPress,
+  swipe,
+  onSwipe,
+}: MailListRowProps) {
   const [rowRef, measureOrigin] = useOriginRef();
   const { swipeLeft, swipeRight } = useMailPrefs();
 
   // Both sides, resolved for *this* row in *this* list. `null` on a side is the
   // honest answer for an unconfigured direction and for an action with no
   // meaning here, and the gesture treats the two the same: the row does not move.
-  const context: SwipeContext | null = swipe && onSwipe ? { ...swipe, unread: summary.unread } : null;
-  const left = context ? resolveSwipe(swipeLeft, context) : null;
-  const right = context ? resolveSwipe(swipeRight, context) : null;
+  const context = React.useMemo<SwipeContext | null>(
+    () => (swipe && onSwipe ? { ...swipe, unread: summary.unread } : null),
+    [onSwipe, summary.unread, swipe],
+  );
+  const left = React.useMemo(() => (context ? resolveSwipe(swipeLeft, context) : null), [context, swipeLeft]);
+  const right = React.useMemo(() => (context ? resolveSwipe(swipeRight, context) : null), [context, swipeRight]);
+
+  // Held steady for `SwipeableRow`, which builds its gesture from these: a new
+  // function on each render is a new gesture on each render.
+  const onAction = React.useCallback((visual: SwipeVisual) => onSwipe?.(visual, id), [id, onSwipe]);
+  const removes = React.useCallback(
+    (visual: SwipeVisual) => (context ? swipeRemovesRow(visual.operation, context) : true),
+    [context],
+  );
+  const press = React.useCallback(
+    () => void measureOrigin().then((origin) => onPress(id, origin)),
+    [id, measureOrigin, onPress],
+  );
 
   const row = (
     <MotiView
@@ -86,7 +117,7 @@ export function MailListRow({
       <View collapsable={false} ref={rowRef} style={s.row}>
         <Pressable
           accessibilityRole="button"
-          onPress={() => void measureOrigin().then(onPress)}
+          onPress={press}
           style={({ pressed }) => [pressed && s.rowPressed]}
         >
           <MailRowCard
@@ -110,8 +141,8 @@ export function MailListRow({
     <SwipeableRow
       left={left}
       right={right}
-      onAction={(visual) => onSwipe(visual, summary)}
-      removes={(visual) => swipeRemovesRow(visual.operation, context)}
+      onAction={onAction}
+      removes={removes}
       // The hairline between rows lives out here, on the wrapper: inside it, it
       // is a strip the row does not cover and the action's colour shows through
       // it. See `SwipeableRow`'s `style`.
@@ -123,6 +154,45 @@ export function MailListRow({
     </SwipeableRow>
   );
 }
+
+/**
+ * Whether a row can skip a render: every prop the same, two of them by value.
+ *
+ * `encryption` is re-derived for every row whenever the list's data changes
+ * (`encryptionFor` builds a new object on each call), and `swipe` is an object
+ * literal the list writes per row. Equal in every field is the same row; any
+ * difference re-renders, so a mistake here costs a render, never a stale row.
+ */
+function sameRow(prev: MailListRowProps, next: MailListRowProps): boolean {
+  return (
+    prev.id === next.id &&
+    prev.summary === next.summary &&
+    shallowEqual(prev.encryption, next.encryption) &&
+    prev.mailbox === next.mailbox &&
+    prev.count === next.count &&
+    prev.index === next.index &&
+    prev.padding === next.padding &&
+    prev.selfAddress === next.selfAddress &&
+    prev.onPress === next.onPress &&
+    shallowEqual(prev.swipe, next.swipe) &&
+    prev.onSwipe === next.onSwipe
+  );
+}
+
+function shallowEqual<T extends object>(a: T | undefined, b: T | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a) as (keyof T)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+/**
+ * Memoised, so a list re-rendering does not re-render its rows. The list
+ * re-renders on every store patch — opening a message alone makes two or three
+ * while its transition is running — and a mounted list is dozens of rows, each
+ * a fade-in, a gesture and an animated style.
+ */
+export const MailListRow = React.memo(MailListRowImpl, sameRow);
 
 /**
  * The one truly floating control on a mail list: an extended, labelled compose
