@@ -241,7 +241,7 @@ export function AccountScreen({ navigation, route }: Props) {
           {label !== account.email ? <Text style={s.identityAddress}>{account.email}</Text> : null}
           <Text style={s.identityProvider}>
             {providerName(account.provider)}
-            {stale ? ' · needs sign-in' : active ? (unified ? ' · sending from this mailbox' : ' · in front') : ''}
+            {stale ? ' · needs sign-in' : active && !unified ? ' · in front' : ''}
           </Text>
         </View>
 

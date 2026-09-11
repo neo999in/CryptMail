@@ -49,7 +49,9 @@ export function AccountsScreen({ navigation }: Props) {
           {accounts.map((account) => {
             // Three facts, and the row says whichever applies rather than
             // colouring the avatar: a mailbox that cannot sync is the one thing
-            // someone comes to this screen to find out.
+            // someone comes to this screen to find out. While merged no mailbox
+            // is "in front", and which one sends is the compose From picker's
+            // to say, so every healthy row reads the same.
             const stale = needsReauth.includes(account.id);
             const active = account.id === activeAccount;
             const paused = settingsOf(account).paused;
@@ -57,10 +59,8 @@ export function AccountsScreen({ navigation }: Props) {
               ? 'Needs you to sign in again'
               : paused
                 ? 'Not syncing'
-                : active
-                  ? unified
-                    ? 'Sending from this mailbox'
-                    : 'In front'
+                : active && !unified
+                  ? 'In front'
                   : 'Connected';
             const label = accountLabel(account);
             return (

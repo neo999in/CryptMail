@@ -40,7 +40,7 @@ type Row = {
 };
 
 export function SettingsScreen({ navigation }: Props) {
-  const { session, accounts, activeAccount, signOut } = useApp();
+  const { session, accounts, activeAccount, unified, signOut } = useApp();
   const { auroraColors, density, theme } = useAppearance();
   const { swipeLeft, swipeRight } = useMailPrefs();
   const { setDestination } = useDestination();
@@ -90,9 +90,12 @@ export function SettingsScreen({ navigation }: Props) {
             // The user's own name for the mailbox, like everywhere else that
             // names one. Falls back to the address, which is what
             // `accountLabel` does when nothing has been chosen.
+            // While merged no mailbox is in front, so only the count is said.
             value:
               accounts.length > 1
-                ? `${accounts.length} mailboxes · ${inFront} in front`
+                ? unified
+                  ? `${accounts.length} mailboxes`
+                  : `${accounts.length} mailboxes · ${inFront} in front`
                 : inFront,
             // Switching still lives in the drawer rail, which is one gesture
             // from the inbox. This is the other half: naming a mailbox, what it
@@ -128,7 +131,7 @@ export function SettingsScreen({ navigation }: Props) {
     // `confirmSignOut` closes over `signOut` only, which is stable for the life
     // of the app — see the note on the actions `useApp()` exposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, swipeLeft, swipeRight, theme],
+    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, swipeLeft, swipeRight, theme, unified],
   );
 
   return (

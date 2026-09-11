@@ -375,10 +375,10 @@ senders keep initials: loading a remote image because mail arrived is a tracking
 pixel with extra steps.
 
 **The rule that keeps them apart: exactly one account is active at a time**,
-including while the inbox is merged. The rail says so even while merged — Home
-carries the accent fill, and the mailbox in front keeps a ring, because "what am
-I reading" and "who am I sending as" are two questions and the merged view
-answers them differently. Merging is a *reading* convenience — rows
+including while the inbox is merged. While merged, Home carries the accent fill
+on the rail and no mailbox is marked there: "who am I sending as" is answered by
+the compose screen's account selection, where it is asked. Merging is a
+*reading* convenience — rows
 are tagged with the mailbox they came from, flag changes go to that mailbox's
 provider, and opening a row from another account **switches to it first**.
 Composing, sending and decrypting always use the active account, because each

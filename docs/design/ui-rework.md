@@ -87,9 +87,9 @@ lines) is the biggest change. Target, matching shot 2:
 
 - **Top bar**: flat grey, avatar-button on the left (opens the drawer), title,
   search icon on the right. No account subtitle under the title, on this bar or
-  in the drawer's panel head: which mailbox is active is the drawer rail's job,
-  where the one in front is ringed in the accent even while the inbox is merged,
-  and the bar's leading avatar wears that account's face. Spelling the address
+  in the drawer's panel head: the bar's leading avatar wears the active
+  account's face, and while the inbox is merged the compose screen's From
+  picker is where the sending account is shown and changed. Spelling the address
   out in words as well put a line that appears and vanishes — moving the list
   under it — under a fact that changes about once a session.
 - **Segmented control**: two tabs on the left, `Filter` pill on the right. This
@@ -125,7 +125,8 @@ Filter sheet.
 becomes the two-column drawer of shot 3:
 
 - **Left rail (72pt)**: one circular avatar per connected account with the
-  active one ringed in the accent, then a `+` to add another. Tapping switches
+  active one on a tinted squircle (unmarked while merged, when Home carries the
+  selection), then a `+` to add another. Tapping switches
   the active account through the existing `services.accounts` action — the
   "exactly one account is active" rule is unchanged, and the rail is just a
   faster way to exercise it. The unified-inbox toggle becomes the "All Accounts"
