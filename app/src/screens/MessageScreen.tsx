@@ -1,12 +1,8 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Linking,
-  Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { categorizeMessage, providerFiledAsJunk, verdictFor } from '../categorizer/categorizer';
 import { displayName, fullTimestamp, initials, shortFingerprint } from '../lib/format';
 import { saveAttachment } from '../lib/files';
-import { hostOf, linkify } from '../lib/links';
 import { Attachment } from '../mail/attachment';
 import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplySource } from '../mail/reply';
 import { RootStackParamList } from '../navigation';
@@ -28,24 +23,23 @@ import { OpenedMessage, useApp } from '../state/AppState';
 import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { settingsOf } from '../store/accountScope';
 import { countRemoteImages } from '../html/remoteImages';
-import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
+import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
 import { HtmlReader } from '../ui/HtmlReader';
+import { Body, LinkSheet } from '../ui/messageBody';
+import { CardBar, PlainBanner, StatusBanner } from '../ui/messageChrome';
 import { useChrome, useKeepsBarBeneath } from '../ui/chrome';
 import { ExpandingScreen } from '../ui/expand';
 import { MailRowCard } from '../ui/mailRow';
 import { Icon } from '../ui/Icon';
 import {
   Avatar,
-  Badge,
   barIcon,
   Banner,
   EmptyState,
   Glass,
-  frost,
   IconButton,
-  PrimaryButton,
   PressableRow,
   Sheet,
   Skeleton,
@@ -784,108 +778,6 @@ export function MessageScreen({ route, navigation }: Props) {
   );
 }
 
-/**
- * The message text, with http(s) URLs made tappable.
- *
- * A decrypted body gets this for free — it is the same `<Text>`. Detection is in
- * `lib/links.ts`, which linkifies nothing but `http://` and `https://`; that
- * exclusion is the security boundary, so nothing about which schemes are
- * tappable is decided here.
- */
-function Body({ text, onLinkPress }: { text: string; onLinkPress: (url: string) => void }) {
-  return (
-    <Text style={s.body}>
-      {linkify(text).map((segment, i) =>
-        segment.url ? (
-          <Text
-            accessibilityRole="link"
-            key={`link-${i}`}
-            onPress={() => onLinkPress(segment.url as string)}
-            style={s.link}
-            suppressHighlighting
-          >
-            {segment.text}
-          </Text>
-        ) : (
-          segment.text
-        ),
-      )}
-    </Text>
-  );
-}
-
-/**
- * Where this link goes, before it goes there.
- *
- * A tap opens this rather than the browser. Tapping a link in an email is the
- * classic phishing move, and the host is the part that gives a spoof away — so
- * it gets its own line, in mono, above the full URL. One extra tap is a small
- * price for making the destination visible while it can still be declined.
- */
-function LinkSheet({ url, onClose }: { url: string | null; onClose: () => void }) {
-  const insets = useSafeAreaInsets();
-  const [copied, setCopied] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  // Fresh state each time a link is tapped, so a previous "Copied" or a failure
-  // from another URL is never showing against this one.
-  useEffect(() => {
-    setCopied(false);
-    setFailure(null);
-  }, [url]);
-
-  if (!url) return null;
-
-  const open = async () => {
-    try {
-      await Linking.openURL(url);
-      onClose();
-    } catch (e) {
-      setFailure(`Could not open this link: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
-  const copy = async () => {
-    await Clipboard.setStringAsync(url);
-    setCopied(true);
-  };
-
-  return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible>
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={[s.scrim, frost(glass.blur.medium)]}>
-        {Platform.OS !== 'web' ? (
-          <BlurView intensity={glass.blur.medium} tint="dark" style={StyleSheet.absoluteFill} />
-        ) : null}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }]} />
-      </Pressable>
-      <View style={[s.sheet, s.sheetInner, { paddingBottom: insets.bottom + space.lg }]}>
-        <View style={s.grabber} />
-        <Text style={s.linkEyebrow}>This link goes to</Text>
-        <Text style={s.linkHost}>{hostOf(url) ?? 'an address CryptMail could not read'}</Text>
-        <ScrollView style={s.linkUrlBox} showsVerticalScrollIndicator={false}>
-          <Text style={s.linkUrl}>{url}</Text>
-        </ScrollView>
-        {failure ? (
-          <View style={{ marginTop: 12 }}>
-            <Banner tone="warn" icon="alert">{failure}</Banner>
-          </View>
-        ) : null}
-        <View style={s.linkActions}>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton title="Open" icon="link" onPress={() => void open()} />
-          </View>
-          <SecondaryButton
-            title={copied ? 'Copied' : 'Copy'}
-            icon={copied ? 'check' : 'copy'}
-            onPress={() => void copy()}
-          />
-          <SecondaryButton title="Cancel" icon="close" onPress={onClose} />
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 /** One block of the decrypt cascade — fades and rises into place on mount. */
 function Reveal({ delay, children }: { delay: number; children: React.ReactNode }) {
   return (
@@ -896,51 +788,6 @@ function Reveal({ delay, children }: { delay: number; children: React.ReactNode 
     >
       {children}
     </MotiView>
-  );
-}
-
-/**
- * "Not encrypted", from the headers alone.
- *
- * Drawn before the message is open as well as after, which is why it is its own
- * component: the banner the reader sees while the body loads has to be the same
- * one they are left with, or the page rewrites itself under them. Only the
- * *encrypted* banner waits, because its wording is the signature's verdict and
- * that does not exist until the message has been decrypted.
- */
-function PlainBanner() {
-  return (
-    <View style={{ marginBottom: 15 }}>
-      <View style={s.plainBanner}>
-        <Badge tone="plain">Not encrypted</Badge>
-        <Text style={s.plainText}>Sent by someone who is not a CryptMail user.</Text>
-      </View>
-    </View>
-  );
-}
-
-function StatusBanner({ opened }: { opened: OpenedMessage }) {
-  if (opened.encryption.kind === 'plain') return <PlainBanner />;
-  if (opened.error) return null;
-
-  const trust = opened.encryption.trust;
-  const tone = trust === 'verified' || trust === 'seen' ? 'ok' : 'warn';
-  const text = opened.encryption.own
-    ? 'Your copy · encrypted to your own key'
-    : trust === 'verified'
-      ? 'Encrypted end-to-end · signature verified'
-      : trust === 'seen'
-        ? 'Encrypted end-to-end · sender key not verified yet'
-        : trust === 'changed'
-          ? "This sender's key changed — verify before you trust this message"
-          : 'Encrypted · no key for this sender on this device';
-
-  return (
-    <View style={{ marginBottom: 15 }}>
-      <Banner tone={tone} icon={tone === 'ok' ? 'shield' : 'alert'}>
-        {text}
-      </Banner>
-    </View>
   );
 }
 
@@ -1025,77 +872,6 @@ function SpamNotice({
   );
 }
 
-/**
- * The mail's own leading edge: back, the sender, and nothing else.
- *
- * Deliberately *not* an aurora bar. The band belongs to the screen this one
- * opened over — the inbox keeps drawing its own above the inset, unchanged and
- * still running — and a second band here would be a different bar arriving where
- * the reader was told nothing would move. This is the top of the card, so it
- * carries the card's fill and scales in with the rest of the message.
- *
- * `underBar` says the aurora bar above is holding the status bar; standing on
- * its own (opened from a conversation, from Sent) it has to clear it itself.
- */
-/**
- * The bar over an open message: a way back, and what can be done to it.
- *
- * It carries no identity — no avatar, no sender name. That is drawn a few
- * pixels below it, at full size with the address under it, and a second smaller
- * copy in the bar said the same thing twice while spending the whole width on
- * it. The width buys actions instead, which is what a reader wants at the top
- * of a mail they have just opened and have already decided about.
- *
- * Sitting under the aurora bar, this row wants almost no lead-in: the band
- * above is already the top of the screen, and padding under it reads as a gap
- * rather than as breathing room. Standing alone it clears the status bar itself
- * and gets the usual space.
- */
-function CardBar({
-  onBack,
-  onHeight,
-  actions,
-  underBar,
-}: {
-  onBack: () => void;
-  /** Measured so the ground below can start exactly where this row ends. */
-  onHeight?: (height: number) => void;
-  /** The trailing buttons. Absent while the message is missing — the bar is
-   *  then just a way back. */
-  actions?: React.ReactNode;
-  underBar: boolean;
-}) {
-  const insets = useSafeAreaInsets();
-
-  return (
-    <View
-      onLayout={(e) => onHeight?.(Math.ceil(e.nativeEvent.layout.height))}
-      style={[
-        s.cardbar,
-        { paddingTop: underBar ? space.xs : insets.top + space.sm },
-        // The hairline is what separates this row from the list it covered.
-        // Under the bar there is no list above it to separate from — only the
-        // band, which the rule would cut across.
-        underBar && { borderBottomWidth: 0 },
-      ]}
-    >
-      {/* Pulled 2 further out than the padding, to land where the overflow
-          at the other end does. Both boxes stop 16 from the edge, but the two
-          glyphs meet that line differently: the dots are three circles on one
-          centre, so every row of ink is flush with the box, while the arrow's
-          leftmost pixel is the chevron's apex on a single row and the rest of
-          it starts further in — measured, its mean edge sat 18.8 out against
-          the dots' 16.5. A point reads as further from an edge than a flat
-          side at the same distance, so the box is moved, not the glyph. */}
-      <View style={{ marginLeft: -2 }}>
-        <IconButton {...barIcon} icon="back" label="Back" onPress={onBack} />
-      </View>
-      <View style={{ flex: 1 }} />
-      {actions}
-    </View>
-  );
-}
-
 const truncate = (raw: string, lines = 26) => {
   const all = raw.split('\n');
   return all.length <= lines ? raw : [...all.slice(0, lines), `…  (${all.length - lines} more lines)`].join('\n');
@@ -1111,29 +887,6 @@ const s = StyleSheet.create({
   screen: { flex: 1 },
   ground: { backgroundColor: color.ground, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
 
-  // The card's own edge: the ground it stands on, with a hairline where the
-  // list used to be. No fill of its own — the surface colour belongs to bars,
-  // and the one bar on this screen is the inbox's, above.
-  cardbar: {
-    alignItems: 'center',
-    borderBottomColor: color.line,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    // The flex spacer holds the back arrow apart from the actions; this gap
-    // is just between the actions themselves. It sits on top of the 12 each
-    // 36 box already puts between its 24 glyph and the next, so the number
-    // here is smaller than the gap the eye ends up seeing.
-    gap: 14,
-    paddingBottom: space.xs,
-    // Not the bar's own inset — what is left of it once the glyphs' side
-    // bearing is taken off. Both end icons carry about ten points of nothing
-    // inside their box (the arrow because it is drawn short of its 21, the
-    // dots because they are a 4-wide column in one), so a padding of 18 put
-    // their ink 28 from the edge and the row read inset from its own screen.
-    // Ten lands it near 20 — clear of the message's 16 gutter without the
-    // arrow drifting back toward the middle of the bar. Measured, not guessed.
-    paddingHorizontal: 10,
-  },
   scroll: { flex: 1 },
 
   subject: { ...type.display, color: color.ink, lineHeight: 28 },
@@ -1159,8 +912,6 @@ const s = StyleSheet.create({
   },
   senderKey: { color: color.mint, flex: 1, fontFamily: font.mono, fontSize: 11.5 },
 
-  body: { color: color.body, fontFamily: font.sans, fontSize: 15.5, lineHeight: 25 },
-
   // Reads as a note above the mail rather than a warning: nothing has gone
   // wrong, and coral is trust vocabulary that must not be spent here.
   imageStrip: {
@@ -1177,49 +928,6 @@ const s = StyleSheet.create({
   },
   imageStripText: { color: color.inkDim, flex: 1, fontFamily: font.sans, fontSize: 13 },
   imageStripAction: { fontFamily: font.sansSemibold, fontSize: 13 },
-  // Underlined as well as tinted: colour alone is not a signal everyone can see.
-  link: { color: defaultAccent, textDecorationLine: 'underline' },
-
-  scrim: { flex: 1 },
-  sheet: {
-    backgroundColor: color.surface,
-    borderTopColor: color.line,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    ...shadow.sheet,
-  },
-  sheetInner: { paddingHorizontal: 16, paddingTop: 10 },
-  grabber: {
-    alignSelf: 'center',
-    backgroundColor: color.line,
-    borderRadius: radius.pill,
-    height: 4,
-    marginBottom: 16,
-    width: 38,
-  },
-  linkEyebrow: { ...type.eyebrow, color: color.inkFaint },
-  linkHost: { color: color.ink, fontFamily: font.mono, fontSize: 17, marginTop: 8 },
-  linkUrlBox: {
-    backgroundColor: color.ground2,
-    borderColor: color.lineSoft,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    marginTop: 12,
-    maxHeight: 96,
-    padding: 11,
-  },
-  linkUrl: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5, lineHeight: 17 },
-  linkActions: { alignItems: 'stretch', flexDirection: 'row', gap: 9, marginTop: 14 },
-
-  plainBanner: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
-    padding: 11,
-  },
-  plainText: { color: color.inkDim, flex: 1, fontFamily: font.sans, fontSize: 12.5 },
-
   menuRow: {
     alignItems: 'center',
     flexDirection: 'row',
