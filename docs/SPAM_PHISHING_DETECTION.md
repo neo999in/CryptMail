@@ -1450,16 +1450,28 @@ markNotSpam: (id) => applyMark(id, 'ham'),
    this leaves: encrypted mail is never *scored* (§13.4), but the user may still
    mark one, and that mark trains the model. Deliberate — the user chose to file
    it, and what they teach the filter carries over to plaintext mail.
-3. `if (previous === mark) return;` — the duplicate guard.
+3. If the mark is unchanged, steps 4–6 are skipped. This is the duplicate guard:
+   it stops one message being trained twice. Step 7 still runs.
 4. The previous mark, if any, is untrained; the new one is trained.
 5. `store.patch({ spam })` updates state **synchronously**, so the UI re-renders
    with the new verdict immediately.
 6. `await saveSpamState(spam)` seals mark and model **together in one record**, so
    a restart cannot restore a mark whose training was lost, or vice versa.
+7. **The provider's filing is brought into line.** If the row's labels disagree
+   with the stored verdict, `setFlags(id, { junk })` files the message into the
+   provider's junk folder or back to the inbox. Gmail does this by adding or
+   removing `SPAM` (and `INBOX`); Outlook does it with a Graph move to
+   `junkemail` or `inbox`. The row is relabelled in place, not dropped, because
+   the inbox and the junk folder are one list here. The row and the verdict are
+   both re-read from the store at this point. So a double tap moves the message
+   once, and Spam and Not spam tapped in the same tick push the verdict that
+   won. A failed push is not reported: the list refetches, and the next mark
+   tries again.
 
 **Marking spam does not archive or delete the message.** The mark moves it to the
-Spam category, which is a filing decision the user can reverse. Removing it from
-the mailbox is a different action with a different button.
+Spam category and to the provider's junk folder, which are filing decisions the
+user can reverse. Removing it from the mailbox is a different action with a
+different button.
 
 ### 11.2 How the override works, and why it has priority
 
@@ -1888,10 +1900,15 @@ something this client can do that the provider's own app cannot. The failure it
 avoids is the expensive one — a message the user needed, hidden by the client that
 was meant to be the one thing on their side.
 
-**Nothing is pushed back to the server.** A mark still files the row locally only
-(§11.1). A message rescued from junk in CryptMail is still in Gmail's Spam folder,
-and Gmail still deletes it after 30 days; pushing the correction back needs
-`messages.modify` with `SPAM`, which is an open probe rather than a decision.
+**The correction is pushed back to the server.** A mark files the row here and,
+when the provider's own filing disagrees, files it there too (§11.1, step 7).
+Gmail does this through `messages.modify` with `SPAM`; Outlook through a Graph
+move. A message rescued in CryptMail leaves Gmail's Spam, so Gmail no longer
+deletes it after 30 days, and every other client on the account agrees. It
+used to be local only, and that quietly lost the rescue. Only the user's
+explicit mark is pushed. This device's own verdict files a row locally and is
+never sent to the provider, because an automatic guess moving mail in someone's
+real mailbox is a different decision from a person asking for it.
 
 **Tests.** [`app/src/mail/__tests__/gmail-test.ts`](../app/src/mail/__tests__/gmail-test.ts)
 pins the query per mailbox — including that no other list carries `includeSpamTrash`.

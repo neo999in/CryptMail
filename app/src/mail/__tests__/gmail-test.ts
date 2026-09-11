@@ -225,3 +225,31 @@ describe('moving a message to the trash and back', () => {
     expect(calls.every((c) => !c.url.includes('trash'))).toBe(true);
   });
 });
+
+describe('filing junk and rescuing it', () => {
+  /** Records the path and the label edit of every call. */
+  function stubBodies() {
+    const calls: { url: string; body?: unknown }[] = [];
+    const fetch = async (url: unknown, init?: { body?: string }) => {
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : undefined });
+      return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+    };
+    (globalThis as unknown as { fetch: unknown }).fetch = fetch;
+    return calls;
+  }
+
+  /** What Gmail's own filter does to a message it files: SPAM on, INBOX off. */
+  it('files junk the way Gmail does, by the SPAM label', async () => {
+    const calls = stubBodies();
+    await client().updateFlags('m1', { junk: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain('/messages/m1/modify');
+    expect(calls[0].body).toEqual({ addLabelIds: ['SPAM'], removeLabelIds: ['INBOX'] });
+  });
+
+  it('rescues it by the reverse, back into the inbox', async () => {
+    const calls = stubBodies();
+    await client().updateFlags('m1', { junk: false });
+    expect(calls[0].body).toEqual({ addLabelIds: ['INBOX'], removeLabelIds: ['SPAM'] });
+  });
+});

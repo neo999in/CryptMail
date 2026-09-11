@@ -200,4 +200,24 @@ describe('flags', () => {
 
     expect(asked.map((a) => JSON.parse(String(a.init.body)).destinationId)).toEqual(['deleteditems', 'inbox', 'inbox']);
   });
+
+  /** Mark as spam and Not spam, pushed to where the mail lives. */
+  it('files junk into the junk folder, and rescues it to the inbox', async () => {
+    const asked = stubGraph();
+    await client().updateFlags('id1', { junk: true });
+    await client().updateFlags('id1', { junk: false });
+
+    expect(bodies(asked)).toEqual([
+      ['POST', '/messages/id1/move', JSON.stringify({ destinationId: 'junkemail' })],
+      ['POST', '/messages/id1/move', JSON.stringify({ destinationId: 'inbox' })],
+    ]);
+  });
+
+  it('makes one move per patch: trash over junk, junk over archive', async () => {
+    const asked = stubGraph();
+    await client().updateFlags('id1', { trashed: true, junk: true });
+    await client().updateFlags('id1', { junk: true, archived: true });
+
+    expect(asked.map((a) => JSON.parse(String(a.init.body)).destinationId)).toEqual(['deleteditems', 'junkemail']);
+  });
 });

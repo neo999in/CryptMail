@@ -102,6 +102,17 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
       // putting it back — Gmail has no archive folder to move between.
       if (patch.archived === true) removeLabelIds.push('INBOX');
       if (patch.archived === false) addLabelIds.push('INBOX');
+      // Junk is a label too: filing a message adds SPAM and takes it out of the
+      // inbox, which is exactly what Gmail's own filter does; rescuing it is the
+      // reverse. Unlike TRASH, SPAM is settable through `messages.modify`.
+      if (patch.junk === true) {
+        addLabelIds.push('SPAM');
+        removeLabelIds.push('INBOX');
+      }
+      if (patch.junk === false) {
+        removeLabelIds.push('SPAM');
+        addLabelIds.push('INBOX');
+      }
       if (addLabelIds.length === 0 && removeLabelIds.length === 0) return;
       // Requires the gmail.modify scope, which `config.ts` requests. Verified
       // against a real mailbox on 2026-08-08: a star set here survives a cold

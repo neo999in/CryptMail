@@ -20,7 +20,8 @@
  * service produced, plus the fact that they were persisted together.
  */
 import { PLACEHOLDER_SUBJECT } from '../../core';
-import { MailClient, MailSummary } from '../../mail/types';
+import { providerFiledAsJunk } from '../../categorizer/categorizer';
+import { FlagPatch, MailClient, MailSummary } from '../../mail/types';
 import type { SpamModel } from '../../spam/bayes';
 import type { SpamState } from '../../store/spamModelStore';
 import { accountIdFor } from '../../store/accountScope';
@@ -98,16 +99,20 @@ function harness(over: Partial<State> = {}) {
     () => {},
   );
   const { services, mail } = createServices(store);
+  /** Every flag change the provider was asked for, in order. */
+  const flagged: [string, FlagPatch][] = [];
   const client: MailClient = {
     kind: 'gmail',
     address: 'me@example.com',
     list: async () => ({ messages: [] }),
     getRaw: async () => '',
     send: async () => {},
-    updateFlags: async () => {},
+    updateFlags: async (id, patch) => {
+      flagged.push([id, patch]);
+    },
   };
   mail.current = client;
-  return { store, services };
+  return { store, services, flagged };
 }
 
 beforeEach(() => {
@@ -198,6 +203,71 @@ describe('markSpam', () => {
     // an interleaved pair leaves the same state a sequential pair would.
     expect(counts(spam.model)).toEqual({ spam: 0, ham: 1 });
     expect(spam.model.spam).toEqual({});
+  });
+});
+
+/**
+ * The provider hears the verdict too.
+ *
+ * A mark used to file the row on this device only, so a message rescued from
+ * junk stayed in the provider's junk folder — junk in every other client, and
+ * deleted by Gmail after 30 days. These pin that the verdict now reaches the
+ * mailbox, and only when the provider's own filing disagrees with it.
+ */
+describe('the provider hears the verdict', () => {
+  const INBOXED: InboxItem = { ...JUNK, labels: ['INBOX'] };
+  const FILED: InboxItem = { ...JUNK, labels: ['SPAM'] };
+
+  it('files an inbox message into the junk folder on Mark as spam', async () => {
+    const { services, store, flagged } = harness({ messages: [INBOXED] });
+
+    await services.mailbox.markSpam('junk-1');
+
+    expect(flagged).toEqual([['junk-1', { junk: true }]]);
+    // Filed in place — the row is still there, now under the provider's junk label.
+    const [row] = store.get().messages;
+    expect(row.id).toBe('junk-1');
+    expect(providerFiledAsJunk(row.labels)).toBe(true);
+  });
+
+  it('rescues a provider-filed message to the inbox on Not spam', async () => {
+    const { services, store, flagged } = harness({ messages: [FILED] });
+
+    await services.mailbox.markNotSpam('junk-1');
+
+    expect(flagged).toEqual([['junk-1', { junk: false }]]);
+    expect(providerFiledAsJunk(store.get().messages[0].labels)).toBe(false);
+  });
+
+  it('asks the provider nothing when it already agrees', async () => {
+    const spamOnSpam = harness({ messages: [FILED] });
+    await spamOnSpam.services.mailbox.markSpam('junk-1');
+    const hamOnInbox = harness({ messages: [INBOXED] });
+    await hamOnInbox.services.mailbox.markNotSpam('junk-1');
+
+    expect(spamOnSpam.flagged).toEqual([]);
+    expect(hamOnInbox.flagged).toEqual([]);
+  });
+
+  it('moves the message once for a double tap', async () => {
+    const { services, flagged } = harness({ messages: [INBOXED] });
+
+    await Promise.all([services.mailbox.markSpam('junk-1'), services.mailbox.markSpam('junk-1')]);
+
+    expect(flagged).toEqual([['junk-1', { junk: true }]]);
+  });
+
+  /** Both buttons in one tick: the verdict that won is the one pushed. */
+  it('pushes the winning verdict when Spam and Not spam race', async () => {
+    const { services, store, flagged } = harness({ messages: [INBOXED] });
+
+    await Promise.all([services.mailbox.markSpam('junk-1'), services.mailbox.markNotSpam('junk-1')]);
+
+    // Not spam won, and the message was in the inbox all along, so nothing had
+    // to move — a stale "spam" push after the reversal would have filed it.
+    expect(store.get().spam.marks['junk-1']).toBe('ham');
+    expect(flagged).toEqual([]);
+    expect(providerFiledAsJunk(store.get().messages[0].labels)).toBe(false);
   });
 });
 

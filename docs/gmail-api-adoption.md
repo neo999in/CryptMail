@@ -98,7 +98,7 @@ message already there.
 
 | API | Question it answers |
 |---|---|
-| `messages.modify` add/remove `SPAM` | Whether "not spam" can be pushed back to the provider at all. Today a mark is local: it moves the row in CryptMail and leaves Gmail's own filing alone, so a rescued message still ages out of Gmail's Spam after 30 days. `TRASH` cannot be set this way — hence the dedicated `messages.trash`/`untrash` — and `SPAM` may be restricted the same way. Verify against the live account rather than assuming. |
+| `messages.modify` add/remove `SPAM` | **Built.** Mark as spam and Not spam now push through this call: `SPAM` on and `INBOX` off, or the reverse ([SPAM_PHISHING_DETECTION.md](SPAM_PHISHING_DETECTION.md) §11.1 step 7), so a rescued message no longer ages out of Gmail's Spam after 30 days. **Still unconfirmed live** is whether Gmail accepts `SPAM` here the way it refuses `TRASH`. The emulator run was cut short. If Gmail refuses it, the call fails, the list refetches, and the mark stays local, which is the old behaviour. Check it on the throwaway account: after a Mark as spam and a refresh, the message should be listed from Gmail's Spam. |
 | `messages.insert` | Whether an encrypted copy of a sent message can be written into the mailbox without a send round trip. Would also make seeding a test mailbox cheap. |
 
 ## 3. Deliberately not

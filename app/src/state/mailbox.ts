@@ -592,14 +592,30 @@ export function createMailbox(ctx: Ctx): MailboxService {
     });
 
     const previous = state.spam.marks[id];
-    let model = state.spam.model;
-    if (previous === mark) return;
-    if (previous) model = unlearn(model, input, previous);
-    model = learn(model, input, mark);
+    if (previous !== mark) {
+      let model = state.spam.model;
+      if (previous) model = unlearn(model, input, previous);
+      model = learn(model, input, mark);
 
-    const spam = { model, marks: setMark(state.spam.marks, id, mark) };
-    store.patch({ spam });
-    await saveSpamState(account, spam);
+      const spam = { model, marks: setMark(state.spam.marks, id, mark) };
+      store.patch({ spam });
+      await saveSpamState(account, spam);
+    }
+
+    // 4. The provider hears it too, when its own filing disagrees. A message
+    //    rescued here and left in the provider's junk folder would still be
+    //    junk in every other client — and Gmail deletes its Spam after 30
+    //    days — so a local-only verdict quietly lost the rescue. Checked even
+    //    when the mark did not change, so a push that failed last time is
+    //    tried again. Both the row and the verdict are read from the store at
+    //    this moment rather than from this call's arguments: two taps in a row
+    //    then move the message once, and Spam and Not spam tapped in the same
+    //    tick push the verdict that won, not whichever call resumed last.
+    const now = store.get().messages.find((m) => m.id === id);
+    const verdict = store.get().spam.marks[id];
+    if (now && verdict && (verdict === 'spam') !== providerFiledAsJunk(now.labels)) {
+      await service.setFlags(id, { junk: verdict === 'spam' });
+    }
   }
 
   return service;

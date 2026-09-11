@@ -20,7 +20,7 @@
 import { AuthError } from '../auth/types';
 import { encodeUtf8Base64 } from '../lib/base64';
 import { parseAddress } from '../lib/format';
-import { MailClient, MailError, Mailbox, MailSummary } from './types';
+import { FlagPatch, MailClient, MailError, Mailbox, MailSummary } from './types';
 
 const ORIGIN = 'https://graph.microsoft.com/';
 const API = `${ORIGIN}v1.0/me`;
@@ -149,19 +149,7 @@ export function createGraphClient(address: string, getAccessToken: TokenSource):
         await call(messagePath(id), { method: 'PATCH', body: JSON.stringify(fields) });
       }
 
-      // Trash wins over archive, as in gmail.ts. Restoring either lands in the
-      // inbox: Graph does not remember where a message came from, and the inbox
-      // is where both Outlook and Gmail put a restored message.
-      const destination =
-        patch.trashed === true
-          ? 'deleteditems'
-          : patch.trashed === false
-            ? 'inbox'
-            : patch.archived === true
-              ? 'archive'
-              : patch.archived === false
-                ? 'inbox'
-                : null;
+      const destination = destinationOf(patch);
       if (destination) {
         await call(`${messagePath(id)}/move`, {
           method: 'POST',
@@ -170,6 +158,21 @@ export function createGraphClient(address: string, getAccessToken: TokenSource):
       }
     },
   };
+}
+
+/**
+ * The folder a patch moves a message to, or null when it moves nothing.
+ *
+ * One move per patch, strongest first: trash, then junk, then archive — as in
+ * gmail.ts, where a deleted message is deleted whatever else rode along. Every
+ * way back out lands in the inbox: Graph does not remember where a message came
+ * from, and the inbox is where both Outlook and Gmail put one they restore.
+ */
+function destinationOf(patch: FlagPatch): string | null {
+  if (patch.trashed !== undefined) return patch.trashed ? 'deleteditems' : 'inbox';
+  if (patch.junk !== undefined) return patch.junk ? 'junkemail' : 'inbox';
+  if (patch.archived !== undefined) return patch.archived ? 'archive' : 'inbox';
+  return null;
 }
 
 /**

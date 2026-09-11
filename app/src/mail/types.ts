@@ -119,6 +119,13 @@ export type FlagPatch = {
   starred?: boolean;
   archived?: boolean;
   trashed?: boolean;
+  /**
+   * Into the provider's junk folder (`true`) or back out of it to the inbox
+   * (`false`). The user's Mark as spam / Not spam, pushed to where the mail
+   * lives, so every other client on the account agrees and the provider's own
+   * filter hears the correction. Gmail relabels (`SPAM` ↔ `INBOX`); Graph moves.
+   */
+  junk?: boolean;
 };
 
 export interface MailClient {

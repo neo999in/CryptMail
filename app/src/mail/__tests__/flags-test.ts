@@ -1,3 +1,4 @@
+import { providerFiledAsJunk } from '../../categorizer/categorizer';
 import { applyFlagPatch } from '../flags';
 import { MailSummary } from '../types';
 
@@ -75,6 +76,26 @@ describe('applyFlagPatch', () => {
   test('an unknown id leaves the list unchanged', () => {
     const next = applyFlagPatch(list, 'nope', { starred: true });
     expect(next.map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+
+  /**
+   * Junk is a move on the server but not here: the inbox and the junk folder are
+   * one list, and Spam is a category over it. Dropping the row would make Mark as
+   * spam look like Delete; relabelling it is what files it under Spam.
+   */
+  test('files a message as junk in place, by its labels', () => {
+    const next = applyFlagPatch([msg('m1', { labels: ['INBOX', 'CATEGORY_UPDATES'] })], 'm1', { junk: true });
+    expect(next.map((m) => m.id)).toEqual(['m1']);
+    expect(next[0].labels).toEqual(['CATEGORY_UPDATES', 'SPAM']);
+    expect(providerFiledAsJunk(next[0].labels)).toBe(true);
+  });
+
+  test('rescues it back to the inbox, whichever provider named the folder', () => {
+    const gmail = applyFlagPatch([msg('m1', { labels: ['SPAM', 'UNREAD'] })], 'm1', { junk: false });
+    const outlook = applyFlagPatch([msg('m1', { labels: ['JUNK'] })], 'm1', { junk: false });
+    expect(gmail[0].labels).toEqual(['UNREAD', 'INBOX']);
+    expect(outlook[0].labels).toEqual(['INBOX']);
+    expect(providerFiledAsJunk(outlook[0].labels)).toBe(false);
   });
 
   test('does not mutate the input list or its messages', () => {
