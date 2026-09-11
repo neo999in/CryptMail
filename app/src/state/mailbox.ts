@@ -196,14 +196,16 @@ export function createMailbox(ctx: Ctx): MailboxService {
    * a legitimate connector and must not blank the mail behind an error.
    */
   async function collectInbox(mode: 'refresh' | 'more'): Promise<InboxItem[]> {
-    const inbox = await collect('inbox', mode);
-    let junk: InboxItem[] = [];
-    try {
-      junk = await collect('spam', mode);
-    } catch {
+    // Side by side rather than inbox-then-junk: each is a list call and a
+    // headers call per message, and the two share nothing — separate cursors,
+    // separate requests — so waiting on one before asking for the other doubled
+    // the time to a first paint for no reason.
+    const [inbox, junk] = await Promise.all([
+      collect('inbox', mode),
       // Deliberately swallowed — see above. The junk cursor is left wherever it
       // was, so the next sync tries again from the same place.
-    }
+      collect('spam', mode).catch((): InboxItem[] => []),
+    ]);
     return [...inbox, ...junk];
   }
 
