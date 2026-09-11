@@ -69,6 +69,18 @@ export type RootStackParamList = {
 };
 
 /**
+ * Pop one screen, if there is one under this.
+ *
+ * A second tap on a back arrow while the first pop is still animating
+ * dispatches `GO_BACK` to a stack with nothing left to pop, which React
+ * Navigation reports as an unhandled action. The first pop has already taken
+ * the route off the stack, so checking here makes the extra tap a no-op.
+ */
+export function back(navigation: { canGoBack(): boolean; goBack(): void }): void {
+  if (navigation.canGoBack()) navigation.goBack();
+}
+
+/**
  * What the home screen and every destination body is handed: the drawer (for
  * `openDrawer`) composed with the stack (for the message, compose and settings
  * pushes). One type, because a destination body is not its own route.

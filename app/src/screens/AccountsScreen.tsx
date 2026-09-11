@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { providerName } from '../auth';
 import { signInProviders } from '../config';
 import { initials } from '../lib/format';
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel, settingsOf } from '../store/accountScope';
 import { color, space, type } from '../theme';
@@ -36,7 +36,7 @@ export function AccountsScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
-        <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
         <Text style={s.title}>Accounts</Text>
       </View>
 

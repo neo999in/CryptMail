@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { providerName } from '../auth';
 import { initials, shortFingerprint } from '../lib/format';
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
 import { PublishStatus } from '../store/publishStore';
@@ -208,7 +208,7 @@ export function AccountScreen({ navigation, route }: Props) {
           tone: 'destructive',
           onPress: () => {
             void removeAccount(account.id);
-            navigation.goBack();
+            back(navigation);
           },
         },
       ],
@@ -217,7 +217,7 @@ export function AccountScreen({ navigation, route }: Props) {
   return (
     <View style={s.screen}>
       <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
-        <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
         <Text numberOfLines={1} style={s.title}>
           {label}
         </Text>
@@ -263,7 +263,7 @@ export function AccountScreen({ navigation, route }: Props) {
                 // Same call the rail makes: leaving the merged view is part of
                 // choosing one mailbox, and both land in a single sync.
                 void switchAccount(account.id, { unified: false });
-                navigation.goBack();
+                back(navigation);
               }}
               value="Compose, send and decrypt as this account"
             />

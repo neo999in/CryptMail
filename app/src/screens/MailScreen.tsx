@@ -16,7 +16,7 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { useMailPrefs } from '../ui/mailPrefs';
@@ -31,7 +31,7 @@ export function MailScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
-        <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
         <Text style={s.title}>Mail</Text>
       </View>
 

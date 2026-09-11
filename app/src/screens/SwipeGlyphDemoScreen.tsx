@@ -43,7 +43,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { SwipeOperation, swipeVisual } from '../swipe/swipe';
 import { color, font, radius, space, swipeColor, type } from '../theme';
 import { useAccent } from '../ui/appearance';
@@ -125,7 +125,7 @@ export function SwipeGlyphDemoScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
-        <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
         <Text style={s.title}>Swipe glyphs</Text>
       </View>
 

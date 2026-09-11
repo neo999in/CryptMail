@@ -16,7 +16,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel } from '../store/accountScope';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
@@ -134,7 +134,7 @@ export function SettingsScreen({ navigation }: Props) {
   return (
     <View style={s.screen}>
       <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
-        <IconButton icon="back" label="Back" onPress={() => navigation.goBack()} size={40} />
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
         <Text style={s.title}>Settings</Text>
       </View>
 
