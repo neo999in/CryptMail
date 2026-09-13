@@ -2,25 +2,46 @@
  * This device's own key: minting it, backing it up, restoring it.
  */
 import { core, CoreError, Identity, RecoveryBackup } from '../core';
-import { clearBackupRecord, recordBackup } from '../store/recoveryStore';
+import {
+  clearBackupRecord,
+  drillOutstanding,
+  markDrillPending,
+  recordBackup,
+  recordDrill,
+  waiveDrill,
+} from '../store/recoveryStore';
 import { Ctx, IdentityService } from './contracts';
 
 export function createIdentityService(ctx: Ctx): IdentityService {
   const { store } = ctx;
+
+  /**
+   * The blob from the latest backup this run, and the key it was taken of.
+   *
+   * Held so the recovery drill unlocks *this* backup rather than one the user
+   * pastes. Only the blob — never the code, which is the one half that must
+   * not outlive the screen that showed it — and only in memory: the blob is
+   * useless without the code, but nothing here needs it to survive a restart,
+   * since a relaunch mid-setup takes a fresh backup anyway.
+   */
+  let lastBackup: { fingerprint: string; blob: string } | null = null;
 
   return {
     /**
      * Mint this device's identity.
      *
      * Only ever called from the setup screen, and only after the user has been
-     * offered a restore — see `attach` in `session.ts`.
+     * offered a restore — see `attach` in `session.ts`. The new key owes its
+     * recovery drill, recorded before this returns, so there is no moment at
+     * which a key exists and setup could be walked away from without it.
      */
     async createIdentity(): Promise<Identity> {
       const { session } = store.get();
       if (!session) throw new Error('Not connected.');
       const identity = await core.generateIdentity(session.email);
+      const recovery = await markDrillPending(ctx.services.accounts.requireActive(), identity.fingerprint);
       // Nothing found for the old key says anything about this one.
-      store.patch({ identity, verifyLink: null });
+      store.patch({ identity, recovery, verifyLink: null });
       return identity;
     },
 
@@ -36,12 +57,83 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      * loses the paper can simply take another backup.
      */
     async exportRecovery(): Promise<RecoveryBackup> {
-      const { identity } = store.get();
+      const { identity, recovery } = store.get();
       if (!identity) throw new CoreError('This device has no identity key yet.', 'no-key');
 
       const backup = await core.exportRecoveryBackup(identity.email);
-      store.patch({ recovery: await recordBackup(ctx.services.accounts.requireActive(), identity.fingerprint) });
+      lastBackup = { fingerprint: identity.fingerprint, blob: backup.blob };
+      store.patch({
+        recovery: await recordBackup(
+          ctx.services.accounts.requireActive(),
+          identity.fingerprint,
+          new Date(),
+          // Taking the backup is not the drill; a drill still owed stays owed.
+          recovery.drillPending ?? null,
+        ),
+      });
       return backup;
+    },
+
+    /**
+     * The drill: unlock the backup just taken with the code the user types.
+     *
+     * A real unlock through the core, not a string comparison against the code
+     * on screen — that would prove the user can copy, where this proves the
+     * code and the blob actually open the key. Importing re-adopts the key it
+     * already holds; the fingerprint check is what says it was the same one.
+     *
+     * The blob is the one `exportRecovery` produced this run, never a pasted
+     * one: an older backup of the same address would unlock fine and silently
+     * put a different key on the device.
+     */
+    async completeRecoveryDrill(code: string): Promise<void> {
+      const { identity } = store.get();
+      if (!identity) throw new CoreError('This device has no identity key yet.', 'no-key');
+      if (!lastBackup || lastBackup.fingerprint !== identity.fingerprint) {
+        throw new CoreError('Create your recovery code first — there is no backup to check it against.', 'no-key');
+      }
+
+      let unlocked: Identity;
+      try {
+        unlocked = await core.importRecoveryBackup(lastBackup.blob, code);
+      } catch (e) {
+        if (e instanceof CoreError && e.code === 'decrypt-failed') {
+          throw new CoreError(
+            'That code does not unlock your backup. Check what you wrote down against the code — go back to see it again.',
+            'decrypt-failed',
+          );
+        }
+        throw e;
+      }
+      if (unlocked.fingerprint !== identity.fingerprint) {
+        throw new CoreError('The backup unlocked a different key. Take a new backup and try again.', 'malformed');
+      }
+
+      store.patch({ recovery: await recordDrill(ctx.services.accounts.requireActive(), identity.fingerprint) });
+    },
+
+    /**
+     * Let setup finish on a core that cannot make backups at all.
+     *
+     * An older native core has no recovery methods, and holding setup open for
+     * a drill that can never run would lock the user out of their mail. The
+     * waiver is decided here rather than by the screen: the core is asked, and
+     * only its own "unavailable" answer releases the gate. Anything that *can*
+     * back up is refused, so this is not a skip button by another name.
+     */
+    async waiveRecoveryDrill(): Promise<void> {
+      const { identity, recovery } = store.get();
+      if (!identity || !drillOutstanding(recovery, identity.fingerprint)) return;
+      try {
+        await core.exportRecoveryBackup(identity.email);
+      } catch (e) {
+        if (e instanceof CoreError && e.code === 'unavailable') {
+          store.patch({ recovery: await waiveDrill(ctx.services.accounts.requireActive(), recovery) });
+          return;
+        }
+        throw e;
+      }
+      throw new Error('This device can make a backup, so setup needs your recovery code once.');
     },
 
     /**
@@ -54,7 +146,8 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      * The backup mark is cleared rather than kept: it described the key this
      * device used to hold. Whether the *restored* key has a backup elsewhere is
      * not something this device can know, and claiming it does would be the one
-     * false reassurance that costs a user their mail.
+     * false reassurance that costs a user their mail. No drill is owed either:
+     * restoring *was* a successful code entry.
      */
     async restoreFromRecovery(blob: string, code: string): Promise<Identity> {
       const identity = await core.importRecoveryBackup(blob, code);
@@ -73,6 +166,7 @@ export function createIdentityService(ctx: Ctx): IdentityService {
         );
       }
 
+      lastBackup = null;
       store.patch({
         identity,
         recovery: await clearBackupRecord(ctx.services.accounts.requireActive()),

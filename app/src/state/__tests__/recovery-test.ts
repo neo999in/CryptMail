@@ -12,6 +12,7 @@
  * those three are sequenced — not what any one of them returns.
  */
 import { Identity } from '../../core';
+import { drillOutstanding } from '../../store/recoveryStore';
 import { createIdentityService } from '../identity';
 import { createPublish } from '../publish';
 import { createStore, initialState } from '../store';
@@ -32,13 +33,30 @@ const identityFor = (email: string, fingerprint = FINGERPRINT): Identity => ({
 let mockRestored: Identity = identityFor(ADDRESS);
 /** What the directory serves for the looked-up address, or nothing. */
 let mockListed: Identity | null = null;
+/** The one code the fake core's backups open with. */
+const mockCode = 'code';
+/** Set to make `exportRecoveryBackup` behave like a core with no recovery methods. */
+let mockBackupUnavailable = false;
+/** Every blob `importRecoveryBackup` was handed — how the drill's blob is traced. */
+const mockImported: string[] = [];
 
 jest.mock('../../core', () => {
   const actual = jest.requireActual('../../core');
   return {
     ...actual,
     core: {
-      importRecoveryBackup: async () => mockRestored,
+      generateIdentity: async () => mockRestored,
+      exportRecoveryBackup: async () => {
+        if (mockBackupUnavailable) {
+          throw new actual.CoreError('Backing up needs a newer core.', 'unavailable');
+        }
+        return { code: mockCode, blob: 'fresh-blob' };
+      },
+      importRecoveryBackup: async (blob: string, code: string) => {
+        mockImported.push(blob);
+        if (code !== mockCode) throw new actual.CoreError('wrong code', 'decrypt-failed');
+        return mockRestored;
+      },
       // The reconcile path re-reads the armored key the directory served; the
       // fake blob above carries its fingerprint on the middle line.
       importPublicKey: async (armored: string) => ({
@@ -64,6 +82,22 @@ jest.mock('../../keys', () => ({
 jest.mock('../../store/recoveryStore', () => ({
   ...jest.requireActual('../../store/recoveryStore'),
   clearBackupRecord: async () => ({ backedUpAt: null, fingerprint: null }),
+  recordBackup: async (_account: string, fingerprint: string, at: Date, drillPending: string | null) => ({
+    backedUpAt: at.toISOString(),
+    fingerprint,
+    drillPending,
+  }),
+  markDrillPending: async (_account: string, fingerprint: string) => ({
+    backedUpAt: null,
+    fingerprint: null,
+    drillPending: fingerprint,
+  }),
+  recordDrill: async (_account: string, fingerprint: string) => ({
+    backedUpAt: '2026-09-13T00:00:00.000Z',
+    fingerprint,
+    drillPending: null,
+  }),
+  waiveDrill: async (_account: string, state: object) => ({ ...state, drillPending: null }),
 }));
 jest.mock('../../store/publishStore', () => ({
   ...jest.requireActual('../../store/publishStore'),
@@ -89,6 +123,103 @@ function harness() {
 beforeEach(() => {
   mockRestored = identityFor(ADDRESS);
   mockListed = null;
+  mockBackupUnavailable = false;
+  mockImported.length = 0;
+});
+
+/**
+ * Setup's recovery drill (features.md 0.15): a new key is not done until its
+ * code has been typed back and has really unlocked the backup.
+ */
+describe('the recovery drill', () => {
+  const owes = (store: ReturnType<typeof harness>['store']) =>
+    drillOutstanding(store.get().recovery, store.get().identity?.fingerprint);
+
+  it('is owed from the moment setup makes a key', async () => {
+    const { store, services } = harness();
+
+    await services.identity.createIdentity();
+
+    expect(owes(store)).toBe(true);
+  });
+
+  it('is still owed after the backup is taken', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+
+    await services.identity.exportRecovery();
+
+    expect(owes(store)).toBe(true);
+    expect(store.get().recovery.backedUpAt).not.toBeNull();
+  });
+
+  it('refuses a wrong code and leaves the drill owed', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+    await services.identity.exportRecovery();
+
+    await expect(services.identity.completeRecoveryDrill('WRONG')).rejects.toThrow(/does not unlock/);
+    expect(owes(store)).toBe(true);
+  });
+
+  it('settles on the right code, unlocking the backup this run took', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+    await services.identity.exportRecovery();
+
+    await services.identity.completeRecoveryDrill(mockCode);
+
+    expect(owes(store)).toBe(false);
+    // A real unlock of the fresh backup — not a pasted one, and not a string
+    // comparison that never touched the core.
+    expect(mockImported).toEqual(['fresh-blob']);
+  });
+
+  it('cannot be completed before a backup exists', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+
+    await expect(services.identity.completeRecoveryDrill(mockCode)).rejects.toThrow(/recovery code first/);
+    expect(owes(store)).toBe(true);
+  });
+
+  it('refuses a backup that unlocks some other key', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+    await services.identity.exportRecovery();
+    mockRestored = identityFor(ADDRESS, 'FFFF9999FFFF9999FFFF9999FFFF9999FFFF9999');
+
+    await expect(services.identity.completeRecoveryDrill(mockCode)).rejects.toThrow(/different key/);
+    expect(owes(store)).toBe(true);
+  });
+
+  it('will not be waived on a core that can make backups', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+
+    await expect(services.identity.waiveRecoveryDrill()).rejects.toThrow(/can make a backup/);
+    expect(owes(store)).toBe(true);
+  });
+
+  it('is waived only when the core cannot make backups at all', async () => {
+    const { store, services } = harness();
+    await services.identity.createIdentity();
+    mockBackupUnavailable = true;
+
+    await services.identity.waiveRecoveryDrill();
+
+    expect(owes(store)).toBe(false);
+    // Waiving is not a backup, and the warning on Keys must still fire.
+    expect(store.get().recovery.backedUpAt).toBeNull();
+  });
+
+  it('is not owed after a restore — restoring was the code entry', async () => {
+    const { store, services } = harness();
+
+    await services.identity.restoreFromRecovery('blob', mockCode);
+
+    expect(owes(store)).toBe(false);
+  });
 });
 
 describe('restoring onto a fresh install', () => {

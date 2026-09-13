@@ -21,7 +21,20 @@ import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState, PublishStatus } from '../store/publishStore';
 import { RecoveryState } from '../store/recoveryStore';
 import { SpamState } from '../store/spamModelStore';
+import { StorageUsage } from '../store/storageUsage';
 import { RecipientState } from './recipients';
+
+export type { StorageUsage };
+
+/**
+ * How far a mailbox export has got. Listing has no total — the provider does
+ * not say how many messages a folder holds until it has been paged — so only
+ * fetching reports one.
+ */
+export type ExportProgress = { phase: 'listing'; done: number } | { phase: 'fetching'; done: number; total: number };
+
+/** What an export wrote, and how many listed messages the provider refused to hand over. */
+export type ExportResult = { written: number; skipped: number };
 
 export type EncryptionState =
   | { kind: 'encrypted'; trust: 'verified' | 'seen' | 'changed' | 'unknown'; own?: boolean }
@@ -353,10 +366,14 @@ export type Actions = {
   /** Sync it again, and put it in front. */
   resumeAccount(id: AccountId): Promise<void>;
   /**
-   * Write the mail this device has loaded for one mailbox out as an `.mbox`
-   * file. Returns how many messages were written. The mailbox must be in front.
+   * Page a whole mailbox — Inbox, Sent and Archive — from its provider and write
+   * it out as an `.mbox` file. Any syncing mailbox, in front or not.
    */
-  exportMailbox(id: AccountId): Promise<number>;
+  exportMailbox(id: AccountId, options?: { onProgress?: (progress: ExportProgress) => void }): Promise<ExportResult>;
+  /** Save one message of the mailbox in front as an `.eml` file — the provider's bytes, sealed if it was. */
+  exportMessage(summary: MailSummary): Promise<void>;
+  /** Bytes one mailbox's stores take on this device, measured without decrypting them. */
+  storageUsage(id: AccountId): Promise<StorageUsage>;
   /** Show every account's mail in one list, or just the active one's. */
   setUnified(on: boolean): Promise<void>;
   /**
@@ -401,6 +418,16 @@ export type Actions = {
    * the user to write down and is deliberately not stored anywhere.
    */
   exportRecovery(): Promise<RecoveryBackup>;
+  /**
+   * The setup drill: unlock the backup `exportRecovery` just made with the code
+   * the user types back. Throws if it does not open; on success setup may finish.
+   */
+  completeRecoveryDrill(code: string): Promise<void>;
+  /**
+   * Let setup finish without a drill — refused unless the crypto core reports it
+   * cannot make backups at all, which is the one case a drill cannot run.
+   */
+  waiveRecoveryDrill(): Promise<void>;
   /** Adopt an identity from a backup, replacing whatever key this device holds. */
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
   /**

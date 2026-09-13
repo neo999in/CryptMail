@@ -7,7 +7,7 @@
  * reader recognises. Both are asserted here rather than discovered in
  * Thunderbird.
  */
-import { mboxFilename, toMbox } from '../mbox';
+import { emlFilename, entryToMbox, mboxFilename, toMbox } from '../mbox';
 
 const raw = (subject: string, body = 'Body text.') =>
   ['From: someone@example.com', 'To: you@gmail.com', `Subject: ${subject}`, '', body].join('\r\n');
@@ -97,5 +97,35 @@ describe('the file it is written to', () => {
     expect(mboxFilename('You@Gmail.com', new Date('2026-09-06T12:00:00Z'))).toBe(
       'you-gmail-com-2026-09-06.mbox',
     );
+  });
+});
+
+describe('writing one message at a time', () => {
+  it('produces exactly what toMbox does for the same messages', () => {
+    const entries = [{ from: 'a@example.com', date: '2026-08-30T10:00:00.000Z', raw: raw('One') }, { raw: raw('Two') }];
+
+    expect(entries.map(entryToMbox).join('')).toBe(toMbox(entries));
+  });
+});
+
+describe('an .eml filename', () => {
+  it('leads with the day so a folder of them sorts by date', () => {
+    expect(emlFilename({ id: '18c2f0a9b7d3e1f4', date: '2026-08-30T10:00:00.000Z', subject: 'Quarterly numbers!' })).toBe(
+      '2026-08-30-quarterly-numbers-b7d3e1f4.eml',
+    );
+  });
+
+  /**
+   * The caller passes the header subject, so an encrypted message is named for
+   * its placeholder — the real subject is ciphertext, and a filename is not.
+   */
+  it('names an encrypted message by its placeholder subject', () => {
+    expect(emlFilename({ id: 'abc', date: '2026-08-30T10:00:00.000Z', subject: '[Encrypted message]' })).toBe(
+      '2026-08-30-encrypted-message-abc.eml',
+    );
+  });
+
+  it('still makes a usable name from a message with no subject or date', () => {
+    expect(emlFilename({ id: 'x1', date: 'garbage', subject: '' })).toBe('undated-message-x1.eml');
   });
 });

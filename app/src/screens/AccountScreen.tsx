@@ -13,17 +13,21 @@
  * accidental gesture the way removal used to be.
  */
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { providerName } from '../auth';
 import { initials, shortFingerprint } from '../lib/format';
+import { formatBytes } from '../mail/attachment';
 import { back, RootStackParamList } from '../navigation';
+import { SEARCH_INDEX_MAX_BYTES } from '../search/search';
 import { useApp } from '../state/AppState';
+import { ExportProgress, StorageUsage } from '../state/types';
 import { accountLabel, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
 import { MAX_SIGNATURE_LENGTH } from '../store/accountsStore';
 import { PublishStatus } from '../store/publishStore';
+import { SEARCH_STORE_KEY } from '../store/searchIndex';
 import { color, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
 import { useToast } from '../ui/ToastContext';
@@ -89,6 +93,7 @@ export function AccountScreen({ navigation, route }: Props) {
     pauseAccount,
     resumeAccount,
     exportMailbox,
+    storageUsage,
   } = useApp();
   const insets = useSafeAreaInsets();
   const nameFocus = useFocus();
@@ -100,8 +105,31 @@ export function AccountScreen({ navigation, route }: Props) {
   const [name, setName] = useState(() => settingsOf(account).displayName);
   const [signature, setSignature] = useState(() => settingsOf(account).signature);
   const signatureFocus = useFocus();
-  /** True while the mbox is being fetched and written. */
-  const [exporting, setExporting] = useState(false);
+  /** How far the running export has got, or null when none is running. */
+  const [exporting, setExporting] = useState<ExportProgress | null>(null);
+  /** Bytes on this device; null until the first measurement lands. */
+  const [usage, setUsage] = useState<StorageUsage | null>(null);
+  /** Bumped after a clear or reset, so the byte counts are measured again. */
+  const [usageTick, setUsageTick] = useState(0);
+
+  const accountId = account?.id;
+  // Measured again whenever what it measures may have moved: a clear, or — for
+  // the mailbox in front — the index, drafts or outbox changing under it.
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    storageUsage(accountId)
+      .then((next) => {
+        if (!cancelled) setUsage(next);
+      })
+      .catch(() => {
+        // A readout, not an action: failing to measure leaves the row saying
+        // it is measuring rather than putting an error on a settings screen.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, storageUsage, usageTick, searchIndex, drafts, scheduled]);
 
   // Removing this account pops the screen, and the pop is not instant: React
   // renders once more with the account already gone from `accounts`. Rendering
@@ -127,14 +155,25 @@ export function AccountScreen({ navigation, route }: Props) {
   };
 
   /**
-   * The counts below come from `State`, which holds the **active** account's
-   * stores. Showing them for another mailbox would mean loading its keyring and
-   * index behind the user's back — so the screen says whose numbers these are
-   * rather than quietly attributing one mailbox's cache to another.
+   * Bytes are measured for any mailbox, from the sealed stores without opening
+   * them. The row *counts* come from `State`, which holds the **active**
+   * account's stores; counting another mailbox's messages would mean
+   * decrypting its index behind the user's back, so for a mailbox in the
+   * background the bytes are the whole answer and the row says so.
    */
+  const bytes = usage ? `${formatBytes(usage.total)} on this device` : 'Measuring…';
   const counts = active
-    ? `${Object.keys(searchIndex).length} messages indexed · ${Object.keys(drafts).length} drafts · ${Object.keys(scheduled).length} queued`
-    : 'Counted while this mailbox is in front';
+    ? `${bytes} · ${Object.keys(searchIndex).length} messages indexed · ${Object.keys(drafts).length} drafts · ${Object.keys(scheduled).length} queued`
+    : `${bytes} · message counts are shown while it is in front`;
+  const indexBytes = usage?.byStore[SEARCH_STORE_KEY] ?? 0;
+
+  /** Export is open to any mailbox that is fetching mail; it pages the provider. */
+  const canExport = !settings.paused && !stale;
+  const exportLabel = !exporting
+    ? 'Export as .mbox'
+    : exporting.phase === 'listing'
+      ? `Listing mail… ${exporting.done}`
+      : `Exporting ${exporting.done} of ${exporting.total}…`;
 
   /**
    * Whether pausing this one would leave nothing fetching mail.
@@ -156,16 +195,20 @@ export function AccountScreen({ navigation, route }: Props) {
    * button, so the row says it is working and a toast says how it ended.
    */
   const runExport = async () => {
-    setExporting(true);
+    if (exporting) return;
+    setExporting({ phase: 'listing', done: 0 });
     try {
-      const count = await exportMailbox(account.id);
+      const { written, skipped } = await exportMailbox(account.id, { onProgress: setExporting });
+      const noun = (n: number) => `${n} ${n === 1 ? 'message' : 'messages'}`;
       showToast({
-        durationMs: 4000,
-        icon: 'download',
+        durationMs: skipped > 0 ? 6000 : 4000,
+        icon: written === 0 && skipped > 0 ? 'alert' : 'download',
         message:
-          count === 0
-            ? 'No mail loaded to export.'
-            : `Exported ${count} ${count === 1 ? 'message' : 'messages'}.`,
+          written === 0 && skipped === 0
+            ? 'This mailbox has no mail to export.'
+            : skipped > 0
+              ? `Exported ${noun(written)}. ${noun(skipped)} could not be fetched and are not in the file.`
+              : `Exported ${noun(written)}.`,
       });
     } catch (e) {
       showToast({
@@ -174,7 +217,7 @@ export function AccountScreen({ navigation, route }: Props) {
         message: e instanceof Error ? e.message : String(e),
       });
     } finally {
-      setExporting(false);
+      setExporting(null);
     }
   };
 
@@ -194,7 +237,11 @@ export function AccountScreen({ navigation, route }: Props) {
       'Deletes the searchable copy of mail this device has decrypted. Your keys, drafts and queued messages stay, and search works again over anything you open next.',
       [
         { label: 'Cancel' },
-        { label: 'Clear', tone: 'destructive', onPress: () => void resetAccount(account.id, 'content') },
+        {
+          label: 'Clear',
+          tone: 'destructive',
+          onPress: () => void resetAccount(account.id, 'content').finally(() => setUsageTick((n) => n + 1)),
+        },
       ],
     );
 
@@ -204,7 +251,11 @@ export function AccountScreen({ navigation, route }: Props) {
       'Deletes this device’s cache of the mailbox — decrypted content, the spam filter it has learned, and any snoozes — then syncs again. Your keys, drafts and queued messages are untouched, and nothing on the server changes.',
       [
         { label: 'Cancel' },
-        { label: 'Reset', tone: 'destructive', onPress: () => void resetAccount(account.id, 'all') },
+        {
+          label: 'Reset',
+          tone: 'destructive',
+          onPress: () => void resetAccount(account.id, 'all').finally(() => setUsageTick((n) => n + 1)),
+        },
       ],
     );
 
@@ -485,7 +536,7 @@ export function AccountScreen({ navigation, route }: Props) {
             icon="search"
             label="Clear decrypted content"
             onPress={confirmClear}
-            value="Empties the searchable copy of mail decrypted here"
+            value={`The searchable copy of mail decrypted here — ${usage ? formatBytes(indexBytes) : 'measuring'}. It keeps itself under ${formatBytes(SEARCH_INDEX_MAX_BYTES)} by forgetting the mail opened longest ago.`}
           />
           <SettingsRow
             icon="refresh"
@@ -499,12 +550,14 @@ export function AccountScreen({ navigation, route }: Props) {
         <Group>
           <SettingsRow
             icon="download"
-            label={exporting ? 'Exporting…' : 'Export as .mbox'}
-            onPress={() => (active ? void runExport() : undefined)}
+            label={exportLabel}
+            onPress={() => (canExport ? void runExport() : undefined)}
             value={
-              active
-                ? 'The mail this device has loaded, in the format Thunderbird and every other client reads. Encrypted messages export sealed — your key still opens them.'
-                : 'Put this mailbox in front to export it'
+              canExport
+                ? 'Every message in Inbox, Sent and Archive, fetched from the server, in the format Thunderbird and every other client reads. Spam and Trash are left out. Encrypted messages export sealed — your key still opens them. A single message can be saved as .eml from its menu.'
+                : stale
+                  ? 'Sign in again to export this mailbox'
+                  : 'Resume syncing to export this mailbox'
             }
           />
         </Group>

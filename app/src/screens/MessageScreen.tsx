@@ -78,6 +78,7 @@ export function MessageScreen({ route, navigation }: Props) {
     accounts,
     activeAccount,
     labels,
+    exportMessage,
   } = useApp();
   const { showToast } = useToast();
   /** The mailbox this mail belongs to — see the `allowRemoteImages` note below. */
@@ -790,6 +791,26 @@ export function MessageScreen({ route, navigation }: Props) {
               <Text style={s.menuLabel}>Move to Trash</Text>
             </PressableRow>
           )}
+          {/* The message as the provider stores it — sealed, if it is. Saving
+              the decrypted text instead would be a button that strips the
+              encryption off, so this row cannot reach it (`exportMessage`). */}
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setMenuOpen(false);
+              exportMessage(summary).catch((e: unknown) =>
+                showToast({
+                  durationMs: 5000,
+                  icon: 'alert',
+                  message: e instanceof Error ? e.message : String(e),
+                }),
+              );
+            }}
+            style={s.menuRow}
+          >
+            <Icon name="download" size={18} color={color.inkDim} />
+            <Text style={s.menuLabel}>{headerEncrypted ? 'Save as .eml (stays encrypted)' : 'Save as .eml'}</Text>
+          </PressableRow>
           {opened ? (
             <PressableRow
               accessibilityRole="button"

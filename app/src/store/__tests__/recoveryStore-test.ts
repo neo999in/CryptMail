@@ -11,9 +11,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initLocalCrypto, resetLocalCryptoForTests, SecretStore } from '../localCrypto';
 import {
   clearBackupRecord,
+  drillOutstanding,
   loadRecoveryState,
+  markDrillPending,
   needsBackup,
   recordBackup,
+  recordDrill,
   RECOVERY_STORE_KEY,
 } from '../recoveryStore';
 import { scopedKey } from '../accountScope';
@@ -54,6 +57,7 @@ describe('recovery store', () => {
     expect(await loadRecoveryState(ACCOUNT)).toEqual({
       backedUpAt: at.toISOString(),
       fingerprint: FINGERPRINT,
+      drillPending: null,
     });
   });
 
@@ -111,6 +115,47 @@ describe('recovery store', () => {
 
     it('says nothing when there is no identity yet', async () => {
       expect(needsBackup(await loadRecoveryState(ACCOUNT), null)).toBe(false);
+    });
+  });
+
+  /**
+   * The setup gate (features.md 0.15). It is persisted so that quitting between
+   * minting a key and typing its code back does not quietly finish setup.
+   */
+  describe('the recovery drill', () => {
+    it('is owed by a key setup has just made, and survives a reload', async () => {
+      await markDrillPending(ACCOUNT, FINGERPRINT);
+
+      expect(drillOutstanding(await loadRecoveryState(ACCOUNT), FINGERPRINT)).toBe(true);
+    });
+
+    it('stays owed when the backup is taken — the backup is not the drill', async () => {
+      await markDrillPending(ACCOUNT, FINGERPRINT);
+      const state = await recordBackup(ACCOUNT, FINGERPRINT, new Date(), FINGERPRINT);
+
+      expect(drillOutstanding(state, FINGERPRINT)).toBe(true);
+      expect(needsBackup(state, FINGERPRINT)).toBe(false);
+    });
+
+    it('is settled by a successful drill, which also counts as the backup', async () => {
+      await markDrillPending(ACCOUNT, FINGERPRINT);
+      const state = await recordDrill(ACCOUNT, FINGERPRINT);
+
+      expect(drillOutstanding(state, FINGERPRINT)).toBe(false);
+      expect(needsBackup(state, FINGERPRINT)).toBe(false);
+    });
+
+    it('is not owed by a key whose state predates the drill', async () => {
+      // A stored state from before the field existed: that key finished setup
+      // back then and must not be pulled back into it.
+      await recordBackup(ACCOUNT, FINGERPRINT);
+      expect(drillOutstanding({ backedUpAt: null, fingerprint: null }, FINGERPRINT)).toBe(false);
+    });
+
+    it('does not follow a different key', async () => {
+      const state = await markDrillPending(ACCOUNT, OTHER);
+
+      expect(drillOutstanding(state, FINGERPRINT)).toBe(false);
     });
   });
 });

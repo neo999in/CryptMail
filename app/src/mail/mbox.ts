@@ -41,7 +41,14 @@ export function toMbox(entries: MboxEntry[]): string {
   return entries.map(entryToMbox).join('');
 }
 
-function entryToMbox(entry: MboxEntry): string {
+/**
+ * One message as it goes into the file.
+ *
+ * Exported so a large export can write each message as it is fetched rather
+ * than holding them all for `toMbox`: the concatenation of these is exactly
+ * `toMbox`'s output, message boundaries included.
+ */
+export function entryToMbox(entry: MboxEntry): string {
   const body = quoteFromLines(normaliseNewlines(entry.raw));
   // Each message ends with a blank line, which is the separator the next
   // `From ` line is found after. Written unconditionally rather than only when
@@ -90,6 +97,27 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** `you-at-gmail-com-2026-09-06.mbox` — safe on every filesystem the app touches. */
 export function mboxFilename(address: string, on: Date = new Date()): string {
-  const stem = address.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `${stem}-${on.toISOString().slice(0, 10)}.mbox`;
+  return `${slug(address)}-${on.toISOString().slice(0, 10)}.mbox`;
+}
+
+/**
+ * `2026-08-30-quarterly-numbers.eml` — one message, named so a folder of them
+ * sorts by date.
+ *
+ * `subject` must be the **header** subject, never a decrypted one. A filename
+ * is written in the clear wherever the file lands, and for encrypted mail the
+ * real subject is ciphertext for exactly that reason; the header carries the
+ * `[Encrypted message]` placeholder, which is what the name then says.
+ *
+ * `id` breaks ties, since two messages on one day can share a subject.
+ */
+export function emlFilename(message: { id: string; date?: string; subject?: string }): string {
+  const when = message.date ? new Date(message.date) : new Date(NaN);
+  const day = Number.isNaN(when.getTime()) ? 'undated' : when.toISOString().slice(0, 10);
+  const subject = slug(message.subject ?? '').slice(0, 60).replace(/-$/, '') || 'message';
+  return `${day}-${subject}-${slug(message.id).slice(-8) || 'mail'}.eml`;
+}
+
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }

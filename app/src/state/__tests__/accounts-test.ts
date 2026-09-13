@@ -120,7 +120,25 @@ jest.mock('../../lib/files', () => ({
   saveTextFile: async (name: string, text: string) => {
     mockSaved.push([name, text]);
   },
+  // A file written in pieces lands in the same list once it is finished, so
+  // both kinds of export are asserted the same way.
+  openTextFileWriter: (name: string) => {
+    const parts: string[] = [];
+    return {
+      append: (text: string) => {
+        parts.push(text);
+      },
+      finish: async () => {
+        mockSaved.push([name, parts.join('')]);
+      },
+    };
+  },
 }));
+
+/** Rows per page the fake serves at most, so an export's paging is exercised. */
+let mockPageSize = Number.POSITIVE_INFINITY;
+/** Ids whose raw source the fake refuses, as a provider does for deleted mail. */
+const mockRawFailures = new Set<string>();
 
 /** Every `list` any fake mailbox has served — how a redundant sync is caught. */
 const mockListCalls: string[] = [];
@@ -167,13 +185,22 @@ function mockMailboxFor(address: string): MailClient {
   return {
     kind: 'gmail',
     address,
-    async list(box, { limit = 20, newerThanDays } = {}) {
+    async list(box, { limit = 20, pageToken, newerThanDays } = {}) {
       mockListCalls.push(`${address}:${box}`);
       mockListWindows.push(newerThanDays);
-      // One page holds every row this fake has, so it hands back no cursor.
-      return { messages: box === 'inbox' ? rows.slice(0, limit) : [] };
+      if (box !== 'inbox') return { messages: [] };
+      // One page holds every row unless a test shrinks `mockPageSize`, and
+      // then the cursor is simply the offset of the next page.
+      const start = pageToken ? Number(pageToken) : 0;
+      const size = Math.min(limit, mockPageSize);
+      const next = start + size;
+      return {
+        messages: rows.slice(start, next),
+        ...(next < rows.length ? { nextPageToken: String(next) } : {}),
+      };
     },
     async getRaw(id) {
+      if (mockRawFailures.has(id)) throw new Error(`Gone: ${id}`);
       const row = rows.find((r) => r.id === id);
       if (!row) throw new Error(`No such message: ${id}`);
       return raw(row.subject);
@@ -212,6 +239,8 @@ beforeEach(async () => {
   mockListWindows.length = 0;
   mockFlagCalls.length = 0;
   mockSaved.length = 0;
+  mockPageSize = Number.POSITIVE_INFINITY;
+  mockRawFailures.clear();
 });
 
 describe('connecting a second mailbox', () => {
@@ -998,20 +1027,47 @@ describe('exporting a mailbox', () => {
     await h.services.accounts.setUnified(true);
     await h.services.mailbox.refreshInbox();
 
-    const count = await h.services.accounts.exportMailbox(TWO);
+    const result = await h.services.accounts.exportMailbox(TWO);
 
-    expect(count).toBe(2);
+    expect(result).toEqual({ written: 2, skipped: 0 });
     const [name, text] = mockSaved[0];
     expect(name).toBe(`you-work-example-${new Date().toISOString().slice(0, 10)}.mbox`);
     expect(text).toContain(`Subject: Hello ${SECOND}`);
     expect(text).not.toContain(`Subject: Hello ${FIRST}`);
   });
 
-  it('refuses to export a mailbox that is not in front', async () => {
+  /**
+   * "The whole mailbox" is the claim the row makes, so it is the claim tested:
+   * the export pages the provider to the end rather than stopping at what the
+   * device happened to load, and it does not need the mailbox in front.
+   */
+  it('pages the whole mailbox from the provider, even one that is not in front', async () => {
     const h = harness();
     await connectBoth(h);
+    mockPageSize = 1;
+    const progress: string[] = [];
 
-    await expect(h.services.accounts.exportMailbox(ONE)).rejects.toThrow(/in front/i);
+    const result = await h.services.accounts.exportMailbox(ONE, {
+      onProgress: (p) => progress.push(p.phase === 'listing' ? `listing:${p.done}` : `fetching:${p.done}/${p.total}`),
+    });
+
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(result).toEqual({ written: 2, skipped: 0 });
+    expect(mockSaved[0][1]).toContain(`Subject: Hello ${FIRST}`);
+    expect(mockSaved[0][1]).toContain('Subject: Older note');
+    expect(progress).toContain('listing:2');
+    expect(progress[progress.length - 1]).toBe('fetching:2/2');
+  });
+
+  it('skips and counts a message the provider will not hand over', async () => {
+    const h = harness();
+    await connectBoth(h);
+    mockRawFailures.add('you-work-example-2');
+
+    const result = await h.services.accounts.exportMailbox(TWO);
+
+    expect(result).toEqual({ written: 1, skipped: 1 });
+    expect(mockSaved[0][1]).not.toContain('Subject: Older note');
   });
 
   it('has nothing to export from a paused mailbox', async () => {
@@ -1020,6 +1076,52 @@ describe('exporting a mailbox', () => {
     await h.services.accounts.pauseAccount(TWO);
 
     await expect(h.services.accounts.exportMailbox(TWO)).rejects.toThrow(/not syncing/i);
+  });
+
+  it('saves one message as an .eml of the provider’s bytes', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.mailbox.refreshInbox();
+    const summary = h.get().messages.find((m) => m.id === 'you-work-example-1');
+
+    await h.services.accounts.exportMessage(summary!);
+
+    const [name, text] = mockSaved[0];
+    expect(name).toBe('2026-08-30-hello-you-work-example-xample-1.eml');
+    expect(text).toContain(`Subject: Hello ${SECOND}`);
+    // Verbatim: the wire's CRLF is kept, unlike the mbox's LF.
+    expect(text).toContain(CRLF);
+  });
+});
+
+/**
+ * Storage numbers for a mailbox that is not in front — measured from the sealed
+ * stores, so asking does not load that mailbox's index into memory.
+ */
+describe('measuring storage', () => {
+  it('measures a mailbox in the background without loading its index', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await saveSearchIndex(ONE, { 'personal-1': { subject: 'indexed', body: 'x'.repeat(2000) } });
+    const before = h.get().searchIndex;
+
+    const usage = await h.services.accounts.storageUsage(ONE);
+
+    expect(h.get().activeAccount).toBe(TWO);
+    expect(usage.byStore['cryptmail.searchindex.v1']).toBeGreaterThan(2000);
+    expect(usage.total).toBeGreaterThanOrEqual(usage.byStore['cryptmail.searchindex.v1']);
+    // State still holds the mailbox in front's index, untouched.
+    expect(h.get().searchIndex).toBe(before);
+  });
+
+  it('reads nothing for a store that was cleared', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await saveSearchIndex(TWO, { 'work-1': { subject: 'indexed', body: 'text' } });
+
+    await h.services.accounts.resetAccount(TWO, 'content');
+
+    expect((await h.services.accounts.storageUsage(TWO)).byStore['cryptmail.searchindex.v1']).toBe(0);
   });
 });
 

@@ -26,22 +26,74 @@ export type RecoveryState = {
    * the one case where a false reassurance costs the user their mail.
    */
   fingerprint: string | null;
+  /**
+   * Fingerprint of a key setup minted whose owner has not yet typed its
+   * recovery code back (features.md 0.15), or null.
+   *
+   * Persisted, not screen state, because setup is only as strict as its
+   * weakest exit: a flag held in memory would be skipped by closing the app
+   * between generating the key and entering the code, and the next launch
+   * would find a key and go straight to the inbox. Keyed on the fingerprint
+   * so a later restore — a different key, with its own story — cannot inherit
+   * it. Optional because a state written before the drill existed has none,
+   * and a key that finished setup back then is not asked again.
+   */
+  drillPending?: string | null;
 };
 
+/** No backup and no drill owed — an absent `drillPending` reads as none. */
 const NEVER: RecoveryState = { backedUpAt: null, fingerprint: null };
 
 export async function loadRecoveryState(account: AccountId): Promise<RecoveryState> {
   return loadScopedJson<RecoveryState>(RECOVERY_STORE_KEY, account, NEVER);
 }
 
+/**
+ * Record a backup. `drillPending` is carried through rather than cleared: taking
+ * a backup is the step *before* the drill, and it is not the drill.
+ */
 export async function recordBackup(
   account: AccountId,
   fingerprint: string,
   at: Date = new Date(),
+  drillPending: string | null = null,
 ): Promise<RecoveryState> {
-  const state: RecoveryState = { backedUpAt: at.toISOString(), fingerprint };
+  const state: RecoveryState = { backedUpAt: at.toISOString(), fingerprint, drillPending };
   await saveScopedJson(RECOVERY_STORE_KEY, account, state);
   return state;
+}
+
+/** A key setup has just made: no backup yet, and a drill owed. */
+export async function markDrillPending(account: AccountId, fingerprint: string): Promise<RecoveryState> {
+  const state: RecoveryState = { backedUpAt: null, fingerprint: null, drillPending: fingerprint };
+  await saveScopedJson(RECOVERY_STORE_KEY, account, state);
+  return state;
+}
+
+/**
+ * The code unlocked the backup. That is the strongest "backed up" this device
+ * can know, so it is recorded as the backup time too.
+ */
+export async function recordDrill(
+  account: AccountId,
+  fingerprint: string,
+  at: Date = new Date(),
+): Promise<RecoveryState> {
+  const state: RecoveryState = { backedUpAt: at.toISOString(), fingerprint, drillPending: null };
+  await saveScopedJson(RECOVERY_STORE_KEY, account, state);
+  return state;
+}
+
+/** Waive a drill that cannot be run, keeping whatever backup mark there is. */
+export async function waiveDrill(account: AccountId, state: RecoveryState): Promise<RecoveryState> {
+  const next: RecoveryState = { ...state, drillPending: null };
+  await saveScopedJson(RECOVERY_STORE_KEY, account, next);
+  return next;
+}
+
+/** Whether the key this device holds still owes its recovery drill. Gates setup. */
+export function drillOutstanding(state: RecoveryState, fingerprint: string | null | undefined): boolean {
+  return !!fingerprint && state.drillPending === fingerprint;
 }
 
 /** Forget the mark — used when restoring, since the new identity has its own backup story. */

@@ -54,6 +54,27 @@ export function utf8ToBytes(text: string): Uint8Array {
   return Uint8Array.from(out);
 }
 
+/**
+ * How many bytes `text` takes as UTF-8, without building them.
+ *
+ * Same surrogate handling as `utf8ToBytes`, so the two always agree — but this
+ * one is called on whole stores to measure them, where allocating the bytes
+ * just to count them would double the memory the measurement is about.
+ */
+export function utf8ByteLength(text: string): number {
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
 export function bytesToUtf8(bytes: Uint8Array): string {
   let out = '';
   for (let i = 0; i < bytes.length; ) {

@@ -130,9 +130,10 @@ destroyed, decrypts after restoring from the code on a fresh device with a
 different Keystore passphrase** — and Bob's signature still verifies.
 `cargo test` is 38, `npm test` 194.
 
-Still open here: recovery is not part of first-run onboarding (see §0.15 of
-[features.md](features.md)), and the blob is exported by hand rather than stored
-as a self-addressed message, which waits on M3.
+Recovery is now part of first-run onboarding: a new key's setup does not finish
+until its code has unlocked the backup once (§0.15 of [features.md](features.md)).
+Still open: the blob is exported by hand rather than stored as a self-addressed
+message, which waits on M3.
 
 ### 2.2 First-run wall — ✅ done
 

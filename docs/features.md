@@ -568,7 +568,7 @@ service graph and the real stores — with only the auth provider and the Gmail
 client faked — by
 [`state/__tests__/accounts-test.ts`](../app/src/state/__tests__/accounts-test.ts).
 
-### 0.12 Storage management & cache eviction · Impact S · Effort S — ◐ partly built
+### 0.12 Storage management & cache eviction · Impact S · Effort S — ✓ built
 
 **What.** Show what's cached; bound it; "clear decrypted content" as a visible,
 honest control.
@@ -580,47 +580,70 @@ counterpart to the known debt.
 **Done when.** A settings row shows index size and clearing it empties the store
 without breaking search over freshly-opened mail.
 
-**Status: ◐ partly built, per account.** The Storage group on
-[`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) shows what
-the mailbox in front holds — messages indexed, drafts, queued mail — and offers
-two controls: *Clear decrypted content*, which empties the search index alone,
-and *Reset account*, which also drops the learned spam model and any snoozes and
-then syncs again. Neither touches the keyring, the recovery blob, drafts or the
-outbox: those are the private key and the user's unsent work, and a control
-called "reset" must not silently destroy either.
+**Status: ✓ built, per account.** The Storage group on
+[`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) shows what a
+mailbox takes on this device in bytes, and the search index's share of it, and
+offers two controls: *Clear decrypted content*, which empties the search index
+alone, and *Reset account*, which also drops the learned spam model and any
+snoozes and then syncs again. Neither touches the keyring, the recovery blob,
+drafts or the outbox: those are the private key and the user's unsent work, and
+a control called "reset" must not silently destroy either.
 
-Still missing: a byte count rather than a row count, an automatic bound on the
-index, and the same numbers for a mailbox that is *not* in front — `State` holds
-the active account's stores, and counting another one would mean loading its
-index behind the user's back, so the screen says whose numbers these are
-instead of guessing.
+Bytes are measured by
+[`store/storageUsage.ts`](../app/src/store/storageUsage.ts) from the **sealed**
+values, without unsealing them — so they are shown for a mailbox that is not in
+front too, without its index being decrypted behind the user's back. Row counts
+(messages indexed, drafts, queued) still need the plaintext and are shown only
+for the mailbox in front; the row says so for the others.
 
-### 0.13 Mailbox export / backup · Impact M · Effort M — ◐ built
+The index bounds itself. `indexContent` in
+[`search/search.ts`](../app/src/search/search.ts) keeps it under
+`SEARCH_INDEX_MAX_BYTES` (1 MB of JSON) by evicting the entries indexed longest
+ago, and indexes at most the first 16,000 characters of a body so one long
+message cannot evict hundreds. The number is set by storage, not taste: the
+index is one sealed AsyncStorage value, and on Android a value much past 2 MB
+fails to read back. An evicted message is not lost — it is searchable again once
+opened.
 
-**What.** Export decrypted mail as `.mbox` or `.eml` files.
+### 0.13 Mailbox export / backup · Impact M · Effort M — ✓ built
+
+**What.** Export mail as `.mbox` or `.eml` files.
 
 **Why.** The product's honest answer to "no server-side archival": your data is
 yours and you can take it out. Also a de-risking story for account loss.
 
 **Done when.** An export opens cleanly in Thunderbird.
 
-**Status: ◐ built, per account and bounded.** *Export as .mbox* on
+**Status: ✓ built, per account and per message.** *Export as .mbox* on
 [`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) writes the
 mailbox out through [`mail/mbox.ts`](../app/src/mail/mbox.ts) — mboxrd, so a
 `From ` line inside a body round-trips instead of splitting one message into
-two, and asctime in UTC rather than the device's locale.
+two, and asctime in UTC rather than the device's locale. *Save as .eml* in a
+message's overflow menu writes that one message.
 
-Two deliberate boundaries. It exports **the bytes the provider stores**, not a
-re-rendering of what the app shows: a faithful copy is the only kind worth
-calling a backup, which means an encrypted message exports *sealed*. That is the
-right outcome — the ciphertext is the mail, and any PGP-capable client with the
-same key reads it — and writing the decrypted tree instead would make the export
-a button that strips encryption off everything the user chose to encrypt. And it
-exports the mail **this device has loaded**, since those are the ids known
-without paging the whole mailbox from the provider; the row says so.
+It exports **the bytes the provider stores**, not a re-rendering of what the app
+shows: a faithful copy is the only kind worth calling a backup, which means an
+encrypted message exports *sealed*. That is the right outcome — the ciphertext
+is the mail, and any PGP-capable client with the same key reads it — and writing
+the decrypted tree instead would make the export a button that strips encryption
+off everything the user chose to encrypt. An `.eml` is named by the **header**
+subject, so an encrypted message's file is called `…-encrypted-message-….eml`
+and no decrypted text reaches a filename.
 
-Still missing: `.eml` per message, and an export that pages the mailbox rather
-than the pages already in hand.
+The mbox is **the whole mailbox**: `exportMailbox` in
+[`state/accounts.ts`](../app/src/state/accounts.ts) pages Inbox, Sent and Archive
+from the provider to the end, ignoring the sync window (a filter on listing, and
+a backup that silently kept 30 days would be a trap). Spam and Trash are left
+out, and the row says so. Because it pages the provider rather than reading
+`State`, any syncing mailbox can be exported, in front or not. Messages are
+appended to the file as they arrive (`openTextFileWriter` in
+[`lib/files.ts`](../app/src/lib/files.ts)), so the mailbox is never one string in
+memory; the row shows progress. A listing failure ends the export; a single
+message the provider refuses is skipped and counted in the result.
+
+Known cost: Gmail's list spends a metadata request per row, so a whole-mailbox
+export is roughly two requests a message. An ids-only listing on `MailClient`
+would halve that.
 
 ### 0.14 Sign-only / verify-only mode · Impact S · Effort S — ◐ partly built
 
@@ -642,7 +665,7 @@ exposes `buildEncrypted` and nothing that signs without encrypting, so
 **Done when.** The UI distinguishes "encrypted", "signed only", and "refused"
 without ambiguity, and signing never happens implicitly.
 
-### 0.15 Onboarding: recovery-code drill · Impact M · Effort S — ◐ partly built
+### 0.15 Onboarding: recovery-code drill · Impact M · Effort S — ✓ built
 
 **What.** Make the user actually perform an unlock-with-recovery-code once,
 during setup.
@@ -661,8 +684,30 @@ The Argon2id wrapping in Rust is now written: `core/src/recovery.rs` re-locks th
 secret key under an OpenPGP Argon2id S2K, and a test proves a message encrypted
 to the original key still decrypts after restoring on a fresh device.
 
-**Not built.** The drill itself: setup still completes without a code entry, and
-recovery is reachable only after onboarding has already generated a key.
+**The drill.** Creating a new key on
+[`screens/SetupScreen.tsx`](../app/src/screens/SetupScreen.tsx) now goes
+*backup → drill → publish*. The backup step shows the code once, with the
+backup text to save or copy, and says what is lost if both are lost. The code
+itself has no copy button, since a clipboard round trip would pass the drill
+without the code ever leaving the phone. The drill step asks for the code back
+and `completeRecoveryDrill` in
+[`state/identity.ts`](../app/src/state/identity.ts) runs a **real unlock**
+through the core, against the blob this run produced (never a pasted one), and
+checks the fingerprint matches. Restoring from a backup skips the drill: a
+restore *is* a successful code entry.
+
+The gate is persisted, not screen state: `createIdentity` records
+`drillPending` (the key's fingerprint) in the recovery store before it returns,
+and `App.tsx` keeps setup open while `drillOutstanding` holds. So quitting
+between the key and the code reopens setup at the backup step with a fresh code.
+A key whose stored state predates the field owes nothing, so existing users are
+not pulled back into setup.
+
+One escape, decided by the service rather than the screen:
+`waiveRecoveryDrill` releases the gate only when the core itself reports
+`unavailable` for backups (an older native core). Holding setup open for a
+drill that can never run would lock the user out of their mail. The waiver
+records no backup, so Keys keeps warning.
 
 **Done when.** Setup can't complete without a successful code entry, and the
 copy states plainly what is lost if it's lost.
@@ -870,8 +915,8 @@ crypto is finished:
    discovery gap that needs no network.
 
 If the goal is *shippable to a real user*: encryption at rest, the verification
-ceremony, and now key recovery end to end are done, so the order is
-**the onboarding drill → background scheduler → conformance tests**.
+ceremony, key recovery end to end and the onboarding drill are done, so the
+order is **background scheduler → conformance tests**.
 
 The wrapping is the sharp one and it needs a machine with cargo. Until it exists,
 a real key still has no backup path — the screen is built, but in a native build

@@ -40,6 +40,7 @@ import { SwipeOptionsScreen } from './src/screens/SwipeOptionsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SetupScreen } from './src/screens/SetupScreen';
 import { AppProvider, useApp } from './src/state/AppState';
+import { drillOutstanding } from './src/store/recoveryStore';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider, useAccent } from './src/ui/appearance';
@@ -187,17 +188,21 @@ function FullStack() {
 }
 
 function Root() {
-  const { booting, session, identity, addingAccount } = useApp();
+  const { booting, session, identity, recovery, addingAccount } = useApp();
   const accent = useAccent();
   // Opened by a signed-in account with no key on this device, and closed by the
   // setup screen itself — not by `identity` becoming non-null, which happens
   // half way through and would unmount the screen before it has asked about
   // publishing.
   const [setupOpen, setSetupOpen] = useState(false);
+  // A key setup made whose recovery code has not been typed back yet. Read
+  // from the store, not the flag above, so closing the app between the key and
+  // the drill reopens setup at the drill rather than landing in the inbox.
+  const owesDrill = drillOutstanding(recovery, identity?.fingerprint);
 
   useEffect(() => {
-    if (session && !identity) setSetupOpen(true);
-  }, [identity, session]);
+    if (session && (!identity || owesDrill)) setSetupOpen(true);
+  }, [identity, owesDrill, session]);
 
   if (booting) {
     return <View style={{ flex: 1 }} />;
@@ -207,7 +212,7 @@ function Root() {
   // `!identity` as well as the flag: the effect above only runs after a render,
   // which left one frame of the previous mailbox's inbox between an added
   // account attaching and its setup screen.
-  if (setupOpen || !identity) return <SetupScreen onDone={() => setSetupOpen(false)} />;
+  if (setupOpen || !identity || owesDrill) return <SetupScreen onDone={() => setSetupOpen(false)} />;
 
   return (
     <DestinationProvider>

@@ -15,7 +15,7 @@
  * to that account first (`mailbox.ts`), and composing always uses the active
  * one.
  */
-import { auth, Session } from '../auth';
+import { auth, AuthError, Session } from '../auth';
 import { AccountId, accountRefFor, settingsOf } from '../store/accountScope';
 import {
   loadAccounts,
@@ -30,10 +30,31 @@ import { SEARCH_STORE_KEY } from '../store/searchIndex';
 import { SNOOZE_STORE_KEY } from '../store/snoozeStore';
 import { emptySpamState, SPAM_STORE_KEY } from '../store/spamModelStore';
 import { removeScoped } from '../store/secureJson';
-import { saveTextFile } from '../lib/files';
-import { mboxFilename, MboxEntry, toMbox } from '../mail/mbox';
+import { measureAccountStorage } from '../store/storageUsage';
+import { openTextFileWriter, saveTextFile } from '../lib/files';
+import { emlFilename, entryToMbox, mboxFilename } from '../mail/mbox';
+import { Mailbox, MailSummary } from '../mail/types';
 import { AccountsService, Ctx, message } from './contracts';
-import { SECONDARY_BOXES } from './types';
+
+/**
+ * What a whole-mailbox export pages through.
+ *
+ * Inbox, Sent and Archive are the mail the account keeps — `archive` is already
+ * "everything not in the inbox, not sent, not a draft". Spam and Trash are
+ * left out on purpose: one is mail the user did not want and the other mail
+ * they deleted, and a backup that restores both into Thunderbird's inbox is
+ * not what anyone asked for. The row says which folders it takes.
+ */
+const EXPORT_BOXES: Mailbox[] = ['inbox', 'sent', 'archive'];
+
+/**
+ * Rows per listing page. Gmail spends one metadata request per row, fired
+ * together, so this is also how many run at once while listing.
+ */
+const EXPORT_PAGE_SIZE = 50;
+
+/** Raw messages fetched at a time — well inside the provider's per-second quota. */
+const EXPORT_CONCURRENCY = 5;
 
 export function createAccounts(ctx: Ctx): AccountsService {
   const { store, mail } = ctx;
@@ -277,7 +298,14 @@ export function createAccounts(ctx: Ctx): AccountsService {
     },
 
     /**
-     * Write one mailbox out as an mbox file.
+     * Write one mailbox out as an mbox file — all of it, not the pages loaded.
+     *
+     * The mailbox is paged from the provider rather than read from `State`, so
+     * the export is the same whatever the user happened to scroll through, and
+     * it ignores the sync window: that setting filters what is listed, and a
+     * backup that silently kept only the last 30 days would be a trap. Paging
+     * from the provider also means a mailbox need not be in front — `State`
+     * holds one account's lists, the provider holds every account's mail.
      *
      * The raw source is fetched per message rather than reconstructed from the
      * summaries: an export is a copy of the mail, and a copy assembled from the
@@ -285,51 +313,99 @@ export function createAccounts(ctx: Ctx): AccountsService {
      * exports as the sealed message it is — see `mail/mbox.ts` for why that is
      * the right answer rather than a limitation.
      *
-     * A message the provider refuses is skipped rather than failing the whole
-     * export: forty-nine messages out is worth more than an error.
+     * Each message is appended to the file as it arrives, so the mailbox is
+     * never one string in memory. A listing failure ends the export, because
+     * an export that silently stopped paging is not "the whole mailbox"; a
+     * single message the provider refuses is skipped and counted instead —
+     * forty-nine messages out is worth more than an error.
      */
-    async exportMailbox(id) {
+    async exportMailbox(id, options) {
       const client = mail.clients.get(id);
       if (!client) throw new Error('That mailbox is not syncing, so there is nothing to export.');
+      const onProgress = options?.onProgress;
 
-      const state = store.get();
-      if (id !== state.activeAccount) {
-        throw new Error('Put this mailbox in front before exporting it.');
-      }
-
-      // Every list this account has loaded, de-duplicated: a message can be in
-      // both the inbox list and a box, and an mbox with it twice is a mailbox
-      // with it twice once imported.
-      const rows = [
-        ...state.messages.filter((m) => m.account === id),
-        ...SECONDARY_BOXES.flatMap((box) => state.boxes[box].items.filter((m) => m.account === id)),
-      ];
+      // Every folder, de-duplicated: a message can be listed in more than one,
+      // and an mbox with it twice is a mailbox with it twice once imported.
       const seen = new Set<string>();
-      const unique = rows.filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
-
-      const entries: MboxEntry[] = [];
-      for (const summary of unique) {
-        try {
-          entries.push({
-            from: summary.from.address,
-            date: summary.date,
-            raw: await client.getRaw(summary.id),
-          });
-        } catch {
-          // Deleted server-side since the page was fetched, or a transient
-          // failure. Either way it is one message, not the export.
-        }
+      const rows: MailSummary[] = [];
+      for (const box of EXPORT_BOXES) {
+        let pageToken: string | undefined;
+        do {
+          const page = await client.list(box, { limit: EXPORT_PAGE_SIZE, pageToken });
+          for (const row of page.messages) {
+            if (seen.has(row.id)) continue;
+            seen.add(row.id);
+            rows.push(row);
+          }
+          onProgress?.({ phase: 'listing', done: rows.length });
+          pageToken = page.nextPageToken;
+        } while (pageToken);
       }
 
-      await saveTextFile(
-        mboxFilename(client.address),
-        toMbox(entries),
-        // The registered type for an mbox. `text/plain` would open it in a text
-        // viewer on the share sheet rather than offering a mail client.
-        'application/mbox',
-      );
-      return entries.length;
+      if (rows.length === 0) return { written: 0, skipped: 0 };
+
+      // The registered type for an mbox. `text/plain` would open it in a text
+      // viewer on the share sheet rather than offering a mail client.
+      const file = openTextFileWriter(mboxFilename(client.address), 'application/mbox');
+      let written = 0;
+      let skipped = 0;
+      for (let at = 0; at < rows.length; at += EXPORT_CONCURRENCY) {
+        const batch = rows.slice(at, at + EXPORT_CONCURRENCY);
+        const raws = await Promise.all(
+          batch.map((row) =>
+            client.getRaw(row.id).catch((e: unknown) => {
+              // A dead grant is not one message's problem: every fetch after it
+              // fails the same way, and "exported 0, skipped 4,000" would bury
+              // the one sentence the user can act on.
+              if (e instanceof AuthError) throw e;
+              // Deleted server-side since it was listed, or a transient failure.
+              return null;
+            }),
+          ),
+        );
+        // In listing order, so the file reads newest-first per folder like the
+        // provider served it.
+        raws.forEach((raw, i) => {
+          if (raw === null) {
+            skipped += 1;
+            return;
+          }
+          file.append(entryToMbox({ from: batch[i].from.address, date: batch[i].date, raw }));
+          written += 1;
+        });
+        onProgress?.({ phase: 'fetching', done: at + batch.length, total: rows.length });
+      }
+
+      if (written > 0) await file.finish();
+      return { written, skipped };
     },
+
+    /**
+     * Write one message out as an `.eml` file.
+     *
+     * The same rule as the mbox: the provider's bytes, verbatim, so an encrypted
+     * message is saved sealed. Fetched again rather than taken from the reader,
+     * which holds the *decrypted* message alongside it — keeping this path
+     * unable to reach the plaintext is simpler than trusting every caller to
+     * pass the right field.
+     *
+     * The active mailbox's provider, because a message is only ever open in the
+     * mailbox in front: opening a merged-inbox row switches to its account first.
+     */
+    async exportMessage(summary) {
+      const client = mail.clients.get(service.requireActive());
+      if (!client) throw new Error('This mailbox is not syncing, so the message cannot be fetched.');
+      const raw = await client.getRaw(summary.id);
+      await saveTextFile(emlFilename(summary), raw, 'message/rfc822');
+    },
+
+    /**
+     * Bytes this mailbox's stores occupy, for any connected mailbox.
+     *
+     * Read from the sealed values, never unsealed — which is what makes it
+     * fair to ask about a mailbox that is not in front. See `storageUsage.ts`.
+     */
+    storageUsage: (id) => measureAccountStorage(id, PER_ACCOUNT_STORE_KEYS),
 
     /**
      * Stop syncing a mailbox, keeping everything it owns.

@@ -155,6 +155,56 @@ export async function saveTextFile(name: string, text: string, mimeType: string)
   }
 }
 
+/** A text file written in pieces, then handed to the user once. */
+export type TextFileWriter = {
+  append(text: string): void;
+  /** Close the file and offer it to the user — the share sheet, or a download. */
+  finish(): Promise<void>;
+};
+
+/**
+ * `saveTextFile` for a file too large to hold as one string.
+ *
+ * A whole mailbox is the case: thousands of messages joined into a single
+ * JavaScript string is a copy of the mailbox in memory, and on a phone that is
+ * how an export takes the app down with it. On Android each piece is appended
+ * to the cache file as it arrives. The web has no file to append to, so the
+ * pieces are kept as separate `Blob` parts, which the browser can hold without
+ * concatenating them into one string.
+ */
+export function openTextFileWriter(name: string, mimeType: string): TextFileWriter {
+  if (Platform.OS === 'web') {
+    const parts: string[] = [];
+    return {
+      append: (text) => {
+        parts.push(text);
+      },
+      finish: async () => {
+        const anchor = document.createElement('a');
+        const url = URL.createObjectURL(new Blob(parts, { type: mimeType }));
+        anchor.href = url;
+        anchor.download = name;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      },
+    };
+  }
+
+  const file = new File(Paths.cache, name);
+  if (file.exists) file.delete();
+  file.create();
+  return {
+    append: (text) => file.write(text, { append: true }),
+    finish: async () => {
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType });
+      }
+    },
+  };
+}
+
 /** An anchor with `download` — the browser's only "save this bytes as a file". */
 function saveOnWeb(attachment: Attachment): void {
   const anchor = document.createElement('a');

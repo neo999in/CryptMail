@@ -20,9 +20,12 @@ import { Rule } from '../rules/rules';
 import { AccountId, AccountSettings } from '../store/accountScope';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
+import { StorageUsage } from '../store/storageUsage';
 import { RecipientState } from './recipients';
 import { Store } from './store';
 import {
+  ExportProgress,
+  ExportResult,
   OpenedMessage,
   PlainSendInput,
   RefreshOptions,
@@ -120,6 +123,10 @@ export type ContactsService = {
 export type IdentityService = {
   createIdentity(): Promise<Identity>;
   exportRecovery(): Promise<RecoveryBackup>;
+  /** Unlock this run's backup with the typed code; clears the drill setup owes. */
+  completeRecoveryDrill(code: string): Promise<void>;
+  /** Release the setup gate only when the core itself cannot make backups. */
+  waiveRecoveryDrill(): Promise<void>;
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
 };
 
@@ -204,18 +211,29 @@ export type AccountsService = {
   /**
    * Write this mailbox out as an `mbox` file and hand it to the user.
    *
-   * Exports **the mail this device has loaded** — the inbox and junk pages
-   * fetched so far, plus Sent, Archive and Trash if they have been opened —
-   * because those are the messages whose ids are known without paging the whole
-   * mailbox from the provider. The screen says so; a control that claimed to
-   * export everything and quietly wrote the first twenty would be worse than
-   * one that is honest about its scope.
+   * Pages **the whole mailbox** from the provider — Inbox, Sent and Archive,
+   * regardless of the sync window — rather than the pages this device has
+   * loaded, so a mailbox need not be in front, only syncing. Spam and Trash are
+   * left out, and the screen says so.
    *
-   * Returns how many messages were written, which is what the caller reports.
-   * Only the account in front can be exported: the messages come from `State`,
-   * which holds one account's lists.
+   * Returns how many messages were written and how many the provider refused,
+   * which is what the caller reports. `onProgress` is how a screen shows an
+   * export of thousands of messages is still moving.
    */
-  exportMailbox(id: AccountId): Promise<number>;
+  exportMailbox(id: AccountId, options?: { onProgress?: (progress: ExportProgress) => void }): Promise<ExportResult>;
+  /**
+   * One message of the mailbox in front, as an `.eml` file: the provider's
+   * bytes, so an encrypted message is saved sealed, and named by its header
+   * subject so no decrypted text ends up in a filename.
+   */
+  exportMessage(summary: MailSummary): Promise<void>;
+  /**
+   * What one mailbox's stores occupy on this device, in bytes.
+   *
+   * Any account, not only the one in front, because it is measured from the
+   * sealed values without opening them (`store/storageUsage.ts`).
+   */
+  storageUsage(id: AccountId): Promise<StorageUsage>;
   pauseAccount(id: AccountId): Promise<void>;
   /**
    * Start syncing it again, and put it in front — which is what the user is

@@ -1,5 +1,13 @@
 import { MailSummary } from '../../mail/types';
-import { indexContent, messageMatchesQuery, SearchIndex, textMatchesQuery } from '../search';
+import {
+  boundIndex,
+  indexBytes,
+  indexContent,
+  MAX_INDEXED_BODY_CHARS,
+  messageMatchesQuery,
+  SearchIndex,
+  textMatchesQuery,
+} from '../search';
 
 function summary(overrides: Partial<MailSummary> = {}): MailSummary {
   return {
@@ -63,15 +71,55 @@ describe('messageMatchesQuery', () => {
 
 describe('indexContent', () => {
   test('adds decrypted content for a message id', () => {
-    const next = indexContent({}, 'm1', { subject: 'Hi', body: 'there' });
-    expect(next.m1).toEqual({ subject: 'Hi', body: 'there' });
+    const next = indexContent({}, 'm1', { subject: 'Hi', body: 'there' }, 1000);
+    expect(next.m1).toEqual({ subject: 'Hi', body: 'there', indexedAt: 1000 });
   });
 
   test('overwrites an existing entry without mutating the input', () => {
     const before: SearchIndex = { m1: { subject: 'old', body: 'old' } };
     const next = indexContent(before, 'm1', { subject: 'new', body: 'new' });
-    expect(next.m1).toEqual({ subject: 'new', body: 'new' });
+    expect(next.m1).toMatchObject({ subject: 'new', body: 'new' });
     expect(before.m1).toEqual({ subject: 'old', body: 'old' });
+  });
+
+  test('indexes only the head of a very long body', () => {
+    const next = indexContent({}, 'm1', { subject: 'Long', body: 'x'.repeat(MAX_INDEXED_BODY_CHARS + 500) });
+    expect(next.m1.body).toHaveLength(MAX_INDEXED_BODY_CHARS);
+  });
+
+  test('evicts the entry indexed longest ago once the index is over budget', () => {
+    const body = 'y'.repeat(400);
+    let index: SearchIndex = {};
+    index = indexContent(index, 'first', { subject: 'a', body }, 1, 1000);
+    index = indexContent(index, 'second', { subject: 'b', body }, 2, 1000);
+    index = indexContent(index, 'third', { subject: 'c', body }, 3, 1000);
+
+    expect(Object.keys(index).sort()).toEqual(['second', 'third']);
+    expect(indexBytes(index)).toBeLessThanOrEqual(1000);
+  });
+});
+
+describe('boundIndex', () => {
+  test('returns the same object when it already fits', () => {
+    const index: SearchIndex = { m1: { subject: 's', body: 'b', indexedAt: 1 } };
+    expect(boundIndex(index, 1000)).toBe(index);
+  });
+
+  test('drops entries from before timestamps existed ahead of dated ones', () => {
+    const body = 'z'.repeat(300);
+    const index: SearchIndex = {
+      dated: { subject: 'd', body, indexedAt: 5 },
+      legacy: { subject: 'l', body },
+    };
+    expect(Object.keys(boundIndex(index, 500))).toEqual(['dated']);
+  });
+
+  test('measures in UTF-8 bytes, not characters', () => {
+    // 200 characters of a three-byte glyph is 600 bytes of JSON: over a
+    // 400-byte budget that a character count would have said it fits.
+    const index: SearchIndex = { m1: { subject: '', body: '€'.repeat(200), indexedAt: 1 } };
+    expect(indexBytes(index)).toBeGreaterThan(600);
+    expect(boundIndex(index, 400)).toEqual({});
   });
 });
 
