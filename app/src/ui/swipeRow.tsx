@@ -14,7 +14,7 @@
  * reason the pane is a separate component.
  *
  * **Nothing here re-renders while a finger is dragging.** Both panes are
- * mounted once, on the frame a sideways drag starts, and everything that moves
+ * mounted once, when a finger lands on the row, and everything that moves
  * — the fill deepening, the glyph flipping to dark ink, the label appearing, the
  * row itself — is an animated style driven from one shared value on the UI
  * thread. A version of this that pushed the pull into React state re-rendered
@@ -26,7 +26,7 @@
  * list, that was thousands of them built on every list mount and torn down on
  * every destination switch: multi-second frames, rows stuck at their fade-in's
  * zero opacity, and Reanimated writing to views Fabric had already dropped. So
- * the panes exist only from the start of a drag until the row settles home.
+ * the panes exist only from the touch until the row settles home.
  *
  * Deliberately knows nothing about what an operation *does*: it is handed a
  * resolved visual and calls back with it. Running it is `ui/swipeRun.tsx`,
@@ -178,8 +178,8 @@ function onBlack(hex: string, alpha: number): string {
  * colour *is* a style, so that one is interpolated in place.
  *
  * Mounted for both sides at once and shown by the sign of `dx`, so nothing
- * mounts part-way through a pull — `SwipeableRow` mounts the pair on the frame
- * its drag starts, and only for that row (`engaged`). The settings preview drives the same component from a
+ * mounts part-way through a pull — `SwipeableRow` mounts the pair when a finger
+ * lands on the row, and only for that row (`engaged`). The settings preview drives the same component from a
  * shared value it simply never changes — a still frame of the real thing rather
  * than a drawing of it.
  */
@@ -345,10 +345,13 @@ export function SwipeActionPane({
       // Pulling right uncovers the left edge, and the other way round.
       style={[s.pane, toRight ? s.paneStart : s.paneEnd, block]}
     >
-      {/* Glyph over word, laid out at a fixed width and centred in the block, so
-          a block still narrower than its contents clips them evenly instead of
-          re-wrapping the word on every frame of the pull. */}
-      <View style={s.paneInner}>
+      {/* Glyph over word, laid out at a fixed width so the word wraps once rather
+          than on every frame of the pull — and held against the edge the row
+          comes away from, so the glyph is the first thing the strip uncovers.
+          Centred in that width it sat about 58 in, and the first centimetres of
+          every pull showed only the dark resting shade, which on a true-black
+          ground reads as nothing behind the row at all. */}
+      <View style={[s.paneInner, toRight ? s.paneInnerStart : s.paneInnerEnd]}>
         {glyph ? (
           <View>
             <Animated.View style={lightGlyph}>
@@ -359,7 +362,10 @@ export function SwipeActionPane({
             </Animated.View>
           </View>
         ) : null}
-        <Animated.Text numberOfLines={2} style={[s.paneLabel, labelStyle]}>
+        <Animated.Text
+          numberOfLines={2}
+          style={[s.paneLabel, toRight ? s.paneLabelStart : s.paneLabelEnd, labelStyle]}
+        >
           {visual.label}
         </Animated.Text>
       </View>
@@ -424,11 +430,12 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
   const reducedMotion = useReducedMotion();
   const recovery = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
-   * Whether the panes are mounted. True from the frame a sideways drag starts
-   * until the row has settled back at rest — see the header for why a row at
-   * rest carries none. A drag can only start once the pull is past
-   * `SWIPE_ENGAGE_PX`, and the one render this costs lands well before the pull
-   * gets anywhere near the trigger line.
+   * Whether the panes are mounted. True from touch-down until the row has
+   * settled back at rest — see the header for why a row at rest carries none.
+   * Touch-down rather than activation, because the render this costs has to land
+   * before the row can move: started at activation it raced the pull, and a busy
+   * JS thread left the row sliding over nothing. Activation is `SWIPE_ENGAGE_PX`
+   * later, which is the head start.
    */
   const [engaged, setEngaged] = useState(false);
   const engage = useCallback(() => setEngaged(true), []);
@@ -513,12 +520,14 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
         // under this scrolls, and every row is a tap target.
         .activeOffsetX([-SWIPE_ENGAGE_PX, SWIPE_ENGAGE_PX])
         .failOffsetY([-10, 10])
+        // The panes mount at touch-down, not at activation. Mounting them is a
+        // React render, and started at activation it raced the pull: on a busy
+        // JS thread the row was already moving with nothing behind it. Here they
+        // are ready 14pt before the row can move. The cost is that render on a
+        // tap or a scroll start too — for the one row touched, released again by
+        // `onFinalize` — never for the whole list. See `engaged`.
         .onBegin(() => {
           fired.value = false;
-        })
-        // Only now — a real sideways drag, not a tap or a scroll — do the panes
-        // mount. See `engaged`.
-        .onStart(() => {
           runOnJS(engage)();
         })
         .onUpdate((e) => {
@@ -654,16 +663,21 @@ const s = StyleSheet.create({
   paneStart: { justifyContent: 'flex-start' },
   paneEnd: { justifyContent: 'flex-end' },
   paneInner: {
-    alignItems: 'center',
     flexShrink: 0,
     gap: 6,
     justifyContent: 'center',
-    paddingHorizontal: space.sm,
     // Fixed, so the label wraps once at layout time rather than on every frame
     // of the pull.
     width: PANE_CONTENT,
   },
-  // Centred in the block, and allowed two lines: "Swipe to set up actions" is a
-  // sentence, and a narrow block should wrap it rather than clip it.
-  paneLabel: { ...type.small, fontFamily: font.sansSemibold, textAlign: 'center' },
+  // Against the edge the row came away from — see the pane. The outer padding is
+  // the glyph's distance from that edge: clear of it, but close enough that the
+  // glyph shows within a centimetre of pull.
+  paneInnerStart: { alignItems: 'flex-start', paddingLeft: space.lg, paddingRight: space.sm },
+  paneInnerEnd: { alignItems: 'flex-end', paddingLeft: space.sm, paddingRight: space.lg },
+  // Allowed two lines: "Swipe to set up actions" is a sentence, and a narrow
+  // block should wrap it rather than clip it. Aligned with the glyph above it.
+  paneLabel: { ...type.small, fontFamily: font.sansSemibold },
+  paneLabelStart: { textAlign: 'left' },
+  paneLabelEnd: { textAlign: 'right' },
 });
