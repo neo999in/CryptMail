@@ -34,6 +34,7 @@ import { listDrafts } from '../drafts/drafts';
 import { listLabels } from '../labels/labels';
 import { initials } from '../lib/format';
 import { listScheduled } from '../outbox/outbox';
+import { snoozedRows } from '../snooze/snooze';
 import { HomeProps } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel, settingsOf } from '../store/accountScope';
@@ -52,6 +53,7 @@ import { DraftsBody } from './DraftsScreen';
 import { InboxBody } from './InboxScreen';
 import { MailboxBody } from './MailboxScreen';
 import { ScheduledBody } from './ScheduledScreen';
+import { SnoozedBody } from './SnoozedScreen';
 
 /** What every destination body is handed: the bar's state, plus navigation. */
 export type BodyProps = HomeProps & {
@@ -106,18 +108,28 @@ const TITLES: Record<string, string> = {
   trash: 'Trash',
   drafts: 'Drafts',
   scheduled: 'Scheduled',
+  snoozed: 'Snoozed',
   contacts: 'Contacts',
 };
 
-/** Destinations whose rows are provider mail, and so carry the lens and filter. */
+/**
+ * Destinations whose rows are provider mail, and so carry the lens and filter.
+ *
+ * Snoozed is mail, but a short list of it that is ordered by when each message
+ * comes back rather than when it arrived — so, like Scheduled, its strip says
+ * how much is waiting instead of offering a lens over it.
+ */
 function showsMail(destination: Destination): boolean {
-  return destination !== 'drafts' && destination !== 'scheduled' && destination !== 'contacts';
+  return (
+    destination !== 'drafts' && destination !== 'scheduled' && destination !== 'snoozed' && destination !== 'contacts'
+  );
 }
 
 /** What the bar's search box says it will search, per destination. */
 const SEARCH_HINT: Record<string, string> = {
   drafts: 'Search drafts',
   scheduled: 'Search queued mail',
+  snoozed: 'Search snoozed mail',
   contacts: 'Search name or address',
 };
 
@@ -149,6 +161,7 @@ export function HomeScreen(props: HomeProps) {
     boxes,
     drafts,
     scheduled,
+    snoozed,
     unified,
     labels,
     encryptionFor,
@@ -354,7 +367,14 @@ export function HomeScreen(props: HomeProps) {
               <Text style={s.countLabel}>
                 {destination === 'drafts'
                   ? count(listDrafts(drafts).length, 'draft', 'drafts', 'No drafts')
-                  : count(listScheduled(scheduled).length, 'message waiting', 'messages waiting', 'Nothing waiting')}
+                  : destination === 'snoozed'
+                    ? count(
+                        snoozedRows(snoozed, [], new Date().toISOString()).length,
+                        'message snoozed',
+                        'messages snoozed',
+                        'Nothing snoozed',
+                      )
+                    : count(listScheduled(scheduled).length, 'message waiting', 'messages waiting', 'Nothing waiting')}
               </Text>
             )}
           </View>
@@ -375,6 +395,8 @@ export function HomeScreen(props: HomeProps) {
         <DraftsBody {...bodyProps} />
       ) : destination === 'scheduled' ? (
         <ScheduledBody {...bodyProps} />
+      ) : destination === 'snoozed' ? (
+        <SnoozedBody {...bodyProps} />
       ) : destination === 'contacts' ? (
         <ContactsBody {...bodyProps} />
       ) : (

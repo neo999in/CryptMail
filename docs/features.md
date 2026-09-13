@@ -258,7 +258,7 @@ caveat the module documents: the keyring half is complete the moment an account
 loads, while the observed half grows as mail is fetched, so a mailbox whose Sent
 has never been opened has genuinely not been seen.
 
-### 0.6 Email signature + canned replies · Impact S · Effort S
+### 0.6 Email signature + canned replies · Impact S · Effort S — ✅ **Built**
 
 **What.** A stored signature appended on compose; a small set of reusable
 snippets.
@@ -269,6 +269,29 @@ autosave will duplicate it).
 
 **Done when.** A new message opens with the signature; editing and sending
 behaves; drafts don't accumulate copies.
+
+**Built.** [`signature/signature.ts`](../app/src/signature/signature.ts) is the
+pure half: the RFC 3676 `-- ` block, seeding, swapping and snippet insertion.
+It diverges from the sketch in two places:
+
+- **The signature is per mailbox**, and lives on the account ref's settings
+  (`AccountSettings.signature`) rather than a new store. A work address and a
+  personal one sign differently, and Compose can switch From mid-message, so
+  it needs the other mailbox's signature synchronously. It is edited on the
+  account screen; Settings → Mail links there. Removing the account removes it.
+- **Canned replies are global**, in
+  [`store/cannedRepliesStore.ts`](../app/src/store/cannedRepliesStore.ts)
+  (sealed, not per account, up to 50), served by `ui/cannedReplies.tsx` the way
+  swipe prefs are, and managed at Settings → Mail → Canned replies.
+
+Compose seeds a *started* message only, never a resumed draft (anything opened
+with a `draftId`), and puts the signature above quoted text. A body that is
+only the seeded signature counts as empty, so opening Compose and backing out
+leaves no draft. Switching From swaps an intact block for the new mailbox's
+and leaves a block the user edited alone. A canned reply goes in at the caret,
+or above the signature and quote if the body was never touched. All of it is
+body text, so it is encrypted with the message. Signature text is plain; there
+is no rich signature until 0.9 lands.
 
 ### 0.7 Reply / reply-all / forward · Impact L · Effort S — ✅ **Built**
 
@@ -653,7 +676,19 @@ delete, and emptying the trash stays the provider's own action. What is left her
 is snooze, which needs local scheduling like the outbox.
 
 **Done when.** Snoozing returns a thread at the chosen time, listed in the
-drawer.
+drawer. ✅
+
+**Snoozed — built, locally.** A `snoozed` destination
+([`screens/SnoozedScreen.tsx`](../app/src/screens/SnoozedScreen.tsx)) lists the
+active mailbox's pending snoozes, grouped by when they return, with *Return
+now* (and an undo) on each. A snooze now records a snapshot of the row's
+cleartext summary, so a long snooze that has scrolled out of the loaded inbox
+still draws, and still opens. **There are no Gmail label operations**, which
+the sketch called for. Archiving on snooze and restoring on wake would make the
+message's return depend on this app running again. With the in-app scheduler
+(limit 3 below), a phone left in a drawer would lose mail from the provider's
+inbox. The cost of staying local is that another client still shows a snoozed
+message in the inbox.
 
 ### 0.17 Client-side key sharing · Impact M · Effort M — ✎ designed
 

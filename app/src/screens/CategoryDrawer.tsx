@@ -64,6 +64,7 @@ const BOXES: { key: Destination; icon: IconName; label: string }[] = [
   { key: 'trash', icon: 'trash', label: 'Trash' },
   { key: 'drafts', icon: 'edit', label: 'Drafts' },
   { key: 'scheduled', icon: 'clock', label: 'Scheduled' },
+  { key: 'snoozed', icon: 'bell', label: 'Snoozed' },
 ];
 
 export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {

@@ -58,6 +58,7 @@ export function MessageScreen({ route, navigation }: Props) {
   const {
     messages,
     boxes,
+    snoozed,
     openMessage,
     keyring,
     identity,
@@ -150,8 +151,13 @@ export function MessageScreen({ route, navigation }: Props) {
       const row = boxes[box].items.find((m) => m.id === id);
       if (row) return { summary: row, fromBox: box as SecondaryBox | null };
     }
+    // Opened from the Snoozed folder: a long snooze has usually scrolled out of
+    // the loaded inbox, and the row it was drawn from is the snapshot taken when
+    // it was snoozed (`snooze/snooze.ts`). It is still an inbox message.
+    const snapshot = snoozed[id]?.summary;
+    if (snapshot) return { summary: snapshot, fromBox: null as SecondaryBox | null };
     return { summary: undefined, fromBox: null as SecondaryBox | null };
-  }, [boxes, messages, route.params.id]);
+  }, [boxes, messages, route.params.id, snoozed]);
 
   /**
    * Whether this message is already deleted.

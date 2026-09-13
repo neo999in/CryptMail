@@ -7,6 +7,7 @@
  * Shape mirrors outbox/outbox.ts intentionally: both are due-time queues.
  * The scheduler drives both from the same interval tick.
  */
+import { MailSummary } from '../mail/types';
 
 /** One snoozed message entry. */
 export type SnoozedMessage = {
@@ -16,6 +17,17 @@ export type SnoozedMessage = {
   until: string;
   /** ISO-8601 timestamp: when the snooze was applied. */
   snoozedAt: string;
+  /**
+   * The row as it was when it was snoozed — envelope metadata only.
+   *
+   * What lets the Snoozed folder draw a message the inbox no longer holds: a
+   * snooze outlives the page of mail it was taken from, and a week-long one
+   * will have scrolled out of the loaded inbox long before it wakes. It is the
+   * same cleartext summary the mail cache already keeps, never decrypted
+   * content. Optional, because entries written before the folder existed have
+   * none.
+   */
+  summary?: MailSummary;
 };
 
 /** All active snoozes, keyed by message id. */
@@ -56,6 +68,55 @@ export function isSnoozed(snoozes: SnoozeMap, id: string, now: string): boolean 
   const entry = snoozes[id];
   if (!entry) return false;
   return entry.until > now;
+}
+
+/** One row of the Snoozed folder. */
+export type SnoozedRow = {
+  entry: SnoozedMessage;
+  /** The live summary when the inbox holds it, else the snapshot; absent when neither exists. */
+  summary?: MailSummary;
+};
+
+/**
+ * What the Snoozed folder lists: every snooze still pending, soonest back first.
+ *
+ * The live summary wins over the snapshot, since it carries what changed while
+ * the message was away — read, starred. A due entry is left out even before the
+ * scheduler's tick removes it, so the folder and the inbox (`isSnoozed`) never
+ * both claim the same message.
+ */
+export function snoozedRows(snoozes: SnoozeMap, messages: readonly MailSummary[], now: string): SnoozedRow[] {
+  const live = new Map(messages.map((m) => [m.id, m]));
+  return listSnoozed(snoozes)
+    .filter((entry) => entry.until > now)
+    .map((entry) => ({ entry, summary: live.get(entry.id) ?? entry.summary }));
+}
+
+/**
+ * The heading a snoozed row files under — forward-looking, the mirror of the
+ * inbox's day buckets, since what matters about a snooze is when it ends.
+ */
+export function returnsBucket(until: string, now: Date = new Date()): string {
+  const d = new Date(until);
+  if (Number.isNaN(d.getTime())) return 'Later';
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(d) - startOfDay(now)) / 86_400_000);
+  if (days <= 0) return 'Later today';
+  if (days === 1) return 'Tomorrow';
+  if (days < 7) return 'This week';
+  return 'Later';
+}
+
+/** "Today 4:00 PM", "Tomorrow 9:00 AM", "Sat, Sep 19 9:00 AM" — when a message comes back. */
+export function returnsLabel(until: string, now: Date = new Date()): string {
+  const d = new Date(until);
+  if (Number.isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return `Today ${time}`;
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${time}`;
 }
 
 // ---------------------------------------------------------------------------

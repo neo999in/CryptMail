@@ -60,6 +60,8 @@ export type RootStackParamList = {
   Labels: undefined;
   /** The active mailbox's filters & rules. Settings → Mail. */
   Rules: undefined;
+  /** Saved snippets Compose can insert, shared by every mailbox. Settings → Mail. */
+  CannedReplies: undefined;
   /**
    * One rule, new or existing.
    *

@@ -24,10 +24,15 @@ export function createSnooze(ctx: Ctx): SnoozeService {
     },
 
     async snoozeMessage(id: string, until: string) {
+      // Snapshot the row so the Snoozed folder can still draw it once it has
+      // scrolled out of the loaded inbox (`snooze/snooze.ts`). Re-snoozing a
+      // message the inbox no longer holds keeps the snapshot it already had.
+      const summary = store.get().messages.find((m) => m.id === id) ?? store.get().snoozed[id]?.summary;
       const snoozes = upsertSnooze(store.get().snoozed, {
         id,
         until,
         snoozedAt: new Date().toISOString(),
+        ...(summary ? { summary } : {}),
       });
       await persist(snoozes);
     },

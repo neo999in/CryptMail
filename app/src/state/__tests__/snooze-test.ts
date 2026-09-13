@@ -100,6 +100,43 @@ describe('snooze service', () => {
     expect(store.get().snoozed['msg-10']).toEqual(seeded['msg-10']);
   });
 
+  /**
+   * The Snoozed folder draws rows the inbox may no longer hold, so a snooze
+   * keeps the envelope it was taken from — and keeps it across a re-snooze
+   * made after that row has left the loaded page.
+   */
+  it('snapshots the summary from the inbox, and keeps it on a re-snooze', async () => {
+    const { store, snooze } = setup();
+    const summary = {
+      id: 'msg-7',
+      from: { address: 'a@example.com' },
+      to: ['me@example.com'],
+      date: '2026-09-01T10:00:00.000Z',
+      subject: 'Hello',
+      snippet: '',
+      unread: true,
+      starred: false,
+      account: ACCOUNT,
+    };
+    store.patch({ messages: [summary] });
+    const later = new Date(Date.now() + 3600_000).toISOString();
+
+    await snooze.snoozeMessage('msg-7', later);
+    expect(store.get().snoozed['msg-7'].summary).toEqual(summary);
+    expect((await loadSnoozes(ACCOUNT))['msg-7'].summary).toEqual(summary);
+
+    store.patch({ messages: [] });
+    const evenLater = new Date(Date.now() + 7200_000).toISOString();
+    await snooze.snoozeMessage('msg-7', evenLater);
+    expect(store.get().snoozed['msg-7']).toMatchObject({ until: evenLater, summary });
+  });
+
+  it('writes no snapshot for a message it has never seen', async () => {
+    const { store, snooze } = setup();
+    await snooze.snoozeMessage('msg-unknown', new Date(Date.now() + 3600_000).toISOString());
+    expect(store.get().snoozed['msg-unknown']).not.toHaveProperty('summary');
+  });
+
   it('wakedue cleans up snoozes whose due time has passed', async () => {
     const { store, snooze } = setup();
     const pastTime = new Date(Date.now() - 60_000).toISOString();

@@ -22,6 +22,7 @@ import { initials, shortFingerprint } from '../lib/format';
 import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
+import { MAX_SIGNATURE_LENGTH } from '../store/accountsStore';
 import { PublishStatus } from '../store/publishStore';
 import { color, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
@@ -97,6 +98,8 @@ export function AccountScreen({ navigation, route }: Props) {
   // Draft state, so typing a name does not write the store — and re-sync the
   // rail's label — on every keystroke. Committed on blur.
   const [name, setName] = useState(() => settingsOf(account).displayName);
+  const [signature, setSignature] = useState(() => settingsOf(account).signature);
+  const signatureFocus = useFocus();
   /** True while the mbox is being fetched and written. */
   const [exporting, setExporting] = useState(false);
 
@@ -113,6 +116,14 @@ export function AccountScreen({ navigation, route }: Props) {
   const commitName = () => {
     if (name.trim() === settings.displayName) return;
     void updateAccount(account.id, { displayName: name.trim() });
+  };
+
+  // Trailing whitespace only: a signature's own line breaks and indentation
+  // are the user's layout.
+  const commitSignature = () => {
+    const next = signature.replace(/\s+$/, '');
+    if (next === settings.signature) return;
+    void updateAccount(account.id, { signature: next });
   };
 
   /**
@@ -290,6 +301,31 @@ export function AccountScreen({ navigation, route }: Props) {
             <Text style={s.hint}>
               What the drawer, the mail bar and this list call the mailbox. Leave it empty to use the name
               Google gives it. It is local to this device and never sent with your mail.
+            </Text>
+          </View>
+        </Group>
+
+        <GroupHeading>Signature</GroupHeading>
+        <Group>
+          <View style={s.pad}>
+            <Field focused={signatureFocus.focused} label="SIGNATURE">
+              <Input
+                {...signatureFocus.bind}
+                maxLength={MAX_SIGNATURE_LENGTH}
+                multiline
+                onBlur={() => {
+                  signatureFocus.bind.onBlur();
+                  commitSignature();
+                }}
+                onChangeText={setSignature}
+                placeholder="None"
+                style={s.signatureInput}
+                value={signature}
+              />
+            </Field>
+            <Text style={s.hint}>
+              Added under a new message written from this mailbox, above anything quoted. A saved draft keeps the
+              one it has. It is part of the message, so it is encrypted with the rest of it.
             </Text>
           </View>
         </Group>
@@ -515,4 +551,5 @@ const s = StyleSheet.create({
   // same measure the Appearance screen's pickers use.
   radioSlot: { alignItems: 'center', width: 84 },
   hint: { ...type.small, color: color.inkFaint },
+  signatureInput: { maxHeight: 180, minHeight: 72, textAlignVertical: 'top' },
 });

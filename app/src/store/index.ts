@@ -12,6 +12,7 @@ import * as SecureStore from 'expo-secure-store';
 import { ACCOUNTS_STORE_KEY } from './accountsStore';
 import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
+import { CANNED_REPLIES_STORE_KEY } from './cannedRepliesStore';
 import { DRAFTS_STORE_KEY } from './draftsStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
@@ -63,6 +64,7 @@ export const SEALED_STORE_KEYS = [
   ACCOUNTS_STORE_KEY,
   PREFS_STORE_KEY,
   MAIL_PREFS_STORE_KEY,
+  CANNED_REPLIES_STORE_KEY,
 ];
 
 /**

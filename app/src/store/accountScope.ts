@@ -65,6 +65,17 @@ export type AccountSettings = {
    * for a token for it.
    */
   paused: boolean;
+  /**
+   * Appended to a new message written from this mailbox. Empty means none.
+   *
+   * Per mailbox because a work address and a personal one sign differently,
+   * and on the ref rather than in a scoped store because Compose can switch
+   * the From account mid-message and needs the other mailbox's signature
+   * synchronously to swap it. It is text the user wrote *about themselves*, not
+   * message content, and it travels inside the encrypted body like the rest of
+   * what they type — see `signature/signature.ts`.
+   */
+  signature: string;
 };
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
@@ -73,6 +84,7 @@ export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
   blockRemoteImages: false,
   syncWindow: 'all',
   paused: false,
+  signature: '',
 };
 
 /** An account the app knows about locally. Tokens live with the auth provider. */

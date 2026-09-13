@@ -4,7 +4,9 @@ import {
   listSnoozed,
   quickSnoozeDates,
   removeSnooze,
+  returnsBucket,
   SnoozeMap,
+  snoozedRows,
   upsertSnooze,
 } from '../snooze';
 
@@ -108,3 +110,53 @@ describe('snooze pure model', () => {
   });
 });
 
+describe('snoozedRows — the Snoozed folder', () => {
+  const summary = (id: string, subject: string) => ({
+    id,
+    from: { address: 'a@example.com' },
+    to: [],
+    date: '2026-09-01T07:00:00.000Z',
+    subject,
+    snippet: '',
+    unread: false,
+    starred: false,
+  });
+  const now = '2026-09-01T10:00:00.000Z';
+
+  it('lists pending snoozes soonest first and leaves out the due ones', () => {
+    const map: SnoozeMap = {
+      late: { id: 'late', until: '2026-09-03T09:00:00.000Z', snoozedAt: now },
+      due: { id: 'due', until: '2026-09-01T09:00:00.000Z', snoozedAt: now },
+      soon: { id: 'soon', until: '2026-09-01T12:00:00.000Z', snoozedAt: now },
+    };
+    expect(snoozedRows(map, [], now).map((r) => r.entry.id)).toEqual(['soon', 'late']);
+  });
+
+  /** A due entry is the inbox's again, even before the tick removes it. */
+  it('never lists a message the inbox is already showing', () => {
+    const map: SnoozeMap = { m: { id: 'm', until: now, snoozedAt: now } };
+    expect(snoozedRows(map, [], now)).toEqual([]);
+  });
+
+  it('prefers the live summary, falls back to the snapshot, and says when it has neither', () => {
+    const map: SnoozeMap = {
+      live: { id: 'live', until: '2026-09-02T09:00:00.000Z', snoozedAt: now, summary: summary('live', 'old') },
+      gone: { id: 'gone', until: '2026-09-02T10:00:00.000Z', snoozedAt: now, summary: summary('gone', 'kept') },
+      bare: { id: 'bare', until: '2026-09-02T11:00:00.000Z', snoozedAt: now },
+    };
+    const rows = snoozedRows(map, [{ ...summary('live', 'fresh'), unread: true }], now);
+    expect(rows.map((r) => r.summary?.subject)).toEqual(['fresh', 'kept', undefined]);
+  });
+});
+
+describe('returnsBucket', () => {
+  const now = new Date(2026, 8, 1, 10, 0, 0); // Tue 1 Sep 2026, local
+
+  it('files by when the message comes back', () => {
+    expect(returnsBucket(new Date(2026, 8, 1, 21, 0).toISOString(), now)).toBe('Later today');
+    expect(returnsBucket(new Date(2026, 8, 2, 9, 0).toISOString(), now)).toBe('Tomorrow');
+    expect(returnsBucket(new Date(2026, 8, 5, 9, 0).toISOString(), now)).toBe('This week');
+    expect(returnsBucket(new Date(2026, 8, 20, 9, 0).toISOString(), now)).toBe('Later');
+    expect(returnsBucket('not a date', now)).toBe('Later');
+  });
+});

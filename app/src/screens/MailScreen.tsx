@@ -16,8 +16,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
+import { accountLabel, settingsOf } from '../store/accountScope';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
+import { useCannedReplies } from '../ui/cannedReplies';
 import { useMailPrefs } from '../ui/mailPrefs';
 import { Group, GroupHeading, IconButton, SettingsRow } from '../ui/primitives';
 
@@ -30,7 +32,10 @@ function count(n: number, one: string, many: string, none: string): string {
 
 export function MailScreen({ navigation }: Props) {
   const { swipeLeft, swipeRight } = useMailPrefs();
-  const { labels, rules } = useApp();
+  const { labels, rules, accounts, activeAccount } = useApp();
+  const { replies } = useCannedReplies();
+  const activeRef = accounts.find((a) => a.id === activeAccount);
+  const signature = settingsOf(activeRef).signature.trim();
   const insets = useSafeAreaInsets();
   const labelTotal = Object.keys(labels.labels).length;
   const enabledRules = rules.rules.filter((rule) => rule.enabled).length;
@@ -78,6 +83,30 @@ export function MailScreen({ navigation }: Props) {
                 : `${enabledRules} of ${rules.rules.length} on`
             }
             onPress={() => navigation.navigate('Rules')}
+          />
+        </Group>
+
+        {/* The signature is the mailbox in front's, and is edited on its account
+            screen with its other per-mailbox choices; canned replies are shared. */}
+        <GroupHeading>Writing</GroupHeading>
+        <Group>
+          {activeRef ? (
+            <SettingsRow
+              icon="signature"
+              label="Signature"
+              value={
+                signature
+                  ? `${accountLabel(activeRef)}: ${signature.split('\n')[0]}`
+                  : `None for ${accountLabel(activeRef)}`
+              }
+              onPress={() => navigation.navigate('Account', { id: activeRef.id })}
+            />
+          ) : null}
+          <SettingsRow
+            icon="reply"
+            label="Canned replies"
+            value={count(replies.length, 'saved reply', 'saved replies', 'Text you insert from Compose')}
+            onPress={() => navigation.navigate('CannedReplies')}
           />
         </Group>
       </ScrollView>

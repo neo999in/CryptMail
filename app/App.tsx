@@ -25,6 +25,7 @@ import { ConversationScreen } from './src/screens/ConversationScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
+import { CannedRepliesScreen } from './src/screens/CannedRepliesScreen';
 import { LabelsScreen } from './src/screens/LabelsScreen';
 import { RuleEditScreen } from './src/screens/RuleEditScreen';
 import { RulesScreen } from './src/screens/RulesScreen';
@@ -42,6 +43,7 @@ import { AppProvider, useApp } from './src/state/AppState';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider, useAccent } from './src/ui/appearance';
+import { CannedRepliesProvider } from './src/ui/cannedReplies';
 import { MailPrefsProvider } from './src/ui/mailPrefs';
 import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
@@ -173,6 +175,7 @@ function FullStack() {
       <Stack.Screen name="Labels" component={LabelsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Rules" component={RulesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="RuleEdit" component={RuleEditScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="CannedReplies" component={CannedRepliesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SwipeGlyphDemo" component={SwipeGlyphDemoScreen} options={{ headerShown: false }} />
       {/* Managing a mailbox is a detail screen, not a destination: the drawer
           sets destinations and never pushes, and these two are reached from
@@ -272,6 +275,9 @@ export default function App() {
               same reason: a swipe preference is view state that is persisted,
               not one of the five subsystems. */}
           <MailPrefsProvider>
+            {/* Another sibling for the same reason: saved snippets are the
+                writer's text on this device, not a subsystem. */}
+            <CannedRepliesProvider>
             <AppProvider>
               <AppBackground>
                 <ToastProvider>
@@ -288,6 +294,7 @@ export default function App() {
                 </ToastProvider>
               </AppBackground>
             </AppProvider>
+            </CannedRepliesProvider>
           </MailPrefsProvider>
         </AppearanceProvider>
       </SafeAreaProvider>

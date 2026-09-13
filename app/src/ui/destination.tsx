@@ -22,7 +22,7 @@ import React, { createContext, useContext, useMemo, useState } from 'react';
 import { Category } from '../categorizer/categorizer';
 import { SecondaryBox } from '../state/types';
 
-export type Destination = 'inbox' | Category | SecondaryBox | 'drafts' | 'scheduled' | 'contacts';
+export type Destination = 'inbox' | Category | SecondaryBox | 'drafts' | 'scheduled' | 'snoozed' | 'contacts';
 
 type DestinationState = {
   destination: Destination;

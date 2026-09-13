@@ -30,10 +30,19 @@ import {
   totalBytes,
 } from '../mail/attachment';
 import { RootStackParamList } from '../navigation';
+import {
+  defaultInsertionPoint,
+  insertSnippet,
+  isOnlySignature,
+  seedBody,
+  swapSignature,
+} from '../signature/signature';
 import { RecipientState, useApp } from '../state/AppState';
-import { AccountId } from '../store/accountScope';
+import { AccountId, settingsOf } from '../store/accountScope';
+import { CannedReply, cannedReplyLabel } from '../store/cannedRepliesStore';
 import { color, font, radius, shadow, type } from '../theme';
 import { useAccent } from '../ui/appearance';
+import { useCannedReplies } from '../ui/cannedReplies';
 import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
@@ -114,6 +123,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     session,
   } = useApp();
   const contacts = useContacts();
+  const { replies: cannedReplies } = useCannedReplies();
   const { setDestination } = useDestination();
   const { showToast } = useToast();
   const insets = useSafeAreaInsets();
@@ -126,7 +136,29 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [to, setTo] = useState<string[]>(existing?.to ?? route.params?.to ?? []);
   const [draft, setDraft] = useState('');
   const [subject, setSubject] = useState(existing?.subject ?? route.params?.subject ?? '');
-  const [body, setBody] = useState(existing?.body ?? route.params?.quotedBody ?? '');
+  /** The From mailbox's signature — it changes when that account does. */
+  const signature = settingsOf(accounts.find((a) => a.id === activeAccount)).signature;
+  // Only a message being *started* is seeded. A resumed draft already holds
+  // whatever signature it was saved with, and adding another on every resume
+  // is how drafts accumulate copies (features.md 0.6).
+  const [body, setBody] = useState(
+    () =>
+      existing?.body ??
+      (route.params?.draftId ? (route.params?.quotedBody ?? '') : seedBody(signature, route.params?.quotedBody)),
+  );
+  /**
+   * The signature the body was last given, so a From switch can swap exactly
+   * that block for the new mailbox's — and leave one the user edited alone.
+   */
+  const bodySignature = useRef(signature);
+  useEffect(() => {
+    if (bodySignature.current === signature) return;
+    const from = bodySignature.current;
+    bodySignature.current = signature;
+    setBody((current) => swapSignature(current, from, signature));
+  }, [signature]);
+  /** Where the caret last was in the message, for inserting a canned reply there. */
+  const bodyCaret = useRef<number | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>(
     existing?.attachments ?? route.params?.attachments ?? [],
   );
@@ -197,7 +229,10 @@ export function ComposeScreen({ route, navigation }: Props) {
   useEffect(() => {
     const handle = setTimeout(() => {
       if (closingRef.current) return;
-      if (isDraftEmpty({ to, subject, body, attachments })) void deleteDraftRef.current(draftId);
+      // A body that is only the seeded signature is not something the user
+      // wrote, so it does not keep a draft alive on its own.
+      const written = isOnlySignature(body, bodySignature.current) ? '' : body;
+      if (isDraftEmpty({ to, subject, body: written, attachments })) void deleteDraftRef.current(draftId);
       else {
         // A draft is sealed JSON in AsyncStorage, which cannot take a 25 MB
         // file — so the big ones stay in this screen's memory and the draft
@@ -352,11 +387,24 @@ export function ComposeScreen({ route, navigation }: Props) {
    * stops the debounced autosave from writing the message back out after the
    * delete on its way to the exit.
    */
+  /**
+   * Put a canned reply into the message: where the caret was, or — if the
+   * message has not been touched — above the signature and any quoted text.
+   */
+  const insertCanned = (reply: CannedReply) => {
+    setShowMore(false);
+    const at =
+      bodyCaret.current ?? defaultInsertionPoint(body, signature, route.params?.quotedBody);
+    const next = insertSnippet(body, reply.body, at);
+    bodyCaret.current = next.caret;
+    setBody(next.body);
+  };
+
   const discard = () => {
     setShowMore(false);
     confirmDialog(
       'Discard this message?',
-      isDraftEmpty({ to, subject, body, attachments })
+      isDraftEmpty({ to, subject, body: isOnlySignature(body, signature) ? '' : body, attachments })
         ? 'There is nothing in it yet.'
         : 'It is deleted from this device. Nothing was sent.',
       [
@@ -849,6 +897,9 @@ export function ComposeScreen({ route, navigation }: Props) {
             big
             multiline
             onChangeText={setBody}
+            onSelectionChange={(e) => {
+              bodyCaret.current = e.nativeEvent.selection.end;
+            }}
             placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
             style={s.bodyInput}
             value={body}
@@ -1055,6 +1106,47 @@ export function ComposeScreen({ route, navigation }: Props) {
                   ? 'This message already has a time it goes: when its recipients have a key.'
                   : 'Scheduling needs a message that could be sent right now.'}
           </Text>
+        )}
+
+        <View style={s.sheetRule} />
+
+        {/* Canned replies are text for the body, so they are offered in both
+            modes — what happens to the body is the mode's business, not theirs. */}
+        <Text style={s.sheetHeading}>Insert canned reply</Text>
+        {cannedReplies.length > 0 ? (
+          <ScrollView style={s.cannedList} keyboardShouldPersistTaps="handled">
+            {cannedReplies.map((reply) => (
+              <PressableRow
+                accessibilityLabel={`Insert ${cannedReplyLabel(reply)}`}
+                accessibilityRole="button"
+                key={reply.id}
+                onPress={() => insertCanned(reply)}
+                style={s.moreRow}
+              >
+                <Icon name="reply" size={19} color={color.inkDim} />
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={s.cannedTitle}>
+                    {cannedReplyLabel(reply)}
+                  </Text>
+                  <Text numberOfLines={1} style={s.cannedPreview}>
+                    {reply.body.trim()}
+                  </Text>
+                </View>
+              </PressableRow>
+            ))}
+          </ScrollView>
+        ) : (
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setShowMore(false);
+              navigation.navigate('CannedReplies');
+            }}
+            style={s.moreRow}
+          >
+            <Icon name="plus" size={19} color={color.inkDim} />
+            <Text style={s.cannedTitle}>Save text you write often</Text>
+          </PressableRow>
         )}
 
         <View style={s.sheetRule} />
@@ -1453,6 +1545,9 @@ const s = StyleSheet.create({
     paddingVertical: 12,
   },
   moreDestructive: { ...type.settingsRow, color: color.coral },
+  cannedList: { maxHeight: 240 },
+  cannedTitle: { ...type.settingsRow, color: color.ink },
+  cannedPreview: { ...type.settingsValue, color: color.inkFaint, marginTop: 1 },
   accountRow: {
     alignItems: 'center',
     borderRadius: radius.sm,

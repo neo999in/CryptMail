@@ -121,6 +121,9 @@ function normalise(state: AccountsState): AccountsState {
  * able to hand a screen a sync window with no meaning behind it — the same
  * reasoning as `normalisePrefs`, and for the same reason it is done on read.
  */
+/** Generous for a sign-off, and a bound on what a hand-edited blob can inflate. */
+export const MAX_SIGNATURE_LENGTH = 2000;
+
 function settingsFrom(ref: Pick<AccountRef, 'settings'>): AccountSettings {
   const stored = (ref.settings ?? {}) as Partial<AccountSettings>;
   const avatar: AvatarMode = stored.avatar === 'initials' ? 'initials' : 'photo';
@@ -129,6 +132,7 @@ function settingsFrom(ref: Pick<AccountRef, 'settings'>): AccountSettings {
     avatar,
     blockRemoteImages: stored.blockRemoteImages === true,
     paused: stored.paused === true,
+    signature: typeof stored.signature === 'string' ? stored.signature.slice(0, MAX_SIGNATURE_LENGTH) : '',
     syncWindow:
       stored.syncWindow && SYNC_WINDOWS.includes(stored.syncWindow)
         ? stored.syncWindow
