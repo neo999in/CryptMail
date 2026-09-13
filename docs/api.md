@@ -125,6 +125,42 @@ Register an APNs/FCM token so the relay can notify the device of new mail withou
 it holding a live IMAP/IDLE connection. The push payload contains **no** message
 content — only "you have new mail", triggering a fetch.
 
+### Push payload contract
+
+Written down before the relay exists (features.md 0.10), and enforced on the
+device by `parseRelayPayload` in
+[`app/src/notifications/policy.ts`](../app/src/notifications/policy.ts), which
+refuses anything that is not exactly this:
+
+```json
+{ "v": 1, "t": "sync", "a": "<account token>" }
+```
+
+| Field | Meaning |
+|---|---|
+| `v` | Contract version. `1`, or `"1"` since FCM data values are strings. |
+| `t` | The only instruction: `"sync"`. The device fetches, and decides everything else itself. |
+| `a` | An opaque token the device generates at registration (22–64 chars of `[A-Za-z0-9_-]`) and maps to one of its accounts. Random — never a hash of the address, which is guessable — and different per device. |
+
+What that rules out, deliberately:
+
+- **No content and no metadata about the mail.** No subject, sender, snippet,
+  message id, thread id, count or timestamp. Each is something the relay would
+  learn, and something a forged push could make the app display. The relay
+  learns only that a registered device should sync.
+- **No extra fields.** The device rejects a payload with any key beyond the
+  three, rather than ignoring it — the day a relay adds `subject` "just for the
+  notification" has to fail on the device, not ship.
+- **Data-only messages.** FCM `data` with no `notification` block; APNs
+  `content-available: 1` with no `alert`. A message with a display block is
+  shown by the OS without the app running, which would put the relay's text —
+  and not the policy's — on the lock screen.
+- **The relay never builds notification text.** What is shown comes from mail
+  the device fetched and, if encrypted, decrypted itself, through `planFor` in
+  the same module: generic on the lock screen at every setting, and a sender or
+  subject only when the device is unlocked, the user opted in, and the message
+  was readable on this device.
+
 ## Secure-link fallback — **rejected, not merely unbuilt**
 
 > Hosting ciphertext and a web reader would make CryptMail a service. The

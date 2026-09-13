@@ -290,8 +290,8 @@ only the seeded signature counts as empty, so opening Compose and backing out
 leaves no draft. Switching From swaps an intact block for the new mailbox's
 and leaves a block the user edited alone. A canned reply goes in at the caret,
 or above the signature and quote if the body was never touched. All of it is
-body text, so it is encrypted with the message. Signature text is plain; there
-is no rich signature until 0.9 lands.
+body text, so it is encrypted with the message. Signature text is plain, even in
+a message written with formatting (0.9) — a rich signature is still open.
 
 ### 0.7 Reply / reply-all / forward · Impact L · Effort S — ✅ **Built**
 
@@ -308,8 +308,8 @@ forward, which starts a new conversation the way Gmail does. Reply-all goes
 through the same `resolveRecipients` fail-safe as any send, so a recipient
 without a key holds the message rather than downgrading it. 32 tests.
 
-**Still open.** Nothing blocking. The quoted body is plain text, so rich quoting
-arrives with 0.9.
+**Still open.** Nothing blocking. The quoted body is plain text; with formatting
+on (0.9) it becomes a blockquote of that text, not the original HTML.
 
 ### 0.8 Remote-content / tracking-pixel blocking · Impact M · Effort M
 
@@ -389,7 +389,26 @@ the message screen for plaintext *and* decrypted mail. `parseProtectedInner`
 walks nested multiparts and transfer-decodes them, so a tree sealed by another
 PGP client (Thunderbird, ProtonMail) reads as HTML rather than as nothing.
 Remote images load unless the mailbox blocks them (0.8); there is no
-per-message consent step. Rich-text *compose* is not built — `ui/RichTextComposer.tsx` exists but nothing mounts it.
+per-message consent step.
+
+Rich-text compose is built. The "B" in Compose's top bar turns formatting on,
+and the message is then written in `ui/RichTextComposer.tsx`: bold, italic,
+strikethrough, lists, blockquote, links (the rule button stays inert on the
+stock editor bundle, as that file explains). The HTML is the message and the
+text is derived from it on every edit by
+[`compose/richText.ts`](../app/src/compose/richText.ts) — lists keep their
+markers, quotes their `>`, links their address — and both leave as a
+`multipart/alternative` sealed in the inner tree
+([message-format.md](message-format.md)). Turning formatting on is free and a
+quote becomes a blockquote; turning it off asks only when formatting would be
+lost. The HTML rides with the draft, the outbox, a held message and an undone
+send, so none of those drops it; signature swaps and canned replies work in
+both modes. A message written without formatting is byte-for-byte what it was.
+Not offered on web, where the editor's webview does not exist.
+
+**Still open.** Rich signatures (the signature is still text, placed as
+paragraphs) and rich quoting on reply (quoted text arrives as a blockquote of
+the plain body, not the original HTML).
 
 ### 0.10 Privacy-preserving notification policy · Impact M · Effort S
 
@@ -406,6 +425,24 @@ sees content.
 
 **Done when.** Policy tests cover every setting, and the payload contract is
 written down before the relay exists.
+
+**Status: ✅ policy and contract built; nothing posts notifications yet.**
+[`notifications/policy.ts`](../app/src/notifications/policy.ts) is pure.
+`planFor(mail, preview, device)` decides a batch's notification under four
+settings — `off`, `private` (the default: "New message", nothing else, ever),
+`sender`, and `full` (sender and subject). At every setting the lock-screen
+version is generic and the notification is `private` visibility; detail is
+built only when the device is unlocked at posting time, and only from a message
+this device could read — an encrypted one that was not decrypted here shows
+nothing, not even its envelope `From`, which is unauthenticated. A batch names
+senders but never subjects. `parseRelayPayload` enforces the push contract now
+written in [api.md](api.md): `{ v, t: "sync", a: <random account token> }` and
+not one field more. Covered by `notifications/__tests__/policy-test.ts`.
+
+The settings UI is deliberately not built: a preference for notifications the
+app cannot post would be a control that does nothing. The labels it will use
+are in the module (`NOTIFICATION_PREVIEW_LABEL`) so they are settled with the
+rules.
 
 ### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L — **built**
 
