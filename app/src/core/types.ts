@@ -61,6 +61,11 @@ export type BuildRequest = {
   to: string[];
   subject: string;
   body: string;
+  /**
+   * The message as HTML, when it was written with formatting. `body` is then
+   * its text alternative; both go inside the ciphertext.
+   */
+  html?: string;
   /** Armored public keys for every recipient — and for the sender, so Sent is readable. */
   recipientKeys: string[];
   /** Sender's public key, emitted as an Autocrypt header. */
@@ -87,9 +92,9 @@ export type DecryptedMessage = {
    * Attacker-controlled markup that happens to have been encrypted — being
    * inside the ciphertext says who sent it, not that it is safe — so it is
    * carried raw and sanitised at the point of render (`html/sanitize.ts`),
-   * exactly like the HTML of an unencrypted message. CryptMail's own
-   * `buildProtectedInner` writes text only, so this is always a foreign
-   * client's markup.
+   * exactly like the HTML of an unencrypted message — including CryptMail's
+   * own, which a rich-text message carries: the reader cannot tell a message
+   * this app wrote from one crafted to look like it.
    */
   html?: string;
   signature: SignatureStatus;

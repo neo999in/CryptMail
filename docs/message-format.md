@@ -84,7 +84,18 @@ so the user sees "Lunch on Friday?" while Gmail only ever saw
 Implemented by `buildProtectedInner` / `parseProtectedInner` in
 `app/src/core/mime.ts`, and by `attachmentPart` for one file:
 
-- The `text/plain` body is always the **first** part; every attachment follows it.
+- The body is always the **first** part; every attachment follows it.
+- A message written with formatting (features.md 0.9) has a
+  `multipart/alternative` body part instead of a bare `text/plain` one:
+  `text/plain; charset=utf-8` first, then `text/html; charset=utf-8` with
+  `Content-Transfer-Encoding: base64` wrapped at 76 columns — the editor writes
+  a paragraph as one line, and a line past RFC 5322's 998 octets is one a
+  provider may rewrap. The text is derived from the HTML (`compose/richText.ts`)
+  and is not optional: it is what the search index stores and what a reader
+  without an HTML renderer shows. A message with no formatting is the single
+  `text/plain` part, unchanged. The same body shape is used by the deliberately
+  unencrypted message (`buildPlaintext`), where both alternatives are in the
+  clear like everything else in it.
 - `Content-Transfer-Encoding: base64`, wrapped at 76 columns (RFC 2045) — a
   provider that rewrapped a longer line would break the signature over the tree.
 - `Content-Disposition: attachment; filename="…"`, or `inline` with a
@@ -94,7 +105,7 @@ Implemented by `buildProtectedInner` / `parseProtectedInner` in
   way back in, and it applies to `text/html` the same way.
 
 **Reading is wider than writing.** The list above specifies the tree CryptMail
-*emits*, and it stays flat. `parseProtectedInner` reads trees sealed by any PGP
+*emits*: at most one level of nesting, for the alternative above. `parseProtectedInner` reads trees sealed by any PGP
 client, and those nest: Thunderbird and ProtonMail put a `multipart/alternative`
 holding `text/plain` and `text/html` inside the mixed part, and transfer-encode
 both. So the reader descends through nested multiparts and decodes each body

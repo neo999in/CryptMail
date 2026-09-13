@@ -14,6 +14,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  hasFormatting,
+  htmlToText,
+  isOnlySignatureHtml,
+  swapSignatureHtml,
+  textToHtml,
+} from '../compose/richText';
 import { cryptoMode } from '../config';
 import { Contact, searchContacts } from '../contacts/contacts';
 import { useContacts } from '../contacts/useContacts';
@@ -43,6 +50,7 @@ import { CannedReply, cannedReplyLabel } from '../store/cannedRepliesStore';
 import { color, font, radius, shadow, type } from '../theme';
 import { useAccent } from '../ui/appearance';
 import { useCannedReplies } from '../ui/cannedReplies';
+import { RichTextComposer, RichTextComposerHandle } from '../ui/RichTextComposer';
 import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
@@ -99,6 +107,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
  * nor sending it — schedule and discard. Scheduling is only ever the encrypted
  * send on a timer, so it is not offered in plaintext mode; discard is the only
  * way to be rid of a draft from here, since closing the screen keeps it.
+ *
+ * ## Formatting
+ *
+ * The message is plain text until the user turns formatting on (the "B" in the
+ * bar), and then it is written in `RichTextComposer`. From that moment `html`
+ * is the message and `body` is derived from it on every edit — the text
+ * alternative it leaves with, and what the draft, the signature code and the
+ * emptiness checks read. Turning formatting on costs nothing; turning it off
+ * asks first when there is formatting to lose. Neither changes what is
+ * encrypted: the HTML is sealed in the same inner tree as the text, and a
+ * plaintext message with formatting is exactly as public as one without.
+ *
+ * Not offered on web, where the editor's webview does not exist.
  */
 type SendMode = 'encrypted' | 'plain';
 
@@ -151,11 +172,33 @@ export function ComposeScreen({ route, navigation }: Props) {
    * that block for the new mailbox's — and leave one the user edited alone.
    */
   const bodySignature = useRef(signature);
+  /**
+   * The message as HTML while formatting is on; `undefined` means plain text.
+   *
+   * On web a draft's HTML is not resumed, since there is no editor to resume it
+   * in: the text alternative saved with it is what opens.
+   */
+  const [html, setHtml] = useState<string | undefined>(RICH_TEXT_AVAILABLE ? existing?.html : undefined);
+  const rich = html !== undefined;
+  const htmlRef = useRef(html);
+  htmlRef.current = html;
+  /** Bumped to remount the editor on an HTML change it did not make itself. */
+  const [editorKey, setEditorKey] = useState(0);
+  const editor = useRef<RichTextComposerHandle>(null);
   useEffect(() => {
     if (bodySignature.current === signature) return;
     const from = bodySignature.current;
     bodySignature.current = signature;
-    setBody((current) => swapSignature(current, from, signature));
+    const current = htmlRef.current;
+    if (current !== undefined) {
+      const next = swapSignatureHtml(current, from, signature);
+      if (next === current) return;
+      setHtml(next);
+      setBody(htmlToText(next));
+      setEditorKey((k) => k + 1);
+      return;
+    }
+    setBody((text) => swapSignature(text, from, signature));
   }, [signature]);
   /** Where the caret last was in the message, for inserting a canned reply there. */
   const bodyCaret = useRef<number | null>(null);
@@ -231,7 +274,11 @@ export function ComposeScreen({ route, navigation }: Props) {
       if (closingRef.current) return;
       // A body that is only the seeded signature is not something the user
       // wrote, so it does not keep a draft alive on its own.
-      const written = isOnlySignature(body, bodySignature.current) ? '' : body;
+      const onlySignature =
+        html !== undefined
+          ? isOnlySignatureHtml(html, bodySignature.current)
+          : isOnlySignature(body, bodySignature.current);
+      const written = onlySignature ? '' : body;
       if (isDraftEmpty({ to, subject, body: written, attachments })) void deleteDraftRef.current(draftId);
       else {
         // A draft is sealed JSON in AsyncStorage, which cannot take a 25 MB
@@ -243,6 +290,7 @@ export function ComposeScreen({ route, navigation }: Props) {
           to,
           subject,
           body,
+          html,
           attachments: stored,
           attachmentsOmitted: omitted.length > 0 ? omitted : undefined,
           inReplyTo,
@@ -252,7 +300,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [to, subject, body, attachments, draftId]);
+  }, [to, subject, body, html, attachments, draftId]);
 
   // Look up anyone we hold no key for. The result lands in the keyring, which
   // re-runs the memo below — so the "no key" state is what remains *after*
@@ -393,6 +441,10 @@ export function ComposeScreen({ route, navigation }: Props) {
    */
   const insertCanned = (reply: CannedReply) => {
     setShowMore(false);
+    if (rich) {
+      editor.current?.insertText(reply.body);
+      return;
+    }
     const at =
       bodyCaret.current ?? defaultInsertionPoint(body, signature, route.params?.quotedBody);
     const next = insertSnippet(body, reply.body, at);
@@ -404,7 +456,14 @@ export function ComposeScreen({ route, navigation }: Props) {
     setShowMore(false);
     confirmDialog(
       'Discard this message?',
-      isDraftEmpty({ to, subject, body: isOnlySignature(body, signature) ? '' : body, attachments })
+      isDraftEmpty({
+        to,
+        subject,
+        body: (html !== undefined ? isOnlySignatureHtml(html, signature) : isOnlySignature(body, signature))
+          ? ''
+          : body,
+        attachments,
+      })
         ? 'There is nothing in it yet.'
         : 'It is deleted from this device. Nothing was sent.',
       [
@@ -448,6 +507,38 @@ export function ComposeScreen({ route, navigation }: Props) {
         { label: 'Write unencrypted', tone: 'destructive', onPress: () => setMode('plain') },
       ],
     );
+  };
+
+  /**
+   * Formatting on or off. On is free — the text becomes paragraphs and a quote
+   * a blockquote, and nothing is lost. Off keeps the words (`body` is already
+   * the text of the HTML) and asks only when bold, a list or a link would go.
+   */
+  const toggleFormatting = () => {
+    bodyCaret.current = null;
+    if (html === undefined) {
+      setHtml(textToHtml(body));
+      setEditorKey((k) => k + 1);
+      return;
+    }
+    if (!hasFormatting(html)) {
+      setHtml(undefined);
+      return;
+    }
+    confirmDialog(
+      'Remove formatting?',
+      'The words stay. Bold, lists and quotes become plain text, and a link keeps its address next to its label.',
+      [
+        { label: 'Keep formatting' },
+        { label: 'Remove formatting', tone: 'destructive', onPress: () => setHtml(undefined) },
+      ],
+    );
+  };
+
+  /** Every edit in the editor: the HTML is the message, the text follows it. */
+  const onRichChange = (next: string) => {
+    setHtml(next);
+    setBody(htmlToText(next));
   };
 
   const add = (candidates: string[]) =>
@@ -571,6 +662,7 @@ export function ComposeScreen({ route, navigation }: Props) {
           to,
           subject: subject.trim() || '(no subject)',
           body,
+          html,
           attachments,
           inReplyTo,
           references,
@@ -592,6 +684,7 @@ export function ComposeScreen({ route, navigation }: Props) {
         to,
         subject: subject.trim() || '(no subject)',
         body,
+        html,
         attachments,
         inReplyTo,
         references,
@@ -602,7 +695,7 @@ export function ComposeScreen({ route, navigation }: Props) {
 
       // Capture what we need for the undo closure — the screen is about to
       // unmount, so no setState is possible after this.
-      const undoData = { id: draftId, to: [...to], subject, body, attachments, inReplyTo, references };
+      const undoData = { id: draftId, to: [...to], subject, body, html, attachments, inReplyTo, references };
       showToast({
         message: 'Sending message…',
         actionLabel: 'Undo',
@@ -615,6 +708,7 @@ export function ComposeScreen({ route, navigation }: Props) {
               to: undoData.to,
               subject: undoData.subject,
               body: undoData.body,
+              html: undoData.html,
               attachments: undoData.attachments,
               inReplyTo: undoData.inReplyTo,
               references: undoData.references,
@@ -638,7 +732,15 @@ export function ComposeScreen({ route, navigation }: Props) {
     setError(null);
     closingRef.current = true;
     try {
-      await sendPlain({ to, subject: subject.trim() || '(no subject)', body, attachments, inReplyTo, references });
+      await sendPlain({
+        to,
+        subject: subject.trim() || '(no subject)',
+        body,
+        html,
+        attachments,
+        inReplyTo,
+        references,
+      });
       await deleteDraft(draftId);
       navigation.goBack();
     } catch (e) {
@@ -659,6 +761,7 @@ export function ComposeScreen({ route, navigation }: Props) {
         to,
         subject: subject.trim() || '(no subject)',
         body,
+        html,
         attachments,
         inReplyTo,
         references,
@@ -721,6 +824,16 @@ export function ComposeScreen({ route, navigation }: Props) {
           </Pressable>
         </View>
 
+        {RICH_TEXT_AVAILABLE ? (
+          <IconButton
+            icon="bold"
+            label={rich ? 'Formatting on. Turn it off' : 'Format text'}
+            onPress={toggleFormatting}
+            size={38}
+            glyph={20}
+            tint={rich ? accent : color.inkDim}
+          />
+        ) : null}
         <IconButton
           icon="paperclip"
           label={attaching ? 'Reading file…' : 'Attach a file'}
@@ -892,19 +1005,34 @@ export function ComposeScreen({ route, navigation }: Props) {
           forwarded message.
         */}
         <View style={s.bodyWrap}>
-          <Input
-            autoFocus={startInBody}
-            big
-            multiline
-            onChangeText={setBody}
-            onSelectionChange={(e) => {
-              bodyCaret.current = e.nativeEvent.selection.end;
-            }}
-            placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
-            style={s.bodyInput}
-            value={body}
-            {...bodyFocus.bind}
-          />
+          {html !== undefined ? (
+            <RichTextComposer
+              key={editorKey}
+              ref={editor}
+              initialValue={html}
+              onChangeHTML={onRichChange}
+              placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
+              // Straight into the editor when formatting was just turned on:
+              // the user was writing, and the remount took the caret away.
+              autoFocus={startInBody || editorKey > 0}
+              keyboardAvoider={false}
+              minHeight={200}
+            />
+          ) : (
+            <Input
+              autoFocus={startInBody}
+              big
+              multiline
+              onChangeText={setBody}
+              onSelectionChange={(e) => {
+                bodyCaret.current = e.nativeEvent.selection.end;
+              }}
+              placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
+              style={s.bodyInput}
+              value={body}
+              {...bodyFocus.bind}
+            />
+          )}
         </View>
 
         {/* Takes up whatever the message does not, so the attachment row rests
@@ -1198,6 +1326,9 @@ export function ComposeScreen({ route, navigation }: Props) {
     }${cryptoMode === 'demo' ? ' (demo)' : ''}`;
   }
 }
+
+/** The editor is a webview, and react-native-webview has no web implementation. */
+const RICH_TEXT_AVAILABLE = Platform.OS !== 'web';
 
 const normalize = (value: string) => value.trim().replace(/^[<]|[>,;]+$/g, '').toLowerCase();
 

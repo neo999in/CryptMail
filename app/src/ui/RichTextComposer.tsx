@@ -3,7 +3,8 @@
  *
  * This is a standalone component: no `useApp()`, no provider calls. It reads
  * design tokens like every other component, so it is a drop-in anywhere a
- * compose surface needs rich text. Wiring it into a screen is a separate change.
+ * compose surface needs rich text. ComposeScreen mounts it when formatting is
+ * on; `compose/richText.ts` derives the text alternative from what it writes.
  *
  * The engine is @10play/tentap-editor, a Tiptap webview that runs its own
  * headless ProseMirror instance and bridges commands to native. Everything it
@@ -41,7 +42,7 @@
  * extension is what makes the button live; this component degrades honestly
  * rather than pretending.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -79,7 +80,18 @@ const DEFAULT_TOOLBAR: RichTextFormat[] = [
   'hr',
 ];
 
+/** What a caller can do to the document from outside it. */
+export type RichTextComposerHandle = {
+  /**
+   * Put text in at the caret, as the user would by pasting it — so a multi-line
+   * snippet becomes paragraphs rather than one line with newlines in it. Before
+   * the editor has been focused the caret is at the start of the document.
+   */
+  insertText(text: string): void;
+};
+
 export type RichTextComposerProps = {
+  ref?: React.Ref<RichTextComposerHandle>;
   /** Initial HTML content. Set on mount only; live updates remount the component. */
   initialValue?: string;
   /** Clean semantic HTML, fired whenever the content changes. */
@@ -114,6 +126,7 @@ const PM_VIEW = `(() => {
 })()`;
 
 export function RichTextComposer({
+  ref,
   initialValue,
   onChangeHTML,
   placeholder = 'Write your message…',
@@ -242,6 +255,28 @@ export function RichTextComposer({
       true;
     `);
   }, [editor]);
+
+  /* ---- insertion from outside: canned replies ---- */
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertText(text: string) {
+        // JSON.stringify is the escaping: the text lands in the script as a
+        // string literal and can never be read as code.
+        editor.injectJS(`
+          const view = ${PM_VIEW};
+          if (view) {
+            const text = ${JSON.stringify(text)};
+            if (!(view.pasteText && view.pasteText(text))) view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+            view.focus();
+          }
+          true;
+        `);
+      },
+    }),
+    [editor],
+  );
 
   /* ---- toolbar ---- */
 

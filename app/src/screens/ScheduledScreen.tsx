@@ -69,6 +69,7 @@ export function ScheduledBody({ navigation, query, clearSearch }: BodyProps) {
       to: item.to,
       subject: item.subject,
       body: item.body,
+      html: item.html,
       attachments: item.attachments,
       updatedAt: new Date().toISOString(),
     });

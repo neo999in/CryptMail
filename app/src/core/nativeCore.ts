@@ -174,6 +174,7 @@ export function getNativeCore(
         to: request.to,
         subject: request.subject,
         body: request.body,
+        html: request.html,
         attachments: request.attachments,
       });
       const armored = await bridge.encryptSign(

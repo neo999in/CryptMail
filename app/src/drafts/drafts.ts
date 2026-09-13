@@ -18,6 +18,14 @@ export type DraftFields = {
   subject: string;
   body: string;
   /**
+   * The message as HTML, when it is being written with formatting.
+   *
+   * Present means rich text: resuming the draft opens the editor on it. `body`
+   * is still stored alongside — it is derived from this, and it is what
+   * `isDraftEmpty` and the drafts list read.
+   */
+  html?: string;
+  /**
    * Files picked for this message, base64 in memory and in storage.
    *
    * Held here so leaving compose does not silently drop them — a draft that

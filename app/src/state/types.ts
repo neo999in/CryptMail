@@ -98,6 +98,8 @@ export type SendInput = {
   to: string[];
   subject: string;
   body: string;
+  /** The message as HTML when it was written with formatting; `body` is then its text alternative. */
+  html?: string;
   /** Threading headers, emitted in the clear on the outer envelope (message-format.md). */
   inReplyTo?: string;
   references?: string[];
@@ -116,6 +118,8 @@ export type PlainSendInput = {
   to: string[];
   subject: string;
   body: string;
+  /** The message as HTML when it was written with formatting; `body` is then its text alternative. */
+  html?: string;
   inReplyTo?: string;
   references?: string[];
   attachments?: Attachment[];

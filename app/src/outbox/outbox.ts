@@ -37,6 +37,8 @@ export type Scheduled = {
   to: string[];
   subject: string;
   body: string;
+  /** The message as HTML when it was written with formatting; `body` is then its text alternative. */
+  html?: string;
   sendAt: string;
   /** Threading, carried so a drained hold still lands in its conversation. */
   inReplyTo?: string;

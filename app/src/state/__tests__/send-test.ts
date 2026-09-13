@@ -404,3 +404,47 @@ describe('attachments', () => {
     expect(wire[0]).toContain(FILE.data);
   });
 });
+
+describe('rich text (feature 0.9)', () => {
+  const RICH = { ...MESSAGE, html: '<p>Attached, <strong>as promised</strong>.</p>' };
+
+  it('seals the html with the body: none of it reaches the wire', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendEncrypted(RICH);
+
+    expect(wire).toHaveLength(1);
+    expect(wire[0]).toContain('multipart/encrypted');
+    expect(wire[0]).not.toContain('as promised');
+    expect(wire[0]).not.toContain('text/html');
+    expect(wire[0]).not.toContain('multipart/alternative');
+  });
+
+  it('holds a message whole, html included, and delivers it that way', async () => {
+    const { services, store, wire } = harness();
+
+    await services.send.sendEncrypted(RICH);
+    expect(Object.values(store.get().scheduled)[0]).toMatchObject({ html: RICH.html });
+    // The invite says nothing about the message, formatting included.
+    expect(wire[0]).not.toContain('as promised');
+
+    store.patch({ keyring: { 'ada@example.com': contact() } });
+    await services.scheduler.drainHeld();
+
+    expect(wire).toHaveLength(2);
+    const { demoCore } = jest.requireActual('../../core/demoCore') as typeof import('../../core/demoCore');
+    const opened = await demoCore.parseEncrypted(wire[1]);
+    expect(opened.html).toBe(RICH.html);
+    expect(opened.body).toBe(RICH.body);
+  });
+
+  it('sends the html alternative in the clear only on the plaintext path', async () => {
+    const { services, wire } = harness();
+
+    await services.send.sendPlain(RICH);
+
+    expect(wire[0]).toContain('multipart/alternative');
+    expect(wire[0]).toContain('text/html');
+    expect(wire[0]).not.toContain('multipart/encrypted');
+  });
+});

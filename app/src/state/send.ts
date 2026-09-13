@@ -92,7 +92,7 @@ export function createSend(ctx: Ctx): SendService {
      *    fingerprint is a possible key substitution, and waiting cannot resolve
      *    it; only a person re-verifying the key can.
      */
-    async deliver({ id, to, subject, body, inReplyTo, references, attachments }: SendInput): Promise<SendOutcome> {
+    async deliver({ id, to, subject, body, html, inReplyTo, references, attachments }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
 
@@ -114,6 +114,7 @@ export function createSend(ctx: Ctx): SendService {
           to,
           subject,
           body,
+          html,
           sendAt: new Date().toISOString(),
           reason: 'awaiting-key',
           pending: missing,
@@ -135,6 +136,7 @@ export function createSend(ctx: Ctx): SendService {
         to,
         subject,
         body,
+        html,
         // Encrypt to the sender too, so the message is readable in Sent. A
         // self-addressed message already resolved to this same key, hence the
         // dedupe — encrypting to one key twice would emit two PKESK packets for
@@ -191,6 +193,7 @@ export function createSend(ctx: Ctx): SendService {
           to: input.to,
           subject: input.subject,
           body: input.body,
+          html: input.html,
           // Undefined until the user has generated a key — being signed in
           // without an identity is a real state, since setup is its own step —
           // and `buildPlaintext` simply omits the header when it is.

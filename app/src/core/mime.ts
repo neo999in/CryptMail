@@ -149,8 +149,9 @@ export function buildEncryptedEnvelope(args: {
 /**
  * One MIME part: its unfolded headers and its raw, still-encoded body.
  *
- * The envelope this module writes is `multipart/mixed` with one `text/plain`
- * part and one part per attachment, so `splitMultipart` is flat. Reading is not
+ * The envelope this module writes is `multipart/mixed` with one body part —
+ * `text/plain`, or a `multipart/alternative` of text and HTML when the message
+ * was written with formatting — and one part per attachment. Reading is not
  * symmetrical with writing: a decrypted tree can come from any PGP client, and
  * those nest a `multipart/alternative` inside the mixed part — hence
  * `flattenParts`. Inbound *unencrypted* mail stays `mail/plainBody.ts`'s
@@ -229,6 +230,41 @@ export function attachmentsFromParts(parts: MimePart[]): Attachment[] {
 }
 
 /**
+ * The body of a message, as the lines of one MIME part.
+ *
+ * Text alone is the single `text/plain` part it has always been — byte for byte,
+ * so a message written without formatting is unchanged by rich-text compose
+ * existing. With HTML it becomes `multipart/alternative`, text first (RFC 2046
+ * §5.1.4: least faithful first), because the text is not a courtesy: it is what
+ * a reader without an HTML renderer shows, and what the search index stores.
+ *
+ * The HTML part is base64, wrapped at 76 columns. The editor writes a paragraph
+ * as one line, and RFC 5322 caps a line at 998 octets — a provider that rewraps
+ * a long line inside a signed tree breaks the signature, and in a plaintext
+ * message it can break a tag in half.
+ */
+function bodyLines(body: string, html: string | undefined): string[] {
+  if (html === undefined) return ['Content-Type: text/plain; charset=utf-8', '', body];
+  const boundary = `alt-${Math.random().toString(36).slice(2, 10)}`;
+  return [
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    body,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    ...(encodeUtf8Base64(html).match(/.{1,76}/g) ?? []),
+    '',
+    `--${boundary}--`,
+  ];
+}
+
+/**
  * The inner, protected-headers MIME tree that gets encrypted.
  *
  * `multipart/mixed` with the body first and every attachment after it, so a
@@ -241,6 +277,11 @@ export function buildProtectedInner(args: {
   to: string[];
   subject: string;
   body: string;
+  /**
+   * The same message as HTML, when it was written with formatting. `body` is
+   * then its text alternative, and both are sealed.
+   */
+  html?: string;
   attachments?: Attachment[];
 }): string {
   const boundary = `inner-${Math.random().toString(36).slice(2, 10)}`;
@@ -251,9 +292,7 @@ export function buildProtectedInner(args: {
     `To: ${args.to.join(', ')}`,
     '',
     `--${boundary}`,
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    args.body,
+    ...bodyLines(args.body, args.html),
     '',
     ...(args.attachments ?? []).flatMap((a) => [`--${boundary}`, attachmentPart(a), '']),
     `--${boundary}--`,
@@ -371,6 +410,8 @@ export function buildPlaintext(args: {
   to: string[];
   subject: string;
   body: string;
+  /** HTML alternative, in the clear like the text — see `bodyLines`. */
+  html?: string;
   autocryptKey?: string;
   /** Threading, so an unencrypted reply still lands in its conversation. */
   inReplyTo?: string;
@@ -399,8 +440,9 @@ export function buildPlaintext(args: {
 
   const attachments = args.attachments ?? [];
   if (attachments.length === 0) {
-    headers.push('MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8');
-    return [...headers, '', args.body, ''].join('\n');
+    const [contentType, ...rest] = bodyLines(args.body, args.html);
+    headers.push('MIME-Version: 1.0', contentType);
+    return [...headers, ...rest, ''].join('\n');
   }
 
   const boundary = `plain-${Math.random().toString(36).slice(2, 10)}`;
@@ -409,9 +451,7 @@ export function buildPlaintext(args: {
     ...headers,
     '',
     `--${boundary}`,
-    'Content-Type: text/plain; charset=utf-8',
-    '',
-    args.body,
+    ...bodyLines(args.body, args.html),
     '',
     ...attachments.flatMap((a) => [`--${boundary}`, attachmentPart(a), '']),
     `--${boundary}--`,
