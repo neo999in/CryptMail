@@ -15,6 +15,7 @@ import { loadAccounts, NO_ACCOUNTS, saveAccounts } from '../store/accountsStore'
 import { loadDrafts } from '../store/draftsStore';
 import { InviteLog, loadInvites } from '../store/inviteStore';
 import { Keyring, loadKeyring } from '../store/keyring';
+import { loadMailCache } from '../store/mailCacheStore';
 import { loadOutbox } from '../store/outboxStore';
 import { loadPublishState, PublishState } from '../store/publishStore';
 import { loadRecoveryState, RecoveryState } from '../store/recoveryStore';
@@ -23,6 +24,8 @@ import { loadSpamState, SpamState } from '../store/spamModelStore';
 import { SnoozeMap } from '../snooze/snooze';
 import { loadSnoozes } from '../store/snoozeStore';
 import { Ctx, message, SessionService } from './contracts';
+import { emptyBox } from './store';
+import { InboxItem, SECONDARY_BOXES, State } from './types';
 
 type Attached = {
   identity: Identity | null;
@@ -37,6 +40,17 @@ type Attached = {
   spam: SpamState;
   /** Which of this mailbox's messages are hidden until a later time. */
   snoozed: SnoozeMap;
+  /**
+   * The mail this device listed last time, so the list has rows before the
+   * network answers.
+   *
+   * A cache, not a sync: the refresh that follows every attach replaces both of
+   * these outright (`mailbox.refreshInbox`, `mailbox.loadBox`), so nothing
+   * downstream has to tell a cached row from a fetched one — a moment later
+   * there are only fetched ones. Its whole job is the first frame.
+   */
+  messages: InboxItem[];
+  boxes: State['boxes'];
   /** Nothing found for a previous account belongs to this one. */
   verifyLink: null;
 };
@@ -88,19 +102,31 @@ export function createSession(ctx: Ctx): SessionService {
     // first sync, and each read is its own key under this account, so none of
     // them waits on another. Awaited in sequence it was ten storage round trips
     // — plus a decrypt each — before the inbox was even asked for.
-    const [identity, keyring, recovery, publish, invites, searchIndex, drafts, scheduled, spam, snoozed] =
-      await Promise.all([
-        core.loadIdentity(session.email),
-        loadKeyring(account),
-        loadRecoveryState(account),
-        loadPublishState(account),
-        loadInvites(account),
-        loadSearchIndex(account),
-        loadDrafts(account),
-        loadOutbox(account),
-        loadSpamState(account),
-        loadSnoozes(account),
-      ]);
+    const [
+      identity,
+      keyring,
+      recovery,
+      publish,
+      invites,
+      searchIndex,
+      drafts,
+      scheduled,
+      spam,
+      snoozed,
+      cached,
+    ] = await Promise.all([
+      core.loadIdentity(session.email),
+      loadKeyring(account),
+      loadRecoveryState(account),
+      loadPublishState(account),
+      loadInvites(account),
+      loadSearchIndex(account),
+      loadDrafts(account),
+      loadOutbox(account),
+      loadSpamState(account),
+      loadSnoozes(account),
+      loadMailCache<InboxItem>(account),
+    ]);
 
     return {
       identity,
@@ -113,6 +139,15 @@ export function createSession(ctx: Ctx): SessionService {
       scheduled,
       spam,
       snoozed,
+      messages: cached.messages,
+      // Rebuilt whole rather than patched, because this is an account *arriving*:
+      // the box state of the mailbox being left — its cursors' `canLoadMore`, a
+      // half-finished load, an error about its provider — describes a different
+      // mailbox and must not be inherited. `canLoadMore` stays false until a real
+      // fetch sets it, since the cursors these rows were paged with are gone.
+      boxes: Object.fromEntries(
+        SECONDARY_BOXES.map((box) => [box, { ...emptyBox(), items: cached.boxes[box] ?? [] }]),
+      ) as State['boxes'],
       verifyLink: null,
     };
   }
@@ -341,6 +376,7 @@ export function createSession(ctx: Ctx): SessionService {
         messages: [],
         verifyLink: null,
         loadingInbox: false,
+        refreshingInbox: false,
         loadingMore: false,
         canLoadMore: false,
         error: message(e),

@@ -210,6 +210,17 @@ The pieces:
 - `ui/mailFilter.ts` — the "needs attention" filter and its predicate, shared
   because the control and the bodies that apply it are now different components.
 
+**A spinner answers a gesture.** The pull-to-refresh control reads
+`refreshingInbox` — or a box's `refreshing` — which only a pull or the Refresh
+action sets. The app syncs for plenty of reasons the user did not ask for (a
+list mounting, a launch, an account arriving, the sync after a send), and those
+set `loadingInbox` alone and run silently behind whatever is on screen. Since
+the inbox now paints from its cache on the first frame, driving the spinner from
+`loadingInbox` meant a loader over mail that was already readable, on every
+launch — the same "reads as lag" failure as §7's staggered body. `loadingInbox`
+still decides `MailSkeletonList` and the empty state, because those are about
+having nothing to show and are right whoever asked.
+
 The bar's controls strip is **always drawn, at one height** (`CONTROL_HEIGHT`
 plus its padding). Drafts and Scheduled have no Primary/Encrypted lens to offer —
 that is a property of received mail, and a draft has not been encrypted yet — so

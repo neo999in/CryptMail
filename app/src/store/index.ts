@@ -15,6 +15,7 @@ import { resealPlaintext } from './secureJson';
 import { DRAFTS_STORE_KEY } from './draftsStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
+import { MAIL_CACHE_STORE_KEY } from './mailCacheStore';
 import { MAIL_PREFS_STORE_KEY } from './mailPrefsStore';
 import { OUTBOX_STORE_KEY } from './outboxStore';
 import { PREFS_STORE_KEY } from './prefsStore';
@@ -41,6 +42,7 @@ export const PER_ACCOUNT_STORE_KEYS = [
   INVITE_STORE_KEY,
   SPAM_STORE_KEY,
   SNOOZE_STORE_KEY,
+  MAIL_CACHE_STORE_KEY,
 ];
 
 /**

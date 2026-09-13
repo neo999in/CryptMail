@@ -25,6 +25,7 @@ import {
   upsertAccount,
 } from '../store/accountsStore';
 import { PER_ACCOUNT_STORE_KEYS } from '../store';
+import { MAIL_CACHE_STORE_KEY } from '../store/mailCacheStore';
 import { SEARCH_STORE_KEY } from '../store/searchIndex';
 import { SNOOZE_STORE_KEY } from '../store/snoozeStore';
 import { emptySpamState, SPAM_STORE_KEY } from '../store/spamModelStore';
@@ -173,6 +174,7 @@ export function createAccounts(ctx: Ctx): AccountsService {
         switchingAccount: true,
         error: null,
         loadingInbox: false,
+        refreshingInbox: false,
         loadingMore: false,
         canLoadMore: false,
       });
@@ -255,8 +257,14 @@ export function createAccounts(ctx: Ctx): AccountsService {
      * switch.
      */
     async resetAccount(id, scope = 'all') {
+      // The listed mail goes with the decrypted content in both scopes: the
+      // cache holds subjects, snippets and addresses, so a reset that left it
+      // behind would keep showing this mailbox's mail after the user asked for
+      // this device's copy of it to be dropped.
       const bases =
-        scope === 'content' ? [SEARCH_STORE_KEY] : [SEARCH_STORE_KEY, SPAM_STORE_KEY, SNOOZE_STORE_KEY];
+        scope === 'content'
+          ? [SEARCH_STORE_KEY, MAIL_CACHE_STORE_KEY]
+          : [SEARCH_STORE_KEY, SPAM_STORE_KEY, SNOOZE_STORE_KEY, MAIL_CACHE_STORE_KEY];
       await removeScoped(bases, id);
 
       if (id === store.get().activeAccount) {

@@ -47,6 +47,21 @@ type MailListRowProps = {
   /** Number of messages in this conversation; > 1 shows a thread-count chip. */
   count?: number;
   index: number;
+  /**
+   * Whether this row should fade and rise in, or simply be there.
+   *
+   * `'stagger'` is for a list arriving **from nothing** — a launch, a mailbox
+   * opened for the first time — where the cascade gives the arrival a shape.
+   * `'none'` is for a list whose content is being *replaced*: switching from
+   * Sent to Archive, or a refresh landing. Those rows were already known, and
+   * replaying the cascade over them costs the full 660 ms of stagger before the
+   * mail is readable, which is the lag §7 of Design.md describes — a list that
+   * animates into place is a list you cannot read yet.
+   *
+   * Defaulted to `'stagger'` so a caller that has not thought about it keeps the
+   * old behaviour rather than silently losing the animation.
+   */
+  entry?: 'stagger' | 'none';
   /** Vertical padding for the current density. */
   padding: number;
   /** The active account, so a message you sent leads with who it went to. */
@@ -76,6 +91,7 @@ function MailListRowImpl({
   mailbox,
   count = 1,
   index,
+  entry = 'stagger',
   padding,
   selfAddress,
   onPress,
@@ -113,10 +129,15 @@ function MailListRowImpl({
 
   const row = (
     <MotiView
-      from={{ opacity: 0, translateY: 8 }}
+      from={entry === 'stagger' ? { opacity: 0, translateY: 8 } : { opacity: 1, translateY: 0 }}
       animate={{ opacity: 1, translateY: 0 }}
-      // Capped so a long list settles quickly instead of dribbling in.
-      transition={{ type: 'timing', duration: 300, delay: Math.min(index, 8) * 45 }}
+      // Capped so a long list settles quickly instead of dribbling in. A row
+      // told not to stagger starts where it ends, so there is nothing to time.
+      transition={
+        entry === 'stagger'
+          ? { type: 'timing', duration: 300, delay: Math.min(index, 8) * 45 }
+          : { type: 'timing', duration: 0 }
+      }
     >
       <View collapsable={false} ref={rowRef} style={s.row}>
         <Pressable
@@ -253,6 +274,33 @@ export function MailSkeletonList({ rows = 5 }: { rows?: number }) {
 /* -------------------------------------------------------------- buckets ---- */
 
 /** Group rows into the date sections a `SectionList` renders, newest first. */
+/**
+ * How much of a mail list is built up front — spread to every `SectionList`
+ * that draws mail rows.
+ *
+ * A list's cost is its *rows*, not its data: the day grouping over a page of
+ * twenty measures at about four milliseconds, while mounting the twenty rows
+ * that grouping produces measures at over four hundred. Each row is a card, a
+ * pressable, a measured origin ref and a swipe gesture, and React Native's
+ * defaults (`initialNumToRender: 10`, `windowSize: 21`) build far more of them
+ * than a phone screen can show — for a page of twenty, all of them.
+ *
+ * So the window is cut to roughly what is visible plus a screen of slack. The
+ * rest arrive in small batches as the list is scrolled, which is what
+ * virtualisation is for and what the defaults were quietly skipping.
+ *
+ * `removeClippedSubviews` is deliberately **not** here. It is the obvious next
+ * lever and it is known to blank rows on Android when they carry their own
+ * animations — which these do, every row being a `MotiView` — and a list that
+ * is fast because it is empty is not a fix.
+ */
+export const MAIL_LIST_WINDOW = {
+  initialNumToRender: 7,
+  maxToRenderPerBatch: 6,
+  windowSize: 5,
+  updateCellsBatchingPeriod: 50,
+} as const;
+
 export function groupByDay<T>(rows: T[], dateOf: (row: T) => string): { title: string; data: T[] }[] {
   const buckets = new Map<string, T[]>();
   for (const row of rows) {

@@ -210,6 +210,21 @@ export type State = {
   /** Messages snoozed until a future time — hidden from the inbox until then. */
   snoozed: SnoozeMap;
   loadingInbox: boolean;
+  /**
+   * A sync the **user asked for** is in flight — a pull-to-refresh, or the
+   * Refresh action.
+   *
+   * Separate from `loadingInbox`, which is true for every sync including the
+   * ones nobody asked for: a mount, a boot, an account switch, the refresh that
+   * follows a send. Those used to drive the spinner too, so the list flashed a
+   * loader over mail that was already on screen — and once a cached list paints
+   * on the first frame, that is every launch.
+   *
+   * The rule is that a spinner answers a gesture. `loadingInbox` still decides
+   * the skeleton and the empty state, which are about *having nothing to show*
+   * and are right to appear whoever asked.
+   */
+  refreshingInbox: boolean;
   /** A page of *older* mail is in flight. Separate from a sync, which replaces the list. */
   loadingMore: boolean;
   /** At least one listed mailbox has mail older than the last page it handed over. */
@@ -250,10 +265,46 @@ export type SecondaryBox = Extract<Mailbox, 'sent' | 'archive' | 'trash'>;
  */
 export const SECONDARY_BOXES: SecondaryBox[] = ['sent', 'archive', 'trash'];
 
+/**
+ * Who asked for a sync.
+ *
+ * `manual: true` means a gesture — a pull-to-refresh, or the Refresh action —
+ * and is what puts a spinner on screen. Every other caller omits it, so a sync
+ * the app decided to run on its own is silent.
+ */
+export type RefreshOptions = {
+  manual?: boolean;
+  /**
+   * Fetch only if this list has not been fetched recently — "make sure it is
+   * loaded", rather than "load it again".
+   *
+   * What the mount effects pass, and the reason switching destination is no
+   * longer a provider round trip: arriving at Archive from Sent used to re-list
+   * a mailbox that was already in state and already drawn, so every switch paid
+   * for a fetch whose answer was on screen before it was asked.
+   *
+   * Nothing else passes it. A pull, the Refresh action, a boot, an account
+   * arriving, and the sync after a send all still fetch unconditionally, so
+   * "show me what is there now" is never silently answered from memory.
+   */
+  ifStale?: boolean;
+};
+
+/**
+ * How long a list stays fresh for `ifStale`.
+ *
+ * Long enough that moving between destinations is free, short enough that a
+ * list you come back to after reading something is re-checked. Anything the
+ * user does to *ask* for mail ignores it entirely.
+ */
+export const FRESH_FOR_MS = 30_000;
+
 /** One such list, with the same loading vocabulary the inbox uses. */
 export type BoxState = {
   items: InboxItem[];
   loading: boolean;
+  /** The user asked for this one — see `State.refreshingInbox`. */
+  refreshing: boolean;
   loadingMore: boolean;
   canLoadMore: boolean;
   error: string | null;
@@ -292,11 +343,15 @@ export type Actions = {
   exportMailbox(id: AccountId): Promise<number>;
   /** Show every account's mail in one list, or just the active one's. */
   setUnified(on: boolean): Promise<void>;
-  refreshInbox(): Promise<void>;
+  /**
+   * Sync the inbox. `manual` marks a sync the user asked for, which is the only
+   * kind that shows a spinner — see `State.refreshingInbox`.
+   */
+  refreshInbox(options?: RefreshOptions): Promise<void>;
   /** Append the next page of older mail. No-op once every mailbox is exhausted. */
   loadMoreInbox(): Promise<void>;
   /** Load Sent or Archive from its newest page. */
-  loadBox(box: SecondaryBox): Promise<void>;
+  loadBox(box: SecondaryBox, options?: RefreshOptions): Promise<void>;
   /** Append the next page of older mail to Sent or Archive. */
   loadMoreBox(box: SecondaryBox): Promise<void>;
   openMessage(summary: MailSummary): Promise<OpenedMessage>;

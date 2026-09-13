@@ -13,11 +13,20 @@ import { extractLinks, learn, unlearn } from '../spam/spam';
 import type { SpamMark } from '../spam/spam';
 import { AccountId, settingsOf } from '../store/accountScope';
 import { findKey } from '../store/keyring';
+import { cacheable, cacheableBox, saveMailCache } from '../store/mailCacheStore';
 import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
 import { Ctx, MailboxService, message } from './contracts';
 import { trustForOpened } from './derive';
-import { BoxState, InboxItem, OpenedMessage, SECONDARY_BOXES, SecondaryBox, State } from './types';
+import {
+  BoxState,
+  FRESH_FOR_MS,
+  InboxItem,
+  OpenedMessage,
+  SECONDARY_BOXES,
+  SecondaryBox,
+  State,
+} from './types';
 
 /**
  * Messages fetched per mailbox, per page.
@@ -80,6 +89,35 @@ export function createMailbox(ctx: Ctx): MailboxService {
    * renders — screens read `canLoadMore`, which is derived from it below.
    */
   const cursors = new Map<string, string | null>();
+
+  /**
+   * When each list was last fetched, by mailbox *and* account.
+   *
+   * Only `ifStale` reads it — the mount effects — so this can never make a
+   * refresh the user asked for do nothing. Kept beside the cursors rather than
+   * in the store for the same reason they are: it is provider bookkeeping, and
+   * no screen renders it.
+   *
+   * Keyed by account as well as box because the two mailboxes are separate
+   * fetches: switching account must not let the arriving one inherit the
+   * departing one's freshness and skip its first load.
+   */
+  const fetchedAt = new Map<string, number>();
+
+  const freshnessKey = (box: Mailbox | 'inbox+spam', account: AccountId) => `${box}@${account}`;
+
+  /** True while this list was fetched recently enough to leave alone. */
+  function fresh(box: Mailbox | 'inbox+spam'): boolean {
+    const account = store.get().activeAccount;
+    if (!account) return false;
+    const at = fetchedAt.get(freshnessKey(box, account));
+    return at !== undefined && Date.now() - at < FRESH_FOR_MS;
+  }
+
+  const markFetched = (box: Mailbox | 'inbox+spam') => {
+    const account = store.get().activeAccount;
+    if (account) fetchedAt.set(freshnessKey(box, account), Date.now());
+  };
 
   /** One cursor per mailbox *per account* — Sent pages independently of Inbox. */
   const cursorKey = (box: Mailbox, account: AccountId) => `${box}@${account}`;
@@ -251,16 +289,60 @@ export function createMailbox(ctx: Ctx): MailboxService {
     return found.length > 0 ? found : undefined;
   }
 
+  /**
+   * Keep what is on screen, so the next launch has something to draw.
+   *
+   * Written after a fetch rather than after every change: this exists to fill the
+   * gap between a mailbox attaching and its first sync landing, and a star
+   * toggled optimistically is re-fetched inside that same gap anyway.
+   *
+   * Every list is rebuilt from current state rather than patched, because the
+   * cache is one record per account and a write that carried only the list that
+   * just changed would drop the others.
+   *
+   * Fire-and-forget, and deliberately silent: nothing the user asked for failed
+   * if the cache could not be written, and a mailbox that loaded correctly must
+   * not show an error because a device ran out of storage. The cost is a slower
+   * next launch.
+   */
+  function persistCache(): void {
+    const state = store.get();
+    const account = state.activeAccount;
+    if (!account) return;
+    void saveMailCache<InboxItem>(account, {
+      messages: cacheable(state.messages, account),
+      boxes: Object.fromEntries(
+        SECONDARY_BOXES.map((box) => [box, cacheableBox(state.boxes[box].items, account)]),
+      ),
+    }).catch(() => {});
+  }
+
   const service: MailboxService = {
-    async refreshInbox() {
+    /**
+     * `manual` is the user's own pull or tap, and the only thing that puts a
+     * spinner up (`State.refreshingInbox`). Every other caller — a mount, a
+     * boot, an account switch, the sync after a send — leaves it unset and
+     * syncs silently behind whatever is already on screen.
+     */
+    async refreshInbox({ manual = false, ifStale = false } = {}) {
       if (!mail.current) return;
-      store.patch({ loadingInbox: true, error: null });
+      // The mount effect's "make sure it is loaded", answered from what is
+      // already there. Everything else falls through and fetches.
+      if (ifStale && fresh('inbox+spam')) return;
+      store.patch({ loadingInbox: true, refreshingInbox: manual, error: null });
       try {
         // Sorted here rather than trusted from the connector: this is two
         // mailboxes' pages concatenated — and, while merged, several accounts' —
         // so newest-first is this function's job, not the provider's.
         const messages = (await collectInbox('refresh')).sort(byDateDesc);
-        store.patch({ messages, loadingInbox: false, canLoadMore: moreInboxAvailable() });
+        store.patch({
+          messages,
+          loadingInbox: false,
+          refreshingInbox: false,
+          canLoadMore: moreInboxAvailable(),
+        });
+        markFetched('inbox+spam');
+        persistCache();
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
@@ -268,6 +350,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
         await ctx.services.scheduler.drainHeld();
         await ctx.services.publish.refreshPublish();
       } catch (e) {
+        // Cleared before the auth check, not after: `handleAuthLoss` returns
+        // early on a mailbox it has flagged, and a spinner left spinning is the
+        // one thing worse than no spinner at all.
+        store.patch({ refreshingInbox: false });
         if (ctx.services.session.handleAuthLoss(e)) return;
         store.patch({ loadingInbox: false, error: message(e) });
       }
@@ -313,20 +399,24 @@ export function createMailbox(ctx: Ctx): MailboxService {
      * `moreAvailable`. No Autocrypt harvest either: our own sent mail carries our
      * own key, and archived mail was harvested when it arrived.
      */
-    async loadBox(box) {
+    async loadBox(box, { manual = false, ifStale = false } = {}) {
       if (!mail.current) return;
-      store.patch({ boxes: patchBox(box, { loading: true, error: null }) });
+      if (ifStale && fresh(box)) return;
+      store.patch({ boxes: patchBox(box, { loading: true, refreshing: manual, error: null }) });
       try {
         const items = await collect(box, 'refresh');
         store.patch({
           boxes: patchBox(box, {
             items: items.sort(byDateDesc),
             loading: false,
+            refreshing: false,
             canLoadMore: moreAvailable(box),
           }),
         });
+        markFetched(box);
+        persistCache();
       } catch (e) {
-        store.patch({ boxes: patchBox(box, { loading: false }) });
+        store.patch({ boxes: patchBox(box, { loading: false, refreshing: false }) });
         if (ctx.services.session.handleAuthLoss(e)) return;
         store.patch({ boxes: patchBox(box, { error: message(e) }) });
       }

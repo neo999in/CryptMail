@@ -20,6 +20,26 @@ Scopes are `openid`, `email`, `gmail.modify` ([`config.ts`](../app/src/config.ts
 | 3 | **`history.list`** | The correct sync primitive: given a `historyId`, it returns only what changed — added, deleted, labels changed. Replaces re-listing the newest page on every refresh, and fixes a real defect — `refreshInbox` rebuilds `messages` from the newest page down, so **it discards rows the user paged in**. Needs the full-list path kept as a fallback: history is retained for a limited window (roughly a week, and Google may expire it sooner), and an expired `historyId` returns 404. | Moderate. A new `MailClient` method and a cursor in the store beside the paging cursors. |
 | 4 | **`settings.sendAs.list`** | The account's aliases and their `signature` / `replyToAddress` / default flag. An identity and its key are bound to an address: if a user sends as an alias, the `From` we sign and the key we encrypt under must agree, and today we assume the single Play-services address. This is a correctness gap in the send path, not a feature. | Small call; the design work is in `identity`/`send`, not the connector. Needs `gmail.settings.basic` — a **new scope**, so it forces re-consent. |
 
+### 1.4 The list cache — done, and not an API change
+
+Everything above makes a sync *cheaper*. None of it makes the first frame
+faster, because until the cache existed there was nothing to draw on it: the
+message list lived only in memory, so a cold start, an account switch or a
+process kill met an empty list and a spinner until a full sync returned.
+
+[`mailCacheStore.ts`](../app/src/store/mailCacheStore.ts) keeps the rows of the
+last listing per account; `session.load` hydrates them with the rest of the
+account's stores, so the list paints from disk while the network is still being
+asked. It is deliberately **not** part of the sync: the first successful refresh
+replaces it wholesale, so it reconciles nothing and can never disagree with the
+provider. That is also why it is capped near one page's depth — a cache deeper
+than a page would paint a long list and then visibly shorten it when the refresh
+landed.
+
+It therefore does *not* fix the defect in #3: a refresh still rebuilds the list
+from the newest page down and still discards rows the user paged in. Fixing that
+needs `history.list`, not a bigger cache.
+
 ### 1.5 `CATEGORY_*` labels — done
 
 Adopted for **plaintext mail only**, in

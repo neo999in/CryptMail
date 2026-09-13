@@ -34,7 +34,7 @@ import { DrawerContentComponentProps, DrawerContentScrollView } from '@react-nav
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { InteractionManager, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CATEGORIES, CATEGORY_LABELS, unreadCountsByCategory } from '../categorizer/categorizer';
@@ -106,9 +106,28 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
   /** The mailbox in front, for the panel's title — the user's name for it wins. */
   const activeRef = accounts.find((a) => a.id === activeAccount);
 
+  /**
+   * Close first, swap the body after.
+   *
+   * Both used to happen in one commit, and the body swap is a whole screen's
+   * render — measured on a device at about 430 ms for a list of twenty, which is
+   * JS-thread time the drawer's closing animation cannot have. The result was
+   * the drawer sitting open and frozen with the tapped row already lit, which is
+   * exactly what it looked like: a tap that did nothing for a second.
+   *
+   * `runAfterInteractions` gives the close its frames and then does the work, so
+   * the drawer leaves immediately and the list arrives behind it. The row does
+   * not light up on the way out, and that is the honest reading: the destination
+   * has not changed yet.
+   *
+   * It is the animation this waits on, not a timer — a device that closes the
+   * drawer faster gets the list sooner. Reanimated's own animations (the aurora
+   * band, the row entry) run on the UI thread and register no interaction
+   * handles, so nothing here can be held open by a loop that never ends.
+   */
   const choose = (next: Destination) => {
-    setDestination(next);
     navigation.closeDrawer();
+    InteractionManager.runAfterInteractions(() => setDestination(next));
   };
 
   /**

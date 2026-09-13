@@ -32,7 +32,7 @@
  * would misrepresent which mailbox a message left from.
  */
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,11 +47,20 @@ import { useChrome } from '../ui/chrome';
 import { OriginRect } from '../ui/expand';
 import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
-import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
+import {
+  groupByDay,
+  MAIL_LIST_WINDOW,
+  MailListRow,
+  MailSkeletonList,
+  SectionHeading,
+} from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useSwipeRunner } from '../ui/swipeRun';
 import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
+
+/** One row of this list: the message, and the trust state drawn on it. */
+type BoxRow = { item: InboxItem; encryption: EncryptionState };
 
 const COPY: Record<SecondaryBox, { title: string; empty: string; hint: string; icon: IconName }> = {
   sent: {
@@ -83,9 +92,10 @@ export function MailboxBody({
   headerHeight,
   barHeight,
   clearFilters,
+  entry,
 }: BodyProps & { box: SecondaryBox }) {
   const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session } = useApp();
-  const { items, loading, loadingMore, canLoadMore, error } = boxes[box];
+  const { items, loading, refreshing, loadingMore, canLoadMore, error } = boxes[box];
   const { rowPadding } = useAppearance();
   const accent = useAccent();
   const insets = useSafeAreaInsets();
@@ -98,9 +108,33 @@ export function MailboxBody({
   });
   const copy = COPY[box];
 
+  /**
+   * Make sure this box is loaded — without re-fetching one that already is.
+   *
+   * `ifStale` is what makes leaving Archive and coming back free. Before it,
+   * every arrival here was a provider round trip for a list that was already in
+   * state and already on screen, which is most of what "switching is slow" was.
+   * A deliberate Refresh, and every other caller, still fetches unconditionally.
+   */
   useEffect(() => {
-    void loadBox(box);
+    void loadBox(box, { ifStale: true });
   }, [box, loadBox]);
+
+  /**
+   * Back to the top when the box changes.
+   *
+   * This is what the removed `key={box}` was for. Doing it here keeps the body
+   * mounted, so the arriving list is drawn from state on the same frame instead
+   * of being rebuilt — see the note at the call site in `HomeScreen`.
+   *
+   * `scrollTo` on the underlying scroll view rather than `scrollToLocation`,
+   * which throws on an empty section list — a box with nothing in it yet is
+   * exactly the case this runs in.
+   */
+  const listRef = useRef<SectionList<BoxRow, { title: string; data: BoxRow[] }>>(null);
+  useEffect(() => {
+    listRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: false });
+  }, [box]);
 
   /**
    * One pass: decorate with encryption state, filter, then group by day.
@@ -123,8 +157,12 @@ export function MailboxBody({
         // Encrypted mail is matched on its decrypted content once opened.
         return messageMatchesQuery(item, encrypted, searchIndex, query);
       });
-    return groupByDay(rows, (row) => row.item.date);
+    const out = groupByDay(rows, (row) => row.item.date);
+    return out;
   }, [encryptionFor, filter, items, query, searchIndex, tab]);
+
+  useEffect(() => {
+  });
 
   const filtering = query.trim().length > 0 || tab !== 'primary' || filter !== 'all';
 
@@ -177,12 +215,13 @@ export function MailboxBody({
   );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: { item: InboxItem; encryption: EncryptionState }; index: number }) => (
+    ({ item, index }: { item: BoxRow; index: number }) => (
       <MailListRow
         id={item.item.id}
         summary={item.item}
         encryption={item.encryption}
         index={index}
+        entry={entry}
         padding={rowPadding}
         selfAddress={session?.email}
         onPress={openMail}
@@ -195,7 +234,7 @@ export function MailboxBody({
         onSwipe={swipeRow}
       />
     ),
-    [box, openMail, rowPadding, swipeRow, session?.email],
+    [box, entry, openMail, rowPadding, swipeRow, session?.email],
   );
 
   return (
@@ -211,6 +250,8 @@ export function MailboxBody({
         <MailSkeletonList />
       ) : (
         <SectionList
+          ref={listRef}
+          {...MAIL_LIST_WINDOW}
           sections={sections}
           keyExtractor={(row) => row.item.id}
           renderItem={renderItem}
@@ -219,7 +260,15 @@ export function MailboxBody({
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void loadBox(box)} tintColor={accent} />}
+          refreshControl={
+            // `refreshing`, not `loading` — see the inbox: only a pull puts a
+            // spinner up, and the load this screen runs on mount is silent.
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void loadBox(box, { manual: true })}
+              tintColor={accent}
+            />
+          }
           // Search and the tab run over rows already on the device, so paging
           // while one is up would fetch mail the list is about to hide. The
           // footer button stays, which is how older mail is reached from there.

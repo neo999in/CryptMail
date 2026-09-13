@@ -20,9 +20,10 @@ import { emptySpamState } from '../store/spamModelStore';
 import { BoxState, State } from './types';
 
 /** A mailbox screen that has not been opened yet. */
-const emptyBox = (): BoxState => ({
+export const emptyBox = (): BoxState => ({
   items: [],
   loading: false,
+  refreshing: false,
   loadingMore: false,
   canLoadMore: false,
   error: null,
@@ -61,6 +62,7 @@ export function initialState(): State {
     snoozed: {},
     messages: [],
     loadingInbox: false,
+    refreshingInbox: false,
     loadingMore: false,
     canLoadMore: false,
     boxes: {

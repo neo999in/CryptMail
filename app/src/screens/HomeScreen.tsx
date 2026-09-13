@@ -25,7 +25,7 @@
  * anything should do.
  */
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -68,6 +68,16 @@ export type BodyProps = HomeProps & {
   clearFilters: () => void;
   /** Clears the search text alone — for a body with nothing else narrowing it. */
   clearSearch: () => void;
+  /**
+   * Whether a mail row should cascade in or simply be there.
+   *
+   * Decided here rather than in a body, because only this screen survives a
+   * destination change: a body cannot tell its first mount from its fifth, so
+   * every switch replayed the entry animation over mail that was already known
+   * and the list took ~660 ms to become readable. This screen has seen every
+   * list, so it can say that the cascade has already been spent.
+   */
+  entry: 'stagger' | 'none';
   /** Contacts' own three-way filter, since its strip carries no mail lens. */
   contactFilter: ContactFilter;
   /** Puts that filter back to All, from its "nobody in this state" empty. */
@@ -121,6 +131,7 @@ export function HomeScreen(props: HomeProps) {
     accounts,
     activeAccount,
     messages,
+    boxes,
     drafts,
     scheduled,
     unified,
@@ -157,6 +168,22 @@ export function HomeScreen(props: HomeProps) {
     [encryptionFor, messages],
   );
 
+  /**
+   * The entry cascade is spent once, on the first list this screen ever shows.
+   *
+   * Read from a ref during render and set from an effect, so the render that
+   * *first* puts rows on screen still says `stagger` — the animation belongs to
+   * that arrival — and every render after it says `none`. Switching destination
+   * therefore swaps mail that is already known straight in, rather than fading
+   * it up from nothing over the stagger's full length.
+   */
+  const cascadeSpent = useRef(false);
+  const anyRows = messages.length > 0 || SECONDARY_BOXES.some((b) => boxes[b].items.length > 0);
+  const entry: BodyProps['entry'] = cascadeSpent.current ? 'none' : 'stagger';
+  useEffect(() => {
+    if (anyRows) cascadeSpent.current = true;
+  }, [anyRows]);
+
   const clearSearch = useCallback(() => setQuery(''), []);
   const showAllContacts = useCallback(() => setContactFilter('all'), []);
 
@@ -188,6 +215,7 @@ export function HomeScreen(props: HomeProps) {
     barHeight,
     clearFilters,
     clearSearch,
+    entry,
     contactFilter,
     showAllContacts,
   };
@@ -244,7 +272,11 @@ export function HomeScreen(props: HomeProps) {
                 {...barIcon}
                 icon="refresh"
                 label="Refresh"
-                onPress={() => void (box ? loadBox(box) : refreshInbox())}
+                // The user tapped Refresh, so this one is theirs and shows a
+                // spinner — unlike the sync each destination runs on mount.
+                onPress={() =>
+                  void (box ? loadBox(box, { manual: true }) : refreshInbox({ manual: true }))
+                }
               />
             ) : null}
           </>
@@ -301,9 +333,13 @@ export function HomeScreen(props: HomeProps) {
       />
 
       {box ? (
-        // Keyed so switching between the two mailboxes starts at the top rather
-        // than carrying Sent's scroll position into Archive.
-        <MailboxBody key={box} {...bodyProps} box={box} />
+        // Deliberately **not** keyed on the box. A key here read as "start at
+        // the top", but it bought that by tearing the whole body down and
+        // building it again: the mount effect re-fetched a list already in
+        // state, and every row replayed its entry animation. The body now stays
+        // mounted and scrolls itself back to the top when the box changes,
+        // which is the thing the key was actually for.
+        <MailboxBody {...bodyProps} box={box} />
       ) : destination === 'drafts' ? (
         <DraftsBody {...bodyProps} />
       ) : destination === 'scheduled' ? (

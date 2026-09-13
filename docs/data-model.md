@@ -94,6 +94,21 @@ and synchronously — see [features.md](features.md) 0.11.
 > **Caching plaintext is optional.** A "high security" mode stores only
 > ciphertext locally and decrypts on demand, so a stolen unlocked DB reveals less.
 
+> **Prototype status.** The envelope columns of this table exist, as
+> [`mailCacheStore.ts`](../app/src/store/mailCacheStore.ts) — the rows of the
+> inbox and of Sent/Archive/Trash as they were last listed, sealed under this
+> account's key like every other store. `subject_cached` and `body_cached` are
+> **not** here: decrypted content lives in `searchIndex` alone, and this store
+> holds only what the provider already serves in the clear.
+>
+> It is a cache in the strict sense — written after a fetch, read once when a
+> mailbox attaches, and replaced wholesale by the first sync that lands, so it
+> is never reconciled against the provider and never a source of truth. Its job
+> is the first frame: before it existed, every launch and every account switch
+> met an empty list until a full sync returned. It is capped near one page's
+> depth for the same reason (see the note in the file), and it is erased by both
+> scopes of "reset this mailbox" alongside the search index.
+
 ### `pending_outbox`
 Queued sends, with the reason each one is held: `time` (scheduled for later) or
 `awaiting-key` (a recipient has no published key yet), plus which addresses are

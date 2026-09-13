@@ -20,7 +20,13 @@ import { categoryOf, useDestination } from '../ui/destination';
 import { OriginRect } from '../ui/expand';
 import { mailBandBelow, mailTopInset } from '../ui/mailBar';
 import { needsAttention } from '../ui/mailFilter';
-import { groupByDay, MailListRow, MailSkeletonList, SectionHeading } from '../ui/mailList';
+import {
+  groupByDay,
+  MAIL_LIST_WINDOW,
+  MailListRow,
+  MailSkeletonList,
+  SectionHeading,
+} from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useSwipeRunner } from '../ui/swipeRun';
 import { useLatest } from '../ui/useLatest';
@@ -35,7 +41,16 @@ import { BodyProps } from './HomeScreen';
  * remounts the aurora. What the bar holds — the search text, the lens, the
  * filter — arrives here as props.
  */
-export function InboxBody({ navigation, query, tab, filter, headerHeight, barHeight, clearFilters }: BodyProps) {
+export function InboxBody({
+  navigation,
+  query,
+  tab,
+  filter,
+  headerHeight,
+  barHeight,
+  clearFilters,
+  entry,
+}: BodyProps) {
   const {
     session,
     accounts,
@@ -45,6 +60,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     messages,
     snoozed,
     loadingInbox,
+    refreshingInbox,
     loadingMore,
     canLoadMore,
     error,
@@ -67,8 +83,11 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     onSetUp: () => navigation.navigate('SwipeOptions'),
   });
 
+  // `ifStale` so returning to the inbox from Sent or Archive draws the mail
+  // already in state instead of waiting on a sync that would hand back the same
+  // rows. A pull, the Refresh action, a send and a boot all still fetch.
   useEffect(() => {
-    void refreshInbox();
+    void refreshInbox({ ifStale: true });
   }, [refreshInbox]);
 
   /**
@@ -231,6 +250,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
         mailbox={unified ? mailboxName(accounts, item.thread.latest.account) : undefined}
         count={item.thread.count}
         index={index}
+        entry={entry}
         padding={rowPadding}
         selfAddress={session?.email}
         onPress={openRow}
@@ -251,7 +271,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, activeAccount, category, openRow, rowPadding, swipeRow, session?.email, unified],
+    [accounts, activeAccount, category, entry, openRow, rowPadding, swipeRow, session?.email, unified],
   );
 
   return (
@@ -267,6 +287,7 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
         <MailSkeletonList />
       ) : (
         <SectionList
+          {...MAIL_LIST_WINDOW}
           sections={sections}
           keyExtractor={(item) => item.thread.id}
           renderItem={renderItem}
@@ -292,7 +313,13 @@ export function InboxBody({ navigation, query, tab, filter, headerHeight, barHei
           }
           keyboardShouldPersistTaps="handled"
           refreshControl={
-            <RefreshControl refreshing={loadingInbox} onRefresh={() => void refreshInbox()} tintColor={accent} />
+            // `refreshingInbox`, not `loadingInbox`: the spinner answers the
+            // pull, and the syncs nobody asked for happen behind the list.
+            <RefreshControl
+              refreshing={refreshingInbox}
+              onRefresh={() => void refreshInbox({ manual: true })}
+              tintColor={accent}
+            />
           }
           ListEmptyComponent={
             loadingInbox ? null : query.trim().length > 0 || filter !== 'all' ? (
