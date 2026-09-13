@@ -106,6 +106,31 @@ export function createMailbox(ctx: Ctx): MailboxService {
 
   const freshnessKey = (box: Mailbox | 'inbox+spam', account: AccountId) => `${box}@${account}`;
 
+  /**
+   * Which account a row belonged to, for rows a move has just taken off screen.
+   *
+   * An archive or a trash drops the row from every list (`mail/flags.ts`), so
+   * the undo that follows cannot `locate` it — and without this it fell back to
+   * `mail.current`, which in a merged inbox is not the mailbox the row came
+   * from. The provider refused (or, worse, found a different message with that
+   * id), `setFlags` swallowed it into a refetch, and Undo quietly did nothing.
+   */
+  const departed = new Map<string, AccountId>();
+
+  /**
+   * The latest fetch started for each list. A fetch that lands after a newer one
+   * was started is dropped: otherwise a background sync that began before an
+   * undo, and finished after the undo's own refetch, painted the list from
+   * before the undo and took the restored message away again.
+   */
+  const generation = new Map<SecondaryBox | 'inbox', number>();
+  const nextGeneration = (list: SecondaryBox | 'inbox') => {
+    const n = (generation.get(list) ?? 0) + 1;
+    generation.set(list, n);
+    return n;
+  };
+  const superseded = (list: SecondaryBox | 'inbox', n: number) => generation.get(list) !== n;
+
   /** True while this list was fetched recently enough to leave alone. */
   function fresh(box: Mailbox | 'inbox+spam'): boolean {
     const account = store.get().activeAccount;
@@ -329,12 +354,14 @@ export function createMailbox(ctx: Ctx): MailboxService {
       // The mount effect's "make sure it is loaded", answered from what is
       // already there. Everything else falls through and fetches.
       if (ifStale && fresh('inbox+spam')) return;
+      const run = nextGeneration('inbox');
       store.patch({ loadingInbox: true, refreshingInbox: manual, error: null });
       try {
         // Sorted here rather than trusted from the connector: this is two
         // mailboxes' pages concatenated — and, while merged, several accounts' —
         // so newest-first is this function's job, not the provider's.
         const messages = (await collectInbox('refresh')).sort(byDateDesc);
+        if (superseded('inbox', run)) return;
         store.patch({
           messages,
           loadingInbox: false,
@@ -350,6 +377,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
         await ctx.services.scheduler.drainHeld();
         await ctx.services.publish.refreshPublish();
       } catch (e) {
+        if (superseded('inbox', run)) return;
         // Cleared before the auth check, not after: `handleAuthLoss` returns
         // early on a mailbox it has flagged, and a spinner left spinning is the
         // one thing worse than no spinner at all.
@@ -402,9 +430,11 @@ export function createMailbox(ctx: Ctx): MailboxService {
     async loadBox(box, { manual = false, ifStale = false } = {}) {
       if (!mail.current) return;
       if (ifStale && fresh(box)) return;
+      const run = nextGeneration(box);
       store.patch({ boxes: patchBox(box, { loading: true, refreshing: manual, error: null }) });
       try {
         const items = await collect(box, 'refresh');
+        if (superseded(box, run)) return;
         store.patch({
           boxes: patchBox(box, {
             items: items.sort(byDateDesc),
@@ -416,6 +446,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
         markFetched(box);
         persistCache();
       } catch (e) {
+        if (superseded(box, run)) return;
         store.patch({ boxes: patchBox(box, { loading: false, refreshing: false }) });
         if (ctx.services.session.handleAuthLoss(e)) return;
         store.patch({ boxes: patchBox(box, { error: message(e) }) });
@@ -573,8 +604,12 @@ export function createMailbox(ctx: Ctx): MailboxService {
      */
     async setFlags(id, change) {
       const found = locate(id);
-      const client = (found && mail.clients.get(found.row.account)) ?? mail.current;
+      const account = found?.row.account ?? departed.get(id);
+      const client = (account && mail.clients.get(account)) ?? mail.current;
       if (!client) return;
+      if (found && (change.archived !== undefined || change.trashed !== undefined)) {
+        departed.set(id, found.row.account);
+      }
       patchRow(found, id, change);
       try {
         await client.updateFlags(id, change);

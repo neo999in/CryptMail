@@ -127,6 +127,8 @@ const mockListCalls: string[] = [];
 
 /** The sync window each of those calls carried, so the setting can be traced. */
 const mockListWindows: (number | undefined)[] = [];
+/** `address:id` for every flag change, so a test can see which mailbox was asked. */
+const mockFlagCalls: string[] = [];
 
 function mockMailboxFor(address: string): MailClient {
   const tag = address.replace(/[^a-z0-9]+/gi, '-');
@@ -177,7 +179,9 @@ function mockMailboxFor(address: string): MailClient {
       return raw(row.subject);
     },
     async send() {},
-    async updateFlags() {},
+    async updateFlags(id) {
+      mockFlagCalls.push(`${address}:${id}`);
+    },
   };
 }
 
@@ -206,6 +210,7 @@ beforeEach(async () => {
   mockConnected.length = 0;
   mockListCalls.length = 0;
   mockListWindows.length = 0;
+  mockFlagCalls.length = 0;
   mockSaved.length = 0;
 });
 
@@ -758,6 +763,28 @@ describe('per-account settings', () => {
     const windows = new Map(mockListCalls.map((call, i) => [call, mockListWindows[i]]));
     expect(windows.get(`${SECOND}:inbox`)).toBe(7);
     expect(windows.get(`${FIRST}:inbox`)).toBeUndefined();
+  });
+});
+
+/**
+ * Undoing an archive of a row from the mailbox that is *not* in front. The
+ * archive took the row off every list, so the undo cannot find it there — and
+ * used to fall back to the active mailbox, which does not hold that message.
+ */
+describe('undoing a move in a merged inbox', () => {
+  it('asks the mailbox the row came from, not the one in front', async () => {
+    const h = harness();
+    await connectBoth(h);
+    await h.services.accounts.setUnified(true);
+    await h.services.mailbox.refreshInbox();
+    const id = `${FIRST.replace(/[^a-z0-9]+/gi, '-')}-1`;
+    expect(h.get().activeAccount).toBe(TWO);
+    mockFlagCalls.length = 0;
+
+    await h.services.mailbox.archiveMessage(id);
+    await h.services.mailbox.unarchiveMessage(id);
+
+    expect(mockFlagCalls).toEqual([`${FIRST}:${id}`, `${FIRST}:${id}`]);
   });
 });
 

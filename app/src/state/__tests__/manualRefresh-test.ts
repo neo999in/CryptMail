@@ -142,6 +142,31 @@ describe('the inbox', () => {
     expect(store.get().messages.map((m) => m.id)).toEqual(['inbox-1']);
   });
 
+  /**
+   * A sync that started first and lands last must not paint over a newer one —
+   * that is how an undone archive came back and then vanished again.
+   */
+  it('drops a sync that a newer one overtook', async () => {
+    const releases: Array<(ids: string[]) => void> = [];
+    const client: MailClient = {
+      ...base,
+      list: (box) =>
+        box === 'spam'
+          ? Promise.resolve({ messages: [] })
+          : new Promise((resolve) => releases.push((ids) => resolve({ messages: ids.map(row) }))),
+    };
+    const { store, services } = harness(client);
+
+    const older = services.mailbox.refreshInbox();
+    const newer = services.mailbox.refreshInbox();
+    releases[1](['restored', 'kept']);
+    await newer;
+    releases[0](['kept']);
+    await older;
+
+    expect(store.get().messages.map((m) => m.id).sort()).toEqual(['kept', 'restored']);
+  });
+
   /** A spinner left spinning is worse than no spinner, so a failure clears it. */
   it('lowers it again when the sync fails', async () => {
     const { store, services } = harness(refusingClient);
