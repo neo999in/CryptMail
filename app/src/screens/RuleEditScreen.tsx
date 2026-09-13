@@ -137,8 +137,13 @@ export function RuleEditScreen({ navigation, route }: Props) {
         {conditions.map((condition, index) => (
           <View key={index} style={s.condition}>
             <View style={s.conditionHead}>
+              {/* `stretch`: equal thirds. The thumb is drawn at the first tab's
+                  width and scaled to each tab, so tabs of different widths
+                  squash its rounded ends — the same fix Contacts' filter uses. */}
               <Segmented
                 compact
+                stretch
+                style={s.fieldPicker}
                 options={RULE_FIELDS}
                 value={condition.field}
                 onChange={(field: RuleField) => edit(index, { field })}
@@ -157,7 +162,13 @@ export function RuleEditScreen({ navigation, route }: Props) {
                 autoCapitalize="none"
                 autoCorrect={false}
                 onChangeText={(contains) => edit(index, { contains })}
-                placeholder={condition.field === 'from' ? 'Name or address contains…' : 'Contains…'}
+                placeholder={
+                  condition.field === 'from'
+                    ? 'Name or address contains…'
+                    : condition.field === 'content'
+                      ? 'Subject or body contains…'
+                      : 'Subject contains…'
+                }
                 value={condition.contains}
               />
             </Field>
@@ -211,7 +222,7 @@ export function RuleEditScreen({ navigation, route }: Props) {
           />
         </Group>
 
-        <Group>
+        <Group style={s.separate}>
           <SettingsRow
             icon="check"
             label="Rule is on"
@@ -220,7 +231,7 @@ export function RuleEditScreen({ navigation, route }: Props) {
           />
         </Group>
 
-        <View style={s.block}>
+        <View style={[s.block, s.footer]}>
           {problem ? <Text style={s.problem}>{problem}</Text> : null}
           <PrimaryButton title="Save rule" onPress={() => void save()} busy={saving} />
           {existing ? <SecondaryButton title="Delete rule" icon="trash" tone="danger" onPress={remove} /> : null}
@@ -270,8 +281,13 @@ const s = StyleSheet.create({
   },
   title: { ...type.display, color: color.ink },
   block: { gap: space.md, paddingBottom: space.md, paddingHorizontal: space.lg },
+  // Two cards and a button, each with air between them — the Group supplies no
+  // outer margin of its own, so consecutive ones otherwise touch.
+  separate: { marginTop: space.lg },
+  footer: { paddingTop: space.lg },
   condition: { gap: space.sm, paddingBottom: space.md, paddingHorizontal: space.lg },
-  conditionHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  conditionHead: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
+  fieldPicker: { flex: 1 },
   buttons: { alignItems: 'flex-start', gap: space.sm, paddingBottom: space.md, paddingHorizontal: space.lg },
   problem: { ...type.small, color: color.coralInk },
   labelScroll: { maxHeight: 360 },

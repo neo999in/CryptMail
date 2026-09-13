@@ -34,7 +34,9 @@ export type RuleField = 'from' | 'subject' | 'content';
 export const RULE_FIELDS: { key: RuleField; label: string }[] = [
   { key: 'from', label: 'Sender' },
   { key: 'subject', label: 'Subject' },
-  { key: 'content', label: 'Subject or body' },
+  // Short enough to sit in an equal third of the editor's segmented control —
+  // the editor's placeholder spells out that it means the subject or the body.
+  { key: 'content', label: 'Message' },
 ];
 
 /** Case-insensitive "contains". Every condition on a rule must hold. */

@@ -97,6 +97,9 @@ type MailListRowProps = {
   onLongPress?: (id: string) => void;
 };
 
+/** How long a press is held before a mail row enters multi-select. */
+const LONG_PRESS_MS = 280;
+
 function MailListRowImpl({
   id,
   summary,
@@ -171,6 +174,10 @@ function MailListRowImpl({
           accessibilityHint={selecting ? undefined : 'Long press to select'}
           onPress={press}
           onLongPress={onLongPress ? longPress : undefined}
+          // React Native's 500 ms default read as "hold and wait" for a gesture
+          // people reach for constantly. Short enough to feel immediate, long
+          // enough that a scroll's touch-down or a tap does not trip it.
+          delayLongPress={LONG_PRESS_MS}
           style={({ pressed }) => [pressed && !selected && s.rowPressed]}
         >
           <MailRowCard
