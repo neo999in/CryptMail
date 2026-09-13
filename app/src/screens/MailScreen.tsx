@@ -2,11 +2,9 @@
  * Settings → Mail.
  *
  * How mail *behaves*, as against how it looks — which is Display & Appearance,
- * and stays there. Today that is the swipe gestures and nothing else, so this is
- * a one-row screen; it exists rather than putting "Swipe options" directly in
- * Settings because the next behaviour setting has an obvious home the moment it
- * lands, and because the value line here can say what both sides currently do
- * without Settings itself growing a two-line row.
+ * and stays there: the swipe gestures, and the labels and rules that organise
+ * the mailbox in front. The value lines say what each currently is without
+ * Settings itself growing two-line rows.
  *
  * The same shape as every other settings screen: a `Group` of `SettingsRow`s
  * under the standard top bar. No new furniture.
@@ -17,6 +15,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { back, RootStackParamList } from '../navigation';
+import { useApp } from '../state/AppState';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { useMailPrefs } from '../ui/mailPrefs';
@@ -24,9 +23,17 @@ import { Group, GroupHeading, IconButton, SettingsRow } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Mail'>;
 
+/** Plural without the "1 labels" tell, and a sentence when there are none. */
+function count(n: number, one: string, many: string, none: string): string {
+  return n === 0 ? none : `${n} ${n === 1 ? one : many}`;
+}
+
 export function MailScreen({ navigation }: Props) {
   const { swipeLeft, swipeRight } = useMailPrefs();
+  const { labels, rules } = useApp();
   const insets = useSafeAreaInsets();
+  const labelTotal = Object.keys(labels.labels).length;
+  const enabledRules = rules.rules.filter((rule) => rule.enabled).length;
 
   return (
     <View style={s.screen}>
@@ -49,6 +56,28 @@ export function MailScreen({ navigation }: Props) {
             // as the Appearance row's "Dark / Borealis Cyan / Cosy".
             value={`Left: ${SWIPE_ACTION_LABEL[swipeLeft]} · Right: ${SWIPE_ACTION_LABEL[swipeRight]}`}
             onPress={() => navigation.navigate('SwipeOptions')}
+          />
+        </Group>
+
+        {/* Both belong to the mailbox in front — its stores, its message ids —
+            which the value lines do not repeat but the screens themselves say. */}
+        <GroupHeading>Organise</GroupHeading>
+        <Group>
+          <SettingsRow
+            icon="file"
+            label="Labels"
+            value={count(labelTotal, 'label', 'labels', 'Kept on this device')}
+            onPress={() => navigation.navigate('Labels')}
+          />
+          <SettingsRow
+            icon="settings"
+            label="Rules"
+            value={
+              rules.rules.length === 0
+                ? 'Filter mail on this device, encrypted mail included'
+                : `${enabledRules} of ${rules.rules.length} on`
+            }
+            onPress={() => navigation.navigate('Rules')}
           />
         </Group>
       </ScrollView>

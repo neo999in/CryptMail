@@ -26,11 +26,12 @@
  */
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CATEGORY_LABELS } from '../categorizer/categorizer';
 import { listDrafts } from '../drafts/drafts';
+import { listLabels } from '../labels/labels';
 import { initials } from '../lib/format';
 import { listScheduled } from '../outbox/outbox';
 import { HomeProps } from '../navigation';
@@ -82,6 +83,20 @@ export type BodyProps = HomeProps & {
   contactFilter: ContactFilter;
   /** Puts that filter back to All, from its "nobody in this state" empty. */
   showAllContacts: () => void;
+  /**
+   * A local label the mail lists narrow to, or `null` for no label filter.
+   *
+   * Chosen in the Filter sheet beside "Needs attention" rather than as drawer
+   * destinations: a label is a filter over mail this device holds, exactly as
+   * that one is, and it applies over the inbox and Sent, Archive and Trash
+   * alike — labels are on messages, not on a folder.
+   */
+  labelFilter: string | null;
+  /**
+   * A body tells the screen whether it has rows selected, so the compose button
+   * steps aside for the bulk action bar the body draws in its place.
+   */
+  onSelecting: (selecting: boolean) => void;
 };
 
 const TITLES: Record<string, string> = {
@@ -135,6 +150,7 @@ export function HomeScreen(props: HomeProps) {
     drafts,
     scheduled,
     unified,
+    labels,
     encryptionFor,
     refreshInbox,
     loadBox,
@@ -149,6 +165,12 @@ export function HomeScreen(props: HomeProps) {
   const [filter, setFilter] = useState<Filter>('all');
   const [filterOpen, setFilterOpen] = useState(false);
   const [contactFilter, setContactFilter] = useState<ContactFilter>('all');
+  const [chosenLabel, setChosenLabel] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  // A label deleted while it was the filter stops filtering, rather than
+  // leaving an empty list narrowed by something the sheet can no longer show.
+  const labelFilter = chosenLabel && labels.labels[chosenLabel] ? chosenLabel : null;
+  const labelList = useMemo(() => listLabels(labels), [labels]);
   /** Measured on the bar, read by a body to place an opened mail. */
   const [headerHeight, setHeaderHeight] = useState(0);
   /** The whole bar, controls included — the band an open mail may stand on. */
@@ -190,6 +212,7 @@ export function HomeScreen(props: HomeProps) {
   const clearFilters = useCallback(() => {
     setQuery('');
     setFilter('all');
+    setChosenLabel(null);
     setTab('primary');
     setContactFilter('all');
     setDestination('inbox');
@@ -218,7 +241,13 @@ export function HomeScreen(props: HomeProps) {
     entry,
     contactFilter,
     showAllContacts,
+    labelFilter,
+    onSelecting: setSelecting,
   };
+
+  // A body that is not up cannot hold a selection, so leaving it clears the flag
+  // the compose button reads.
+  useEffect(() => setSelecting(false), [destination]);
 
   return (
     <View style={s.screen}>
@@ -302,7 +331,9 @@ export function HomeScreen(props: HomeProps) {
                   style={({ pressed }) => [s.filterPill, pressed && { backgroundColor: color.segmentActive }]}
                 >
                   <Text style={s.filterText}>Filter</Text>
-                  {filter !== 'all' ? <View style={[s.filterDot, { backgroundColor: accent }]} /> : null}
+                  {filter !== 'all' || labelFilter ? (
+                    <View style={[s.filterDot, { backgroundColor: accent }]} />
+                  ) : null}
                 </Pressable>
               </>
             ) : destination === 'contacts' ? (
@@ -350,7 +381,9 @@ export function HomeScreen(props: HomeProps) {
         <InboxBody {...bodyProps} />
       )}
 
-      <ComposeFab bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
+      {selecting ? null : (
+        <ComposeFab bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
+      )}
 
       <Sheet bottomInset={insets.bottom} onClose={() => setFilterOpen(false)} title="Filter" visible={filterOpen}>
         {FILTERS.map((f) => (
@@ -376,6 +409,36 @@ export function HomeScreen(props: HomeProps) {
             {filter === f.key ? <Icon name="check" size={19} color={accent} strokeWidth={2.4} /> : null}
           </PressableRow>
         ))}
+        {/* Labels narrow on top of the choice above, so "Needs attention" under
+            "Work" is a real combination rather than one replacing the other. */}
+        {labelList.length > 0 ? (
+          <>
+            <Text style={s.sheetSection}>Label</Text>
+            <ScrollView style={s.labelScroll}>
+              {labelList.map((label) => {
+                const on = labelFilter === label.id;
+                return (
+                  <PressableRow
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    key={label.id}
+                    onPress={() => {
+                      setChosenLabel(on ? null : label.id);
+                      setFilterOpen(false);
+                    }}
+                    style={s.filterRow}
+                  >
+                    <Icon name="file" size={18} color={on ? accent : color.inkDim} />
+                    <Text numberOfLines={1} style={[s.filterRowLabel, { flex: 1 }]}>
+                      {label.name}
+                    </Text>
+                    {on ? <Icon name="check" size={19} color={accent} strokeWidth={2.4} /> : null}
+                  </PressableRow>
+                );
+              })}
+            </ScrollView>
+          </>
+        ) : null}
       </Sheet>
     </View>
   );
@@ -425,6 +488,16 @@ const s = StyleSheet.create({
   },
   filterRowLabel: { ...type.settingsRow, color: color.ink },
   filterRowHint: { ...type.settingsValue, color: color.inkFaint, marginTop: 1 },
+  sheetSection: {
+    ...type.settingsValue,
+    color: color.inkFaint,
+    fontFamily: font.sansSemibold,
+    letterSpacing: 0.4,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    textTransform: 'uppercase',
+  },
+  labelScroll: { maxHeight: 260 },
   attentionCount: {
     backgroundColor: color.coralBg,
     borderRadius: radius.pill,

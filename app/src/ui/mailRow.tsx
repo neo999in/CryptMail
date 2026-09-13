@@ -18,7 +18,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { displayName, initials, relativeTime } from '../lib/format';
 import { MailSummary } from '../mail/types';
 import { EncryptionState } from '../state/AppState';
-import { color, font, radius, space, type } from '../theme';
+import { color, font, ON_ACCENT, radius, space, type } from '../theme';
 import { Icon } from './Icon';
 import { useAccent } from './appearance';
 import { lockFor } from './lock';
@@ -31,6 +31,8 @@ export function MailRowCard({
   count = 1,
   padding,
   selfAddress,
+  labels,
+  selected,
 }: {
   summary: MailSummary;
   encryption: EncryptionState;
@@ -57,6 +59,22 @@ export function MailRowCard({
    * other.
    */
   selfAddress?: string;
+  /**
+   * The local label names this row carries (`labels/labels.ts`).
+   *
+   * On the card rather than on the list's wrapper for the reason everything
+   * else is: the closing transition's ghost draws this component, and a mail
+   * that collapses onto a row missing its labels is a visible cut.
+   */
+  labels?: string[];
+  /**
+   * Whether this row is part of a multi-selection. The avatar becomes a check,
+   * and the label says so — selection is never carried by colour alone.
+   *
+   * Never set on the ghost: a message is only ever opened from a list that is
+   * not selecting.
+   */
+  selected?: boolean;
 }) {
   const accent = useAccent();
   const lock = lockFor(encryption);
@@ -79,7 +97,13 @@ export function MailRowCard({
           closing transition draws has to carry it too, or a mail collapses onto
           a row missing its dot. */}
       {summary.unread ? <View style={[s.unreadDot, { backgroundColor: accent }]} /> : null}
-      <Avatar seed={seed} label={initials(who)} size={44} />
+      {selected ? (
+        <View accessibilityLabel="Selected" style={[s.check, { backgroundColor: accent }]}>
+          <Icon name="check" size={22} color={ON_ACCENT} strokeWidth={2.6} />
+        </View>
+      ) : (
+        <Avatar seed={seed} label={initials(who)} size={44} />
+      )}
       <View style={s.rowMain}>
         <View style={s.rowTop}>
           <Text numberOfLines={1} style={[s.from, summary.unread && s.fromUnread]}>
@@ -108,6 +132,20 @@ export function MailRowCard({
         <Text numberOfLines={1} style={[s.snippet, encrypted && s.snippetLocked]}>
           {encrypted ? 'Contents decrypt on this device when you open it.' : summary.snippet}
         </Text>
+        {labels && labels.length > 0 ? (
+          <View style={s.labels} accessibilityLabel={`Labels: ${labels.join(', ')}`}>
+            {labels.slice(0, MAX_CHIPS).map((name) => (
+              <View key={name} style={s.labelChip}>
+                <Text numberOfLines={1} style={s.labelChipText}>
+                  {name}
+                </Text>
+              </View>
+            ))}
+            {labels.length > MAX_CHIPS ? (
+              <Text style={s.labelMore}>+{labels.length - MAX_CHIPS}</Text>
+            ) : null}
+          </View>
+        ) : null}
         {mailbox ? (
           <Text numberOfLines={1} style={s.mailbox} accessibilityLabel={`In ${mailbox}`}>
             {mailbox}
@@ -117,6 +155,9 @@ export function MailRowCard({
     </View>
   );
 }
+
+/** Chips drawn before the rest are counted — a row must stay one line tall there. */
+const MAX_CHIPS = 3;
 
 /** Whether this message left the account currently in front. */
 function isFrom(summary: MailSummary, address?: string): boolean {
@@ -142,4 +183,18 @@ const s = StyleSheet.create({
   threadChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },
 
   unreadDot: { borderRadius: 4, height: 8, left: 4, position: 'absolute', top: 26, width: 8 },
+
+  check: { alignItems: 'center', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
+
+  labels: { alignItems: 'center', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, marginTop: 5, overflow: 'hidden' },
+  labelChip: {
+    borderColor: color.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    maxWidth: 120,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+  },
+  labelChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },
+  labelMore: { color: color.inkFaint, fontFamily: font.sansSemibold, fontSize: 11 },
 });

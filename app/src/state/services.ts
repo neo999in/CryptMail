@@ -11,8 +11,10 @@ import { MailHolder, Services } from './contracts';
 import { createContacts } from './contacts';
 import { createDrafts } from './drafts';
 import { createIdentityService } from './identity';
+import { createLabels } from './labels';
 import { createMailbox } from './mailbox';
 import { createPublish } from './publish';
+import { createRules } from './rules';
 import { createScheduler } from './scheduler';
 import { createSend } from './send';
 import { createSession } from './session';
@@ -34,6 +36,8 @@ export function createServices(store: Store): { services: Services; mail: MailHo
   services.scheduler = createScheduler(ctx);
   services.drafts = createDrafts(ctx);
   services.snooze = createSnooze(ctx);
+  services.labels = createLabels(ctx);
+  services.rules = createRules(ctx);
 
   return { services, mail };
 }

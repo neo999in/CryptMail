@@ -19,8 +19,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MailSummary } from '../mail/types';
 import { EncryptionState } from '../state/types';
 import { resolveSwipePair, SwipeContext, SwipeVisual, swipeRemovesRow } from '../swipe/swipe';
-import { color, font, radius, shadow, space, type } from '../theme';
+import { color, font, radius, shadow, space, tint, type } from '../theme';
 import { Icon } from './Icon';
+import { useAccent } from './appearance';
 import { OriginRect, useOriginRef } from './expand';
 import { MailRowCard } from './mailRow';
 import { useMailPrefs } from './mailPrefs';
@@ -82,6 +83,18 @@ type MailListRowProps = {
   /** Run what the swipe resolved to, for the row's `id`. `ui/swipeRun.tsx` is
    *  what a list hands in. */
   onSwipe?: (visual: SwipeVisual, id: string) => void;
+  /** Local label names on this row — drawn by the card (`ui/mailRow.tsx`). */
+  labels?: string[];
+  /**
+   * The list is in multi-select. Swiping is off for every row while it is: a
+   * swipe acts on one conversation, and a gesture that quietly ignored the
+   * selection around it would be a second, contradictory way to act.
+   */
+  selecting?: boolean;
+  /** This row is one of the selected. */
+  selected?: boolean;
+  /** Handed the row's `id` on a long press — how a list enters multi-select. */
+  onLongPress?: (id: string) => void;
 };
 
 function MailListRowImpl({
@@ -97,16 +110,21 @@ function MailListRowImpl({
   onPress,
   swipe,
   onSwipe,
+  labels,
+  selecting = false,
+  selected = false,
+  onLongPress,
 }: MailListRowProps) {
   const [rowRef, measureOrigin] = useOriginRef();
   const { swipeLeft, swipeRight } = useMailPrefs();
+  const accent = useAccent();
 
   // Both sides, resolved for *this* row in *this* list. `null` on a side is the
   // honest answer for an unconfigured direction and for an action with no
   // meaning here, and the gesture treats the two the same: the row does not move.
   const context = React.useMemo<SwipeContext | null>(
-    () => (swipe && onSwipe ? { ...swipe, unread: summary.unread } : null),
-    [onSwipe, summary.unread, swipe],
+    () => (swipe && onSwipe && !selecting ? { ...swipe, unread: summary.unread } : null),
+    [onSwipe, selecting, summary.unread, swipe],
   );
   // Sent, Archive and Spam wear a fixed layout rather than the preference —
   // see `resolveSwipePair`.
@@ -123,9 +141,12 @@ function MailListRowImpl({
     [context],
   );
   const press = React.useCallback(
-    () => void measureOrigin().then((origin) => onPress(id, origin)),
-    [id, measureOrigin, onPress],
+    // Selecting, a tap toggles the row and opens nothing, so there is no
+    // rectangle worth waiting a measurement for.
+    () => (selecting ? onPress(id) : void measureOrigin().then((origin) => onPress(id, origin))),
+    [id, measureOrigin, onPress, selecting],
   );
+  const longPress = React.useCallback(() => onLongPress?.(id), [id, onLongPress]);
 
   const row = (
     <MotiView
@@ -139,11 +160,18 @@ function MailListRowImpl({
           : { type: 'timing', duration: 0 }
       }
     >
-      <View collapsable={false} ref={rowRef} style={s.row}>
+      {/* The selected wash is on this view, not on the card: the card is also
+          the closing transition's ghost, which is never selected. One
+          `Pressable` for tap and long press — a second pressable nested inside
+          the row breaks on RN-web. */}
+      <View collapsable={false} ref={rowRef} style={[s.row, selected && { backgroundColor: tint(accent, 0.12) }]}>
         <Pressable
-          accessibilityRole="button"
+          accessibilityRole={selecting ? 'checkbox' : 'button'}
+          accessibilityState={selecting ? { checked: selected } : undefined}
+          accessibilityHint={selecting ? undefined : 'Long press to select'}
           onPress={press}
-          style={({ pressed }) => [pressed && s.rowPressed]}
+          onLongPress={onLongPress ? longPress : undefined}
+          style={({ pressed }) => [pressed && !selected && s.rowPressed]}
         >
           <MailRowCard
             summary={summary}
@@ -152,6 +180,8 @@ function MailListRowImpl({
             count={count}
             padding={padding}
             selfAddress={selfAddress}
+            labels={labels}
+            selected={selected}
           />
         </Pressable>
       </View>
@@ -200,8 +230,20 @@ function sameRow(prev: MailListRowProps, next: MailListRowProps): boolean {
     prev.selfAddress === next.selfAddress &&
     prev.onPress === next.onPress &&
     shallowEqual(prev.swipe, next.swipe) &&
-    prev.onSwipe === next.onSwipe
+    prev.onSwipe === next.onSwipe &&
+    sameList(prev.labels, next.labels) &&
+    prev.selecting === next.selecting &&
+    prev.selected === next.selected &&
+    prev.onLongPress === next.onLongPress
   );
+}
+
+/** Label names are rebuilt per render of the list; equal names are the same row. */
+function sameList(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === b) return true;
+  const left = a ?? [];
+  const right = b ?? [];
+  return left.length === right.length && left.every((name, i) => name === right[i]);
 }
 
 function shallowEqual<T extends object>(a: T | undefined, b: T | undefined): boolean {

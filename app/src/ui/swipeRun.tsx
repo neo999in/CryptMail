@@ -37,7 +37,7 @@ import { SnoozeModal } from './SnoozeModal';
 import { useToast } from './ToastContext';
 
 /** Everything a swipe can do *to a message* — every operation but `set-up`. */
-type MailOperation = Exclude<SwipeOperation, 'set-up'>;
+export type MailOperation = Exclude<SwipeOperation, 'set-up'>;
 
 /** How long an undo stays on offer. The same window the snooze toast uses. */
 const UNDO_MS = 5000;
@@ -103,6 +103,13 @@ export type SwipeRunner = {
    * the screen. That is not an undo the user can believe.
    */
   runSwipe: (visual: SwipeVisual, targets: MailSummary[], box: SecondaryBox | null) => void;
+  /**
+   * The same thing, for a caller that already knows the operation rather than
+   * holding a resolved swipe — the multi-select bar. Every branch, toast and
+   * undo is `runSwipe`'s own, so a bulk archive and a swiped archive cannot
+   * drift into two implementations.
+   */
+  runOperation: (operation: MailOperation, targets: MailSummary[], box: SecondaryBox | null) => void;
   /**
    * The snooze picker, mounted **once** per list.
    *
@@ -196,11 +203,11 @@ export function useSwipeRunner({ onSetUp }: { onSetUp?: () => void } = {}): Swip
     [done, failed, loadBox, refreshInbox],
   );
 
-  const runSwipe = useCallback(
-    (visual: SwipeVisual, targets: MailSummary[], box: SecondaryBox | null) => {
+  const runOperation = useCallback(
+    (operation: SwipeOperation, targets: MailSummary[], box: SecondaryBox | null) => {
       const ids = targets.map((m) => m.id);
       if (ids.length === 0) return;
-      switch (visual.operation) {
+      switch (operation) {
         // The side nobody has configured. Nothing is done to the mail — the
         // gesture's whole content is the offer to choose what it should do, so
         // it opens the screen where that choice is made.
@@ -265,6 +272,12 @@ export function useSwipeRunner({ onSetUp }: { onSetUp?: () => void } = {}): Swip
     ],
   );
 
+  const runSwipe = useCallback(
+    (visual: SwipeVisual, targets: MailSummary[], box: SecondaryBox | null) =>
+      runOperation(visual.operation, targets, box),
+    [runOperation],
+  );
+
   const snoozePicker = useMemo(
     () => (
       <SnoozeModal
@@ -283,5 +296,5 @@ export function useSwipeRunner({ onSetUp }: { onSetUp?: () => void } = {}): Swip
     [attempt, snoozeMessage, snoozing, unsnoozeMessage],
   );
 
-  return { runSwipe, snoozePicker };
+  return { runSwipe, runOperation, snoozePicker };
 }

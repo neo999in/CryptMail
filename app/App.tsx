@@ -25,6 +25,9 @@ import { ConversationScreen } from './src/screens/ConversationScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { CategoryDrawer } from './src/screens/CategoryDrawer';
 import { KeysScreen } from './src/screens/KeysScreen';
+import { LabelsScreen } from './src/screens/LabelsScreen';
+import { RuleEditScreen } from './src/screens/RuleEditScreen';
+import { RulesScreen } from './src/screens/RulesScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { AccountScreen } from './src/screens/AccountScreen';
@@ -165,6 +168,11 @@ function FullStack() {
       {/* Settings → Mail → Swipe options. Both are pushes, like Accounts. */}
       <Stack.Screen name="Mail" component={MailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SwipeOptions" component={SwipeOptionsScreen} options={{ headerShown: false }} />
+      {/* Settings → Mail → Labels / Rules → one rule. Pushes, drawing their own
+          top bar like the rest of Settings. */}
+      <Stack.Screen name="Labels" component={LabelsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Rules" component={RulesScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="RuleEdit" component={RuleEditScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SwipeGlyphDemo" component={SwipeGlyphDemoScreen} options={{ headerShown: false }} />
       {/* Managing a mailbox is a detail screen, not a destination: the drawer
           sets destinations and never pushes, and these two are reached from

@@ -18,6 +18,8 @@
  *   send.ts       the send path — rule 1 lives there
  *   scheduler.ts  the outbox: waiting for a send time, or for a key
  *   drafts.ts     unsent compose drafts
+ *   labels.ts     local labels on messages — never sent to the provider
+ *   rules.ts      the user's filters & rules, run on this device
  *
  * Everything they expose is assembled below into exactly the object `useApp()`
  * has always returned.
@@ -140,6 +142,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       markNotSpam: services.mailbox.markNotSpam,
       snoozeMessage: services.snooze.snoozeMessage,
       unsnoozeMessage: services.snooze.unsnoozeMessage,
+      createLabel: services.labels.createLabel,
+      renameLabel: services.labels.renameLabel,
+      deleteLabel: services.labels.deleteLabel,
+      setLabels: services.labels.setLabels,
+      saveRule: services.rules.saveRule,
+      deleteRule: services.rules.deleteRule,
     }),
     [state, services, encryptionFor, resolveRecipients, publishStatus],
   );

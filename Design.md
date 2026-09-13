@@ -209,6 +209,14 @@ The pieces:
   `groupByDay` + `SectionHeading`, `MailSkeletonList`, and `ComposeFab`.
 - `ui/mailFilter.ts` — the "needs attention" filter and its predicate, shared
   because the control and the bodies that apply it are now different components.
+  The Filter sheet also lists local labels; the chosen one reaches bodies as
+  `BodyProps.labelFilter`.
+- `ui/bulkBar.tsx` + `ui/labelSheet.tsx` — multi-select. A long press selects;
+  the selected row wears `tint(accent, 0.12)` on the list wrapper and a check in
+  place of its avatar (text-labelled, never colour alone). While selecting, the
+  body reports it through `BodyProps.onSelecting` and the home screen hides the
+  compose button so the bar can take its place. Bulk moves go through
+  `useSwipeRunner().runOperation` — never a second archive.
 
 **A spinner answers a gesture.** The pull-to-refresh control reads
 `refreshingInbox` — or a box's `refreshing` — which only a pull or the Refresh

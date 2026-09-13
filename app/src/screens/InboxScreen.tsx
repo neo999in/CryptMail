@@ -1,9 +1,10 @@
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo } from 'react';
-import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, BackHandler, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
+import { hasLabel, labelNamesFor } from '../labels/labels';
 import { AccountId, AccountRef } from '../store/accountScope';
 import { messageMatchesQuery } from '../search/search';
 import { isSnoozed } from '../snooze/snooze';
@@ -28,7 +29,10 @@ import {
   SectionHeading,
 } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
-import { useSwipeRunner } from '../ui/swipeRun';
+import { BulkBar } from '../ui/bulkBar';
+import { LabelSheet } from '../ui/labelSheet';
+import { MailOperation, useSwipeRunner } from '../ui/swipeRun';
+import { useToast } from '../ui/ToastContext';
 import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
 
@@ -50,6 +54,8 @@ export function InboxBody({
   barHeight,
   clearFilters,
   entry,
+  labelFilter,
+  onSelecting,
 }: BodyProps) {
   const {
     session,
@@ -69,7 +75,10 @@ export function InboxBody({
     encryptionFor,
     searchIndex,
     spam,
+    labels,
+    toggleStar,
   } = useApp();
+  const { showToast } = useToast();
   const { destination, setDestination } = useDestination();
   const category = categoryOf(destination);
   const { rowPadding } = useAppearance();
@@ -79,7 +88,7 @@ export function InboxBody({
   const { setOverlay } = useChrome();
   // One runner, and one snooze sheet, for the whole list — see `ui/swipeRun.tsx`.
   // A side nobody has configured offers the setup screen rather than an action.
-  const { runSwipe, snoozePicker } = useSwipeRunner({
+  const { runSwipe, runOperation, snoozePicker } = useSwipeRunner({
     onSetUp: () => navigation.navigate('SwipeOptions'),
   });
 
@@ -105,6 +114,7 @@ export function InboxBody({
     const now = new Date().toISOString();
     const visible = messages
       .filter((summary) => !isSnoozed(snoozed, summary.id, now))
+      .filter((summary) => !labelFilter || hasLabel(labels, [summary.id], labelFilter))
       .map((summary) => {
         const encryption = encryptionFor(summary);
         return {
@@ -145,13 +155,17 @@ export function InboxBody({
       thread,
       encryption: encryptionFor(thread.latest),
       junk: junkIds.has(thread.latest.id),
+      labels: labelNamesFor(
+        labels,
+        thread.messages.map((m) => m.id),
+      ),
     }));
 
     return groupByDay(rows, (row) => row.thread.latest.date);
-  }, [category, encryptionFor, filter, messages, query, searchIndex, snoozed, spamContext, tab]);
+  }, [category, encryptionFor, filter, labelFilter, labels, messages, query, searchIndex, snoozed, spamContext, tab]);
 
   const firstLoad = loadingInbox && messages.length === 0;
-  const filtering = query.trim().length > 0 || filter !== 'all' || category !== null;
+  const filtering = query.trim().length > 0 || filter !== 'all' || category !== null || !!labelFilter;
 
   /**
    * Open one mail.
@@ -201,8 +215,56 @@ export function InboxBody({
   );
   const threads = useLatest(threadsById);
 
+  /**
+   * The selected conversations, by thread id.
+   *
+   * Held as the ids the user picked, and read back through what is on screen:
+   * a row that a sync, a filter or another action has taken away is simply no
+   * longer selected, so the bar can never act on mail the reader cannot see.
+   */
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const selected = useMemo(
+    () => new Set([...picked].filter((id) => threadsById.has(id))),
+    [picked, threadsById],
+  );
+  const selecting = selected.size > 0;
+  const selectingNow = useLatest(selecting);
+  const [labelling, setLabelling] = useState<string[] | null>(null);
+
+  const clearSelection = useCallback(() => setPicked(new Set()), []);
+  const toggleSelected = useCallback(
+    (threadId: string) =>
+      setPicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(threadId)) next.delete(threadId);
+        else next.add(threadId);
+        return next;
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    onSelecting(selecting);
+  }, [onSelecting, selecting]);
+
+  // Back leaves the selection before it leaves anything else. Registered after
+  // the home screen's own handler, so it is asked first.
+  useEffect(() => {
+    if (!selecting || !isFocused) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      clearSelection();
+      return true;
+    });
+    return () => sub.remove();
+  }, [clearSelection, isFocused, selecting]);
+
   const openRow = useCallback(
     (threadId: string, origin?: OriginRect) => {
+      // Selecting, a tap adds or removes the row; it never opens mail.
+      if (selectingNow.current) {
+        toggleSelected(threadId);
+        return;
+      }
       const thread = threads.current.get(threadId);
       if (!thread) return;
       if (thread.count === 1) {
@@ -220,8 +282,46 @@ export function InboxBody({
         bandInset: mailBandBelow(barHeight, topInset),
       });
     },
-    [barHeight, headerHeight, insets.top, navigation, openMail, setOverlay, threads],
+    [barHeight, headerHeight, insets.top, navigation, openMail, selectingNow, setOverlay, threads, toggleSelected],
   );
+
+  /** Every message behind the selected rows — a conversation is all of them. */
+  const targets = useMemo(
+    () => [...selected].flatMap((id) => threadsById.get(id)?.messages ?? []),
+    [selected, threadsById],
+  );
+
+  /** Run one of the swipe's own operations over the selection, then leave it. */
+  const bulk = (operation: MailOperation) => {
+    runOperation(operation, targets, null);
+    clearSelection();
+  };
+
+  /**
+   * Star or unstar the whole selection.
+   *
+   * Not a swipe operation, so it has its own toast — but the same shape: say
+   * what happened, offer the way back, and never call a failure a success.
+   * Only the messages whose star actually changes are touched, which is also
+   * exactly the set the undo has to put back.
+   */
+  const bulkStar = () => {
+    const starring = !targets.every((m) => m.starred);
+    const ids = targets.filter((m) => m.starred !== starring).map((m) => m.id);
+    clearSelection();
+    if (ids.length === 0) return;
+    Promise.all(ids.map(toggleStar)).then(
+      () =>
+        showToast({
+          message: starring ? 'Starred' : 'Unstarred',
+          icon: 'star',
+          durationMs: 5000,
+          actionLabel: 'Undo',
+          onAction: () => void Promise.all(ids.map(toggleStar)),
+        }),
+      () => showToast({ message: 'Couldn’t change the star on those messages', icon: 'alert', durationMs: 5000 }),
+    );
+  };
 
   // The conversation, not just its newest message: a row that archived one of
   // three messages would spring straight back.
@@ -238,7 +338,7 @@ export function InboxBody({
       item,
       index,
     }: {
-      item: { thread: Thread<InboxItem>; encryption: EncryptionState; junk: boolean };
+      item: { thread: Thread<InboxItem>; encryption: EncryptionState; junk: boolean; labels: string[] };
       index: number;
     }) => (
       <MailListRow
@@ -266,12 +366,30 @@ export function InboxBody({
           foreign: item.thread.latest.account !== activeAccount,
         }}
         onSwipe={swipeRow}
+        labels={item.labels}
+        selecting={selecting}
+        selected={selected.has(item.thread.id)}
+        // A long press starts a selection; while one is up it adds to it.
+        onLongPress={toggleSelected}
       />
     ),
     // `accounts` and `unified` are read above, so they belong here: without
     // them the row renderer keeps the values it closed over on first render —
     // when nothing was merged — and the mailbox label never appears.
-    [accounts, activeAccount, category, entry, openRow, rowPadding, swipeRow, session?.email, unified],
+    [
+      accounts,
+      activeAccount,
+      category,
+      entry,
+      openRow,
+      rowPadding,
+      selected,
+      selecting,
+      swipeRow,
+      session?.email,
+      toggleSelected,
+      unified,
+    ],
   );
 
   return (
@@ -291,6 +409,7 @@ export function InboxBody({
           sections={sections}
           keyExtractor={(item) => item.thread.id}
           renderItem={renderItem}
+          extraData={selected}
           renderSectionHeader={({ section }) => <SectionHeading title={section.title} />}
           stickySectionHeadersEnabled={false}
           showsVerticalScrollIndicator={false}
@@ -322,7 +441,7 @@ export function InboxBody({
             />
           }
           ListEmptyComponent={
-            loadingInbox ? null : query.trim().length > 0 || filter !== 'all' ? (
+            loadingInbox ? null : query.trim().length > 0 || filter !== 'all' || labelFilter ? (
               <EmptyState
                 icon="search"
                 title="Nothing matched"
@@ -360,6 +479,37 @@ export function InboxBody({
       {/* The Snooze swipe's picker. Mounted once, by the list, rather than once
           per row — a mail list holds hundreds of them. */}
       {snoozePicker}
+
+      {selecting ? (
+        <BulkBar
+          count={selected.size}
+          bottom={insets.bottom + 16}
+          anyUnread={targets.some((m) => m.unread)}
+          allStarred={targets.length > 0 && targets.every((m) => m.starred)}
+          onCancel={clearSelection}
+          onSelectAll={
+            selected.size < threadsById.size ? () => setPicked(new Set(threadsById.keys())) : undefined
+          }
+          onArchive={() => bulk('archive')}
+          onTrash={() => bulk('trash')}
+          onToggleRead={() => bulk(targets.some((m) => m.unread) ? 'mark-read' : 'mark-unread')}
+          onToggleStar={bulkStar}
+          onLabel={() => setLabelling(targets.map((m) => m.id))}
+        />
+      ) : null}
+
+      {/* Held on the ids it was opened with rather than the live selection:
+          labelling can take a row out of a label-filtered list mid-sheet, and
+          the rest of the selection must not change under the reader's thumb.
+          The selection ends when the sheet closes. */}
+      <LabelSheet
+        visible={labelling !== null}
+        messageIds={labelling ?? []}
+        onClose={() => {
+          setLabelling(null);
+          clearSelection();
+        }}
+      />
     </View>
   );
 }

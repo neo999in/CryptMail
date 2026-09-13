@@ -13,8 +13,10 @@
 import { Provider, Session } from '../auth';
 import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
+import { Label, LabelChange } from '../labels/labels';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { Held } from '../outbox/outbox';
+import { Rule } from '../rules/rules';
 import { AccountId, AccountSettings } from '../store/accountScope';
 import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
@@ -24,6 +26,7 @@ import {
   OpenedMessage,
   PlainSendInput,
   RefreshOptions,
+  RuleDraft,
   SecondaryBox,
   SendInput,
   SendOutcome,
@@ -262,6 +265,27 @@ export type SnoozeService = {
   wakedue(): Promise<void>;
 };
 
+export type LabelsService = {
+  createLabel(name: string): Promise<Label>;
+  renameLabel(id: string, name: string): Promise<void>;
+  deleteLabel(id: string): Promise<void>;
+  setLabels(messageIds: string[], change: LabelChange): Promise<void>;
+};
+
+export type RulesService = {
+  saveRule(rule: RuleDraft): Promise<Rule>;
+  deleteRule(id: string): Promise<void>;
+  /**
+   * Run every enabled rule over inbox rows, once per message.
+   *
+   * `rows` narrows the pass — the message that was just decrypted — and is
+   * still held to the inbox: a row that is not in `messages` is skipped. With
+   * no argument, the whole inbox is the pass. Never throws: a rule that could
+   * not be recorded is not a failed sync.
+   */
+  runRules(rows?: MailSummary[]): Promise<void>;
+};
+
 export type Services = {
   session: SessionService;
   accounts: AccountsService;
@@ -273,6 +297,8 @@ export type Services = {
   scheduler: SchedulerService;
   drafts: DraftsService;
   snooze: SnoozeService;
+  labels: LabelsService;
+  rules: RulesService;
 };
 
 export type Ctx = {

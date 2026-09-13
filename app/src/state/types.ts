@@ -7,9 +7,11 @@
 import { Provider, Session } from '../auth';
 import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
+import { Label, LabelChange, LabelState } from '../labels/labels';
 import { Attachment } from '../mail/attachment';
 import { Mailbox, MailSummary } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
+import { Rule, RulesState } from '../rules/rules';
 import { SearchIndex } from '../search/search';
 import { SnoozeMap } from '../snooze/snooze';
 import type { LinkPair } from '../spam/spam';
@@ -209,6 +211,16 @@ export type State = {
   messages: InboxItem[];
   /** Messages snoozed until a future time — hidden from the inbox until then. */
   snoozed: SnoozeMap;
+  /**
+   * The active account's local labels, and which messages carry them.
+   *
+   * Local only — the provider never sees a label (`labels/labels.ts`). Keyed by
+   * message id, so in a merged inbox only the active account's rows can show
+   * or take one, exactly as with snoozes.
+   */
+  labels: LabelState;
+  /** The active account's filters & rules, and which of them already fired. */
+  rules: RulesState;
   loadingInbox: boolean;
   /**
    * A sync the **user asked for** is in flight — a pull-to-refresh, or the
@@ -442,4 +454,20 @@ export type Actions = {
   snoozeMessage(id: string, until: string): Promise<void>;
   /** Unsnooze a message early: immediately return it to the inbox. */
   unsnoozeMessage(id: string): Promise<void>;
+  /** Add a local label. Throws with a sentence when the name cannot be used. */
+  createLabel(name: string): Promise<Label>;
+  renameLabel(id: string, name: string): Promise<void>;
+  /** Delete a label: off every message, and off every rule that filed under it. */
+  deleteLabel(id: string): Promise<void>;
+  /** Put labels on and take labels off a set of messages. Local only. */
+  setLabels(messageIds: string[], change: LabelChange): Promise<void>;
+  /**
+   * Add or replace a rule, then run it over the inbox at once. Throws with a
+   * sentence when the rule cannot be saved (`ruleProblem`).
+   */
+  saveRule(rule: RuleDraft): Promise<Rule>;
+  deleteRule(id: string): Promise<void>;
 };
+
+/** A rule as an editor hands it over: no id yet when it is new. */
+export type RuleDraft = Omit<Rule, 'id' | 'createdAt'> & { id?: string };

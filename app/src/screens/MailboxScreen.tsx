@@ -36,6 +36,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { hasLabel, labelNamesFor } from '../labels/labels';
 import { messageMatchesQuery } from '../search/search';
 import { EncryptionState, useApp } from '../state/AppState';
 import { InboxItem, SecondaryBox } from '../state/types';
@@ -60,7 +61,7 @@ import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
 
 /** One row of this list: the message, and the trust state drawn on it. */
-type BoxRow = { item: InboxItem; encryption: EncryptionState };
+type BoxRow = { item: InboxItem; encryption: EncryptionState; labels: string[] };
 
 const COPY: Record<SecondaryBox, { title: string; empty: string; hint: string; icon: IconName }> = {
   sent: {
@@ -93,8 +94,9 @@ export function MailboxBody({
   barHeight,
   clearFilters,
   entry,
+  labelFilter,
 }: BodyProps & { box: SecondaryBox }) {
-  const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session } = useApp();
+  const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session, labels } = useApp();
   const { items, loading, refreshing, loadingMore, canLoadMore, error } = boxes[box];
   const { rowPadding } = useAppearance();
   const accent = useAccent();
@@ -154,17 +156,17 @@ export function MailboxBody({
         // control: a key that changed is no less a decision because the message
         // is one you sent.
         if (filter === 'attention' && !needsAttention(encryption)) return false;
+        // Labels outlive the inbox: an archived message keeps what it was filed under.
+        if (labelFilter && !hasLabel(labels, [item.id], labelFilter)) return false;
         // Encrypted mail is matched on its decrypted content once opened.
         return messageMatchesQuery(item, encrypted, searchIndex, query);
-      });
+      })
+      .map((row) => ({ ...row, labels: labelNamesFor(labels, [row.item.id]) }));
     const out = groupByDay(rows, (row) => row.item.date);
     return out;
-  }, [encryptionFor, filter, items, query, searchIndex, tab]);
+  }, [encryptionFor, filter, items, labelFilter, labels, query, searchIndex, tab]);
 
-  useEffect(() => {
-  });
-
-  const filtering = query.trim().length > 0 || tab !== 'primary' || filter !== 'all';
+  const filtering = query.trim().length > 0 || tab !== 'primary' || filter !== 'all' || !!labelFilter;
 
   /**
    * Open one mail — the same expansion the inbox uses.
@@ -232,6 +234,7 @@ export function MailboxBody({
         // row here is ever another mailbox's.
         swipe={{ box, junk: false, category: null, foreign: false }}
         onSwipe={swipeRow}
+        labels={item.labels}
       />
     ),
     [box, entry, openMail, rowPadding, swipeRow, session?.email],

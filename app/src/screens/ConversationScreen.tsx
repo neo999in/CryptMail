@@ -37,6 +37,8 @@ import {
   Skeleton,
 } from '../ui/primitives';
 import { SnoozeModal } from '../ui/SnoozeModal';
+import { LabelSheet } from '../ui/labelSheet';
+import { labelNamesFor } from '../labels/labels';
 import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Conversation'>;
@@ -90,6 +92,7 @@ export function ConversationScreen({ route, navigation }: Props) {
     activeAccount,
     identity,
     session,
+    labels,
   } = useApp();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
@@ -100,6 +103,7 @@ export function ConversationScreen({ route, navigation }: Props) {
   useKeepsBarBeneath(!!route.params.topInset);
   const [menuOpen, setMenuOpen] = useState(false);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
   /**
    * Where the page's own ground starts — the reader's arrangement exactly: the
    * card bar and the banner under it stand on the aurora band the inbox is still
@@ -309,6 +313,10 @@ export function ConversationScreen({ route, navigation }: Props) {
             count={thread.count}
             padding={rowPadding}
             selfAddress={session?.email}
+            labels={labelNamesFor(
+              labels,
+              thread.messages.map((m) => m.id),
+            )}
           />
         ) : undefined
       }
@@ -443,6 +451,20 @@ export function ConversationScreen({ route, navigation }: Props) {
             <Icon name="clock" size={18} color={color.inkDim} />
             <Text style={s.menuLabel}>Snooze conversation</Text>
           </PressableRow>
+          {/* Every message in it, as a swipe or a bulk action takes the whole
+              conversation — a label on only the newest would come off the row
+              the moment someone replied. */}
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setMenuOpen(false);
+              setLabelsOpen(true);
+            }}
+            style={s.menuRow}
+          >
+            <Icon name="file" size={18} color={color.inkDim} />
+            <Text style={s.menuLabel}>Label conversation</Text>
+          </PressableRow>
           <PressableRow
             accessibilityRole="button"
             onPress={() => {
@@ -462,6 +484,11 @@ export function ConversationScreen({ route, navigation }: Props) {
           </PressableRow>
         </Sheet>
         <SnoozeModal visible={snoozeOpen} onSnooze={snoozeAll} onClose={() => setSnoozeOpen(false)} />
+        <LabelSheet
+          visible={labelsOpen}
+          messageIds={list.map((m) => m.id)}
+          onClose={() => setLabelsOpen(false)}
+        />
         <LinkSheet url={tappedLink} onClose={() => setTappedLink(null)} />
       </View>
     </ExpandingScreen>

@@ -56,6 +56,18 @@ export type RootStackParamList = {
   Mail: undefined;
   /** What each swipe direction does, and a live preview of both. */
   SwipeOptions: undefined;
+  /** The active mailbox's local labels: make, rename, delete. Settings → Mail. */
+  Labels: undefined;
+  /** The active mailbox's filters & rules. Settings → Mail. */
+  Rules: undefined;
+  /**
+   * One rule, new or existing.
+   *
+   * `id` edits a saved rule. Without it the editor starts a new one, seeded
+   * from `from` and `subject` when it was opened as "Create rule from this
+   * message" — the subject only when this device could read it.
+   */
+  RuleEdit: { id?: string; from?: string; subject?: string };
   /**
    * The animated swipe glyphs on a bench, `__DEV__` only.
    *

@@ -16,6 +16,8 @@
  * one read path.
  */
 import { directory } from '../keys';
+import { emptyLabelState } from '../labels/labels';
+import { emptyRulesState } from '../rules/rules';
 import { emptySpamState } from '../store/spamModelStore';
 import { BoxState, State } from './types';
 
@@ -60,6 +62,8 @@ export function initialState(): State {
     scheduled: {},
     spam: emptySpamState(),
     snoozed: {},
+    labels: emptyLabelState(),
+    rules: emptyRulesState(),
     messages: [],
     loadingInbox: false,
     refreshingInbox: false,

@@ -83,10 +83,12 @@ work in plain service modules).
 No native code, no server. These are the features that can be picked up in the
 current session and finished end-to-end.
 
-### 0.1 Client-side filters & rules · Impact M · Effort M
+### 0.1 Client-side filters & rules · Impact M · Effort M — ✅ **Built**
 
 **What.** User-defined rules — *if sender is X / subject contains Y → star,
-archive, label, mute, mark read* — evaluated locally.
+archive, label, mark read* — evaluated locally. (*Mute* from the original
+sketch is not built: it is a thread-level "skip the inbox for future replies",
+which is a different mechanism from a once-per-message rule.)
 
 **Why.** The provider cannot read encrypted mail, so server-side filtering is
 structurally impossible for exactly the messages that matter most. Rules have to
@@ -105,23 +107,71 @@ sheet; "create rule from this message" from `MessageScreen`.
 on the next refresh, survives restart, and never fires on content that hasn't
 been decrypted on this device.
 
-### 0.2 Labels / folders + bulk selection · Impact M · Effort M
+**What was built.** [`rules/rules.ts`](../app/src/rules/rules.ts) is pure:
+`Rule` (all-of conditions on *Sender*, *Subject* or *Subject or body*, plus
+star / mark read / archive / label actions), `matchRule`, and
+`applyRules(inputs, index, state, options)`. Persisted per account in
+[`store/rulesStore.ts`](../app/src/store/rulesStore.ts);
+[`state/rules.ts`](../app/src/state/rules.ts) runs them after every inbox sync
+and page of older mail, and again the moment `openMessage` decrypts and indexes
+a message. `RulesScreen` and `RuleEditScreen` hang off Settings → Mail; the
+reader's More menu has *Create rule from this message*.
+
+The properties that make it trustworthy:
+
+- **The decrypt boundary is a `null`, not a guess.** `readableField` returns the
+  sender for any message, but an encrypted message's subject and body only from
+  the local search index. An unopened encrypted message has no subject as far as
+  a rule is concerned — its placeholder subject and ciphertext snippet are never
+  offered as stand-ins — so a content condition cannot match until this device
+  has read the content. This is the same line `search/search.ts` draws.
+- **Once per message.** `fired` records which rules acted on which message, so a
+  user who un-stars something a rule starred is not overruled on the next sync.
+  It is persisted with the rules and bounded (`FIRED_CAP`).
+- **One path for every change.** Flags go through `mailbox.setFlags` — the tap's
+  path — so a rule's archive is optimistic, reaches the provider the row came
+  from, and re-fetches if refused.
+- **The inbox of the account in front.** A merged row from another mailbox is
+  left to that mailbox's rules, which run when it is in front. Junk rows are
+  never archived by a rule (they are not in the provider's inbox to begin with).
+- **No rule can match everything.** `ruleProblem` refuses an empty condition or
+  a rule with no action, in the service as well as the editor.
+
+### 0.2 Labels / folders + bulk selection · Impact M · Effort M — ✅ **Built**
 
 **What.** Local labels, multi-select in the inbox, bulk archive/star/mark-read.
-Swipe actions are **built** — see [swipe-actions.md](swipe-actions.md); what is
-left here is labels and multi-select.
+Swipe actions are **built** — see [swipe-actions.md](swipe-actions.md).
 
-**Why.** `updateFlags` already exists in the connector and Gmail maps labels
-natively; the inbox is currently a flat single-action list. This is table stakes
-that also gives filters (0.1) something to act on.
-
-**Build sketch.** Extend `FlagPatch` with `labels?: { add?: string[]; remove?:
-string[] }`; implement via `messages/{id}/modify` in `gmail.ts`. Selection state in `InboxScreen`; a bulk action bar. Keep the
-sibling-`Pressable` row pattern — a nested pressable inside the row breaks on
-RN-web.
+**Why.** The inbox was a flat single-action list. This is table stakes that also
+gives filters (0.1) something to act on.
 
 **Done when.** Selecting three messages and archiving them updates the list
 optimistically and survives a refresh.
+
+**What was built — and one deliberate change from the sketch.** The sketch said
+to push labels to Gmail through `messages.modify`. Labels are instead **local
+only**: [`labels/labels.ts`](../app/src/labels/labels.ts) (pure) and
+[`store/labelsStore.ts`](../app/src/store/labelsStore.ts), sealed per account.
+A label is a statement about content — "Lawyer", "Diagnosis" — and writing it
+onto a message the provider holds as ciphertext would hand the provider, in the
+clear, exactly the summary the encryption withholds. It would also need
+`labels.create`, which [gmail-api-adoption.md](gmail-api-adoption.md) §3 already
+rules out for that reason. The cost is stated in the UI: labels do not appear in
+other mail apps on the account.
+
+- Labels show as chips on the row (`ui/mailRow.tsx`, so the closing transition's
+  ghost carries them too), are narrowed to from the bar's Filter sheet over the
+  inbox and Sent/Archive/Trash alike, and are managed in Settings → Mail →
+  Labels. The reader and the conversation view label from their More menu; a
+  conversation is labelled across all its messages.
+- **Multi-select** is a long press on an inbox row; taps then toggle. The compose
+  button steps aside for `ui/bulkBar.tsx` — Archive, Star, Mark read/unread,
+  Label, Move to Trash — and Android back leaves the selection. Swiping is off
+  while selecting. Archive, Trash and read/unread run through
+  `useSwipeRunner().runOperation`, the swipe's own implementation, toast and
+  undo; there is no second archive. The selection is read back through the rows
+  on screen, so it can never act on mail a sync has taken away.
+- The row stays one `Pressable` (tap + long press), per the RN-web note.
 
 ### 0.3 Undo send · Impact S · Effort S
 
@@ -737,12 +787,11 @@ than shipping without any Tier 0 item.
 If the goal is *a client someone would actually use*, without pretending the
 crypto is finished:
 
-1. **0.1 Filters & rules** — the flagship "we had to build this client-side
-   because encryption" feature. Note the scope it inherits: encrypted mail is
-   never categorised or scored (SPAM_PHISHING_DETECTION.md §13.4), so rules act
-   on plaintext mail, and any rule offered for encrypted mail has to work from
-   what the user states — a sender, an address — rather than from content.
-2. **0.2 Labels + bulk actions** — table stakes, and what rules act on.
+1. ~~**0.1 Filters & rules**~~ — ✅ **built**. Categorisation and scoring still
+   never read encrypted mail (SPAM_PHISHING_DETECTION.md §13.4); a *user's own*
+   rule is different in kind — the user stated it — and reads an encrypted
+   message's content only once this device has decrypted it (0.1 above).
+2. ~~**0.2 Labels + bulk actions**~~ — ✅ **built**, with labels kept local.
 3. ~~**0.5 Contacts + trust dashboard**~~ — ✅ **built**. The security model is
    now visible where recipients are chosen.
 4. **0.17 Client-side key sharing** — designed and unblocked; closes the last

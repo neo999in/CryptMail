@@ -46,6 +46,9 @@ import {
   SecondaryButton,
 } from '../ui/primitives';
 import { SnoozeModal } from '../ui/SnoozeModal';
+import { LabelSheet } from '../ui/labelSheet';
+import { labelNamesFor } from '../labels/labels';
+import { draftRuleFrom } from '../rules/rules';
 import { useToast } from '../ui/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
@@ -73,6 +76,7 @@ export function MessageScreen({ route, navigation }: Props) {
     unsnoozeMessage,
     accounts,
     activeAccount,
+    labels,
   } = useApp();
   const { showToast } = useToast();
   /** The mailbox this mail belongs to — see the `allowRemoteImages` note below. */
@@ -93,6 +97,8 @@ export function MessageScreen({ route, navigation }: Props) {
   const [copied, setCopied] = useState(false);
   /** The snooze picker, opened from the overflow. */
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+  /** The label picker, opened from the overflow. */
+  const [labelsOpen, setLabelsOpen] = useState(false);
   /** The link the reader tapped, waiting on them to confirm where it goes. */
   const [tappedLink, setTappedLink] = useState<string | null>(null);
   /**
@@ -365,6 +371,7 @@ export function MessageScreen({ route, navigation }: Props) {
           // So a mail opened from Sent collapses back onto the row it left —
           // one that leads with the recipient, not with you.
           selfAddress={session?.email}
+          labels={labelNamesFor(labels, [summary.id])}
         />
       }
       navigation={navigation}
@@ -708,6 +715,33 @@ export function MessageScreen({ route, navigation }: Props) {
             <Icon name="clock" size={18} color={color.inkDim} />
             <Text style={s.menuLabel}>Snooze</Text>
           </PressableRow>
+          {/* Local labels — nothing here reaches the provider. The menu closes
+              first so the picker is never a sheet stacked on a sheet. */}
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setMenuOpen(false);
+              setLabelsOpen(true);
+            }}
+            style={s.menuRow}
+          >
+            <Icon name="file" size={18} color={color.inkDim} />
+            <Text style={s.menuLabel}>Labels</Text>
+          </PressableRow>
+          {/* Seeded from what this device can read of the message: always the
+              sender, and the subject only once it has been decrypted here. */}
+          <PressableRow
+            accessibilityRole="button"
+            onPress={() => {
+              setMenuOpen(false);
+              const seed = draftRuleFrom({ summary, encrypted: headerEncrypted }, searchIndex);
+              navigation.navigate('RuleEdit', { from: seed.from, subject: seed.subject ?? undefined });
+            }}
+            style={s.menuRow}
+          >
+            <Icon name="settings" size={18} color={color.inkDim} />
+            <Text style={s.menuLabel}>Create rule from this message</Text>
+          </PressableRow>
           {/* One row, because the useful action is always the opposite of where
               the message is currently filed. It files the message and trains
               the personal model; it deliberately does not archive or delete —
@@ -773,6 +807,7 @@ export function MessageScreen({ route, navigation }: Props) {
           onSnooze={handleSnooze}
           onClose={() => setSnoozeOpen(false)}
         />
+        <LabelSheet visible={labelsOpen} messageIds={[summary.id]} onClose={() => setLabelsOpen(false)} />
       </View>
     </ExpandingScreen>
   );

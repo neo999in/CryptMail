@@ -23,6 +23,10 @@ import { loadSearchIndex } from '../store/searchIndex';
 import { loadSpamState, SpamState } from '../store/spamModelStore';
 import { SnoozeMap } from '../snooze/snooze';
 import { loadSnoozes } from '../store/snoozeStore';
+import { LabelState } from '../labels/labels';
+import { loadLabels } from '../store/labelsStore';
+import { RulesState } from '../rules/rules';
+import { loadRules } from '../store/rulesStore';
 import { Ctx, message, SessionService } from './contracts';
 import { emptyBox } from './store';
 import { InboxItem, SECONDARY_BOXES, State } from './types';
@@ -40,6 +44,9 @@ type Attached = {
   spam: SpamState;
   /** Which of this mailbox's messages are hidden until a later time. */
   snoozed: SnoozeMap;
+  /** This mailbox's local labels, and its filters & rules. */
+  labels: LabelState;
+  rules: RulesState;
   /**
    * The mail this device listed last time, so the list has rows before the
    * network answers.
@@ -113,6 +120,8 @@ export function createSession(ctx: Ctx): SessionService {
       scheduled,
       spam,
       snoozed,
+      labels,
+      rules,
       cached,
     ] = await Promise.all([
       core.loadIdentity(session.email),
@@ -125,6 +134,8 @@ export function createSession(ctx: Ctx): SessionService {
       loadOutbox(account),
       loadSpamState(account),
       loadSnoozes(account),
+      loadLabels(account),
+      loadRules(account),
       loadMailCache<InboxItem>(account),
     ]);
 
@@ -139,6 +150,8 @@ export function createSession(ctx: Ctx): SessionService {
       scheduled,
       spam,
       snoozed,
+      labels,
+      rules,
       messages: cached.messages,
       // Rebuilt whole rather than patched, because this is an account *arriving*:
       // the box state of the mailbox being left — its cursors' `canLoadMore`, a

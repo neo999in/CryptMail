@@ -370,6 +370,9 @@ export function createMailbox(ctx: Ctx): MailboxService {
         });
         markFetched('inbox+spam');
         persistCache();
+        // The user's own filters, over what just arrived. Once per message, so
+        // a sync never re-applies a rule the user has since undone by hand.
+        await ctx.services.rules.runRules();
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
@@ -407,6 +410,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
           loadingMore: false,
           canLoadMore: moreInboxAvailable(),
         });
+        await ctx.services.rules.runRules(older);
         await harvestFrom(older);
       } catch (e) {
         store.patch({ loadingMore: false });
@@ -541,6 +545,11 @@ export function createMailbox(ctx: Ctx): MailboxService {
         });
         await saveSearchIndex(ctx.services.accounts.requireActive(), searchIndex);
         store.patch({ searchIndex });
+
+        // The first moment a rule on this message's subject or body can match:
+        // until now this device had not read them (`rules/rules.ts`). Not
+        // awaited — the reader should not wait on a star reaching the provider.
+        void ctx.services.rules.runRules([summary]);
 
         if (summary.from.address === store.get().session?.email) {
           return {

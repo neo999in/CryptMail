@@ -132,7 +132,7 @@ message already there.
 | `settings.delegates.*` | Grants another account read access to the mailbox. Hostile to the threat model. |
 | `users.watch` (Pub/Sub push) | Correct answer to polling, but it needs a GCP project and a server endpoint we control. Real infrastructure, and a server in a path that currently has none. Revisit when there is a backend. |
 | `messages.delete` | Needs the full `https://mail.google.com/` scope, which materially raises the bar on Google's OAuth verification review. `messages.trash` covers the user-visible need. |
-| `labels.create` / `patch` | Only wanted if CryptMail organised mail server-side, which conflicts with "the provider sees ciphertext". |
+| `labels.create` / `patch` | Only wanted if CryptMail organised mail server-side, which conflicts with "the provider sees ciphertext". CryptMail's labels are local instead (`labels/labels.ts`, features.md 0.2): a label name on a sealed message is a cleartext summary of its content. |
 
 ## Scopes
 
