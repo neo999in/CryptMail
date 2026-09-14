@@ -14,7 +14,7 @@
  * reason the pane is a separate component.
  *
  * **Nothing here re-renders while a finger is dragging.** Both panes are
- * mounted once, when a finger lands on the row, and everything that moves
+ * mounted once, when a pull activates, and everything that moves
  * — the fill deepening, the glyph flipping to dark ink, the label appearing, the
  * row itself — is an animated style driven from one shared value on the UI
  * thread. A version of this that pushed the pull into React state re-rendered
@@ -26,7 +26,7 @@
  * list, that was thousands of them built on every list mount and torn down on
  * every destination switch: multi-second frames, rows stuck at their fade-in's
  * zero opacity, and Reanimated writing to views Fabric had already dropped. So
- * the panes exist only from the touch until the row settles home.
+ * the panes exist only from the pull activating until the row settles home.
  *
  * Deliberately knows nothing about what an operation *does*: it is handed a
  * resolved visual and calls back with it. Running it is `ui/swipeRun.tsx`,
@@ -178,8 +178,8 @@ function onBlack(hex: string, alpha: number): string {
  * colour *is* a style, so that one is interpolated in place.
  *
  * Mounted for both sides at once and shown by the sign of `dx`, so nothing
- * mounts part-way through a pull — `SwipeableRow` mounts the pair when a finger
- * lands on the row, and only for that row (`engaged`). The settings preview drives the same component from a
+ * mounts part-way through a pull — `SwipeableRow` mounts the pair when a pull
+ * activates, and only for that row (`engaged`). The settings preview drives the same component from a
  * shared value it simply never changes — a still frame of the real thing rather
  * than a drawing of it.
  */
@@ -430,16 +430,25 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
   const reducedMotion = useReducedMotion();
   const recovery = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
-   * Whether the panes are mounted. True from touch-down until the row has
-   * settled back at rest — see the header for why a row at rest carries none.
-   * Touch-down rather than activation, because the render this costs has to land
-   * before the row can move: started at activation it raced the pull, and a busy
-   * JS thread left the row sliding over nothing. Activation is `SWIPE_ENGAGE_PX`
-   * later, which is the head start.
+   * Whether the panes are mounted. True from the moment a pull activates until
+   * the row has settled back at rest — see the header for why a row at rest
+   * carries none.
+   *
+   * Activation, not touch-down. Mounting the pair is a render of a hundred-odd
+   * milliseconds on a dev build, and at touch-down it was paid by every tap and
+   * every long press — none of which ever swipe — and it sat on the JS thread
+   * exactly when a long press needed it to enter multi-select. Mounting at
+   * activation instead used to race the pull, the row sliding over nothing; the
+   * row now holds still until `paneReady` says the panes are there (see
+   * `onUpdate`), then catches up to the finger.
    */
   const [engaged, setEngaged] = useState(false);
+  const paneReady = useSharedValue(false);
   const engage = useCallback(() => setEngaged(true), []);
   const release = useCallback(() => setEngaged(false), []);
+  useEffect(() => {
+    paneReady.value = engaged;
+  }, [engaged, paneReady]);
 
   // Whatever this row was doing, it was doing it to a different message.
   useEffect(() => {
@@ -505,6 +514,33 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
     return { width, left: side(left), right: side(right) };
   }, [left, removes, right, width]);
 
+  /**
+   * What the panes draw: the sides as they are, or — while a row is still
+   * engaged after its sides went away — as they last were.
+   *
+   * A long press that starts a multi-select nulls both sides while the finger
+   * that mounted the panes is still down. Unmounting them there left the settle
+   * spring driving animated styles on views Fabric had already dropped, and
+   * Reanimated retried each of those updates on every draw: hundreds of failed
+   * writes, each logging a full stack trace, on the frame the selection appears.
+   * So a pane outlives its side until the row has settled, as it does after any
+   * other pull.
+   */
+  const lastSides = useRef(sides);
+  if (sides.left || sides.right) lastSides.current = sides;
+  const lastVisuals = useRef({ left, right });
+  if (left || right) lastVisuals.current = { left, right };
+  const paneSides = sides.left || sides.right ? sides : lastSides.current;
+  const paneVisuals = left || right ? { left, right } : lastVisuals.current;
+
+  // Sides gone while engaged: the gesture was switched off under the finger, so
+  // its `onFinalize` may never come. Settle the row here instead, which releases
+  // the panes once it is home.
+  const disabled = !left && !right;
+  useEffect(() => {
+    if (disabled && engaged) dx.value = withSpring(0, SETTLE, settled);
+  }, [disabled, dx, engaged, settled]);
+
   const runLeft = useCallback(() => {
     if (left) onAction(left);
   }, [left, onAction]);
@@ -516,26 +552,25 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
   const pan = useMemo(
     () =>
       Gesture.Pan()
+        .enabled(sides.left !== null || sides.right !== null)
         // Sideways only, and only once the intent is unmistakable: the list
         // under this scrolls, and every row is a tap target.
         .activeOffsetX([-SWIPE_ENGAGE_PX, SWIPE_ENGAGE_PX])
         .failOffsetY([-10, 10])
-        // The panes mount at touch-down, not at activation. Mounting them is a
-        // React render, and started at activation it raced the pull: on a busy
-        // JS thread the row was already moving with nothing behind it. Here they
-        // are ready 14pt before the row can move. The cost is that render on a
-        // tap or a scroll start too — for the one row touched, released again by
-        // `onFinalize` — never for the whole list. See `engaged`.
         .onBegin(() => {
           fired.value = false;
+        })
+        // The panes mount once a pull is unmistakable — see `engaged`.
+        .onStart(() => {
           runOnJS(engage)();
         })
         .onUpdate((e) => {
           const side = e.translationX > 0 ? sides.right : sides.left;
           // A side with nothing configured — or nothing that means anything in
           // this list — does not move at all. That is the whole of "the first
-          // right swipe does nothing".
-          if (!side || side.threshold <= 0) {
+          // right swipe does nothing". Nor does a row whose panes have not
+          // mounted yet: it would slide over nothing.
+          if (!side || side.threshold <= 0 || !paneReady.value) {
             dx.value = 0;
             return;
           }
@@ -574,7 +609,7 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
           // lets its panes go.
           if (!fired.value) dx.value = withSpring(0, SETTLE, settled);
         }),
-    [dx, engage, fired, recoverIfStillHere, reducedMotion, runLeft, runRight, settled, sides],
+    [dx, engage, fired, paneReady, recoverIfStillHere, reducedMotion, runLeft, runRight, settled, sides],
   );
 
   const rowStyle = useAnimatedStyle(() => ({
@@ -606,10 +641,12 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
     [left, right],
   );
 
-  // Nothing configured on either side: no detector, no pane, no layout listener
-  // — the row is exactly what it was before this component existed.
-  if (!left && !right) return <>{children}</>;
-
+  // Nothing on either side — unconfigured, or the list is in multi-select — keeps
+  // the same tree with the gesture switched off rather than returning the bare
+  // children. Changing the element type here remounts the whole row: a list
+  // entering multi-select did that to every mounted row at once, replaying each
+  // row's fade-in and tearing down the `Pressable` whose long press started it,
+  // which was the lag on the first selection and, on Android, the crash.
   return (
     <View
       // A pull is not available to someone driving the screen with a reader, so
@@ -621,11 +658,11 @@ export function SwipeableRow({ left, right, onAction, removes, resetKey, style, 
       style={[s.wrap, style]}
     >
       {/* Only for the row being swiped — see `engaged`. */}
-      {engaged && left && sides.left ? (
-        <SwipeActionPane visual={left} direction="left" dx={dx} threshold={sides.left.threshold} />
+      {engaged && paneVisuals.left && paneSides.left ? (
+        <SwipeActionPane visual={paneVisuals.left} direction="left" dx={dx} threshold={paneSides.left.threshold} />
       ) : null}
-      {engaged && right && sides.right ? (
-        <SwipeActionPane visual={right} direction="right" dx={dx} threshold={sides.right.threshold} />
+      {engaged && paneVisuals.right && paneSides.right ? (
+        <SwipeActionPane visual={paneVisuals.right} direction="right" dx={dx} threshold={paneSides.right.threshold} />
       ) : null}
       <GestureDetector gesture={pan}>
         <Animated.View style={rowStyle}>{children}</Animated.View>

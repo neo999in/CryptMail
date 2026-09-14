@@ -196,8 +196,11 @@ function MailListRowImpl({
   );
 
   // No swipe on this list: the row carries its own gap, since there is no
-  // wrapper to put it on.
-  if (!context || !onSwipe) return <View style={s.rowGap}>{row}</View>;
+  // wrapper to put it on. Keyed on the *list* swiping, never on `selecting`:
+  // switching wrappers when a selection starts remounts every row in the list
+  // (see the end of `SwipeableRow`). Selecting reaches the wrapper as two null
+  // sides instead, which disables the gesture in place.
+  if (!swipe || !onSwipe) return <View style={s.rowGap}>{row}</View>;
 
   return (
     <SwipeableRow

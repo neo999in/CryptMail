@@ -24,7 +24,15 @@ import { useAccent } from './appearance';
 import { lockFor } from './lock';
 import { Avatar } from './primitives';
 
-export function MailRowCard({
+/**
+ * Memoised because a list entering multi-select re-renders every row to switch
+ * its gesture and role, and only the row that was picked changes what it draws.
+ * Redrawing the avatar and icons of every visible card for that was most of the
+ * first selection's cost.
+ */
+export const MailRowCard = React.memo(MailRowCardImpl);
+
+function MailRowCardImpl({
   summary,
   encryption,
   mailbox,

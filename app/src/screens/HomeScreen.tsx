@@ -25,7 +25,7 @@
  * anything should do.
  */
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -151,6 +151,35 @@ function count(n: number, one: string, many: string, none: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * Whether the body in front has rows selected, held outside React state.
+ *
+ * As `useState` on the home screen, entering multi-select re-rendered the whole
+ * screen — the bar and the body — after the body had already re-rendered for
+ * the selection itself: a second ~200 ms pass on the first selection, on a dev
+ * build, for the sake of hiding the compose button. Now only `ComposeSlot`
+ * subscribes.
+ */
+class SelectingFlag {
+  private value = false;
+  private listeners = new Set<() => void>();
+  set = (next: boolean) => {
+    if (next === this.value) return;
+    this.value = next;
+    this.listeners.forEach((listener) => listener());
+  };
+  get = () => this.value;
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  };
+}
+
+function ComposeSlot({ flag, bottom, onPress }: { flag: SelectingFlag; bottom: number; onPress: () => void }) {
+  const selecting = useSyncExternalStore(flag.subscribe, flag.get);
+  return selecting ? null : <ComposeFab bottom={bottom} onPress={onPress} />;
+}
+
 export function HomeScreen(props: HomeProps) {
   const { navigation } = props;
   const {
@@ -179,7 +208,11 @@ export function HomeScreen(props: HomeProps) {
   const [filterOpen, setFilterOpen] = useState(false);
   const [contactFilter, setContactFilter] = useState<ContactFilter>('all');
   const [chosenLabel, setChosenLabel] = useState<string | null>(null);
-  const [selecting, setSelecting] = useState(false);
+  // Not state: a body reporting that it is selecting must not re-render this
+  // screen — the bar, its band and the body under it — to hide one button. Only
+  // the compose slot listens. See `SelectingFlag`.
+  const selectingFlag = useMemo(() => new SelectingFlag(), []);
+  const setSelecting = selectingFlag.set;
   // A label deleted while it was the filter stops filtering, rather than
   // leaving an empty list narrowed by something the sheet can no longer show.
   const labelFilter = chosenLabel && labels.labels[chosenLabel] ? chosenLabel : null;
@@ -403,9 +436,8 @@ export function HomeScreen(props: HomeProps) {
         <InboxBody {...bodyProps} />
       )}
 
-      {selecting ? null : (
-        <ComposeFab bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
-      )}
+      <ComposeSlot flag={selectingFlag} bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
+
 
       <Sheet bottomInset={insets.bottom} onClose={() => setFilterOpen(false)} title="Filter" visible={filterOpen}>
         {FILTERS.map((f) => (
