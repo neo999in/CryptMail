@@ -11,6 +11,7 @@ import { color, font, motion, radius, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
 import { Banner, Callout, Group, PressableRow } from '../ui/primitives';
 import { useAccent } from '../ui/appearance';
+import { GoogleLogo, MicrosoftLogo } from '../ui/providerLogos';
 
 /** Onboarding: provider OAuth, least-privilege scopes. */
 export function ConnectScreen() {
@@ -67,7 +68,7 @@ export function ConnectScreen() {
             going to appear. */}
         <Group style={s.flush}>
           <ProviderRow
-            glyph="G"
+            glyph={<GoogleLogo size={18} />}
             label="Continue with Gmail"
             onPress={() => void connect('gmail')}
             busy={busy === 'gmail'}
@@ -75,7 +76,7 @@ export function ConnectScreen() {
             note={canConnectGmail ? undefined : 'Not configured'}
           />
           <ProviderRow
-            glyph="O"
+            glyph={<MicrosoftLogo size={16} />}
             label="Continue with Outlook"
             onPress={() => void connect('outlook')}
             busy={busy === 'outlook'}
@@ -149,7 +150,8 @@ function ProviderRow({
   busy,
   note,
 }: {
-  glyph: string;
+  /** A provider's mark, or a character standing in where there is none. */
+  glyph: React.ReactNode;
   label: string;
   onPress?: () => void;
   disabled?: boolean;
@@ -167,9 +169,10 @@ function ProviderRow({
       onPress={onPress}
       style={s.provider}
     >
-      {/* Neutral on purpose: a coral "G" read as the colour of a blocked send. */}
+      {/* The provider's own mark on a neutral tile — never a letter tinted in a
+          trust colour, which read as the colour of a blocked send. */}
       <View style={[s.glyph, disabled && { opacity: 0.5 }]}>
-        <Text style={s.glyphText}>{glyph}</Text>
+        {typeof glyph === 'string' ? <Text style={s.glyphText}>{glyph}</Text> : glyph}
       </View>
       <Text style={[s.providerLabel, disabled && { color: color.inkFaint }]}>{label}</Text>
       {busy ? (
