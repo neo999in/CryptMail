@@ -111,7 +111,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
  *
  * ## Formatting
  *
- * The message is plain text until the user turns formatting on (the "B" in the
+ * The message is plain text until the user turns formatting on (the A-and-pencil in the
  * bar), and then it is written in the rich-text editor, with the formatting bar
  * pinned to the bottom of the screen above the keyboard. Its ✕ hides the bar
  * and keeps the formatting; removing formatting is in the overflow. From the
@@ -525,7 +525,7 @@ export function ComposeScreen({ route, navigation }: Props) {
   };
 
   /**
-   * The "B" in the top bar. The first press turns formatting on — free: the
+   * The A-and-pencil in the top bar. The first press turns formatting on — free: the
    * text becomes paragraphs and a quote a blockquote — and raises the bar.
    * After that it only shows and hides the bar, as the bar's ✕ does. Neither
    * throws formatting away; `removeFormatting` does.
@@ -889,7 +889,7 @@ export function ComposeScreen({ route, navigation }: Props) {
 
         {RICH_TEXT_AVAILABLE ? (
           <IconButton
-            icon="bold"
+            icon="format"
             label={!rich ? 'Format text' : formatBar ? 'Hide formatting' : 'Show formatting'}
             selected={rich ? formatBar : undefined}
             onPress={pressFormat}

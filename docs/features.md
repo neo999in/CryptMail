@@ -391,7 +391,7 @@ PGP client (Thunderbird, ProtonMail) reads as HTML rather than as nothing.
 Remote images load unless the mailbox blocks them (0.8); there is no
 per-message consent step.
 
-Rich-text compose is built. The "B" in Compose's top bar turns formatting on,
+Rich-text compose is built. The format button (an A with a pencil) in Compose's top bar turns formatting on,
 and the message is then written in `ui/RichTextComposer.tsx`: a borderless
 editor where the plain body was, and a formatting bar pinned to the bottom of
 the screen, on top of the keyboard — ✕ (hide the bar, keep the formatting),

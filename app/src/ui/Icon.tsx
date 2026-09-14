@@ -55,7 +55,8 @@ export type IconName =
   | 'hr'
   | 'underline'
   | 'text-size'
-  | 'text-color';
+  | 'text-color'
+  | 'format';
 
 type Props = {
   name: IconName;
@@ -431,6 +432,14 @@ function glyph(name: IconName, p: object) {
         <>
           <Path d="m2.5 19 3.5-8 3.5 8M3.8 16h4.4" {...p} />
           <Path d="m10.5 19 5-13 5 13M12.4 14.5h6.2" {...p} />
+        </>
+      );
+    case 'format':
+      // An A with a pencil: "write with formatting", the compose bar's toggle.
+      return (
+        <>
+          <Path d="m3 12 3.5-9 3.5 9M4.3 9h4.4" {...p} />
+          <Path d="M17.6 8.9a2.1 2.1 0 0 1 3 3L12 20.5l-4 1 1-4z" {...p} />
         </>
       );
     case 'text-color':
