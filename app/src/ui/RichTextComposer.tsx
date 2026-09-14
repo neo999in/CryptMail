@@ -181,19 +181,24 @@ export function RichTextComposer({
   /* ---- the injected stylesheet — the webview's entire look ---- */
 
   const editorCss = useMemo(() => {
+    // Every rule is scoped as the engine scopes its own. Its stylesheet sets
+    // `#root div .ProseMirror { min-height: 100% }`, and an ID selector outranks
+    // a bare class — so a plain `.ProseMirror` rule loses, the document
+    // measures one line tall, and `dynamicHeight` shrinks the webview to fit.
+    const PM = '#root div .ProseMirror';
     const linkUnderline = accent;
     return [
       // Placeholder: `.is-editor-empty:first-child::before` is the rule the
       // engine already ships; re-declare it with our color so the empty state
       // reads in app tokens.
       `.is-editor-empty:first-child::before { color: ${color.inkFaint} !important; }`,
-      `.ProseMirror { background-color: ${color.surface}; color: ${color.ink}; min-height: ${minHeight}px; outline: none; }`,
-      `.ProseMirror p { margin: 0; padding: 0; }`,
-      `.ProseMirror blockquote { border-left: 3px solid ${color.line}; margin: ${space.sm}px 0; padding-left: ${space.md}px; color: ${color.inkDim}; }`,
-      `.ProseMirror a { color: ${linkUnderline}; }`,
-      `.ProseMirror pre { background-color: ${color.ground2}; color: ${color.ink}; border-radius: ${radius.sm}px; padding: ${space.md}px; font-family: ${font.mono}; }`,
-      `.ProseMirror code { font-family: ${font.mono}; color: ${color.inkDim}; }`,
-      `.ProseMirror hr { border: none; border-top: 1px solid ${color.line}; margin: ${space.md}px 0; }`,
+      `${PM} { background-color: ${color.surface}; color: ${color.ink}; min-height: ${minHeight}px; outline: none; }`,
+      `${PM} p { margin: 0; padding: 0; }`,
+      `${PM} blockquote { border-left: 3px solid ${color.line}; margin: ${space.sm}px 0; padding-left: ${space.md}px; color: ${color.inkDim}; }`,
+      `${PM} a { color: ${linkUnderline}; }`,
+      `${PM} pre { background-color: ${color.ground2}; color: ${color.ink}; border-radius: ${radius.sm}px; padding: ${space.md}px; font-family: ${font.mono}; }`,
+      `${PM} code { font-family: ${font.mono}; color: ${color.inkDim}; }`,
+      `${PM} hr { border: none; border-top: 1px solid ${color.line}; margin: ${space.md}px 0; }`,
     ].join('\n');
   }, [accent, minHeight]);
 
