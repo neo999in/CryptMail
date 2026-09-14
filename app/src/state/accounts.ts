@@ -33,6 +33,7 @@ import { removeScoped } from '../store/secureJson';
 import { measureAccountStorage } from '../store/storageUsage';
 import { openTextFileWriter, saveTextFile } from '../lib/files';
 import { emlFilename, entryToMbox, mboxFilename } from '../mail/mbox';
+import { withRateLimitRetry } from '../mail/rateLimit';
 import { Mailbox, MailSummary } from '../mail/types';
 import { AccountsService, Ctx, message } from './contracts';
 
@@ -49,9 +50,10 @@ const EXPORT_BOXES: Mailbox[] = ['inbox', 'sent', 'archive'];
 
 /**
  * Rows per listing page. Gmail spends one metadata request per row, fired
- * together, so this is also how many run at once while listing.
+ * together, so this is also how many run at once while listing — kept small,
+ * because a burst of them is what exhausted the per-minute quota on a device.
  */
-const EXPORT_PAGE_SIZE = 50;
+const EXPORT_PAGE_SIZE = 25;
 
 /** Raw messages fetched at a time — well inside the provider's per-second quota. */
 const EXPORT_CONCURRENCY = 5;
@@ -331,7 +333,7 @@ export function createAccounts(ctx: Ctx): AccountsService {
       for (const box of EXPORT_BOXES) {
         let pageToken: string | undefined;
         do {
-          const page = await client.list(box, { limit: EXPORT_PAGE_SIZE, pageToken });
+          const page = await withRateLimitRetry(() => client.list(box, { limit: EXPORT_PAGE_SIZE, pageToken }));
           for (const row of page.messages) {
             if (seen.has(row.id)) continue;
             seen.add(row.id);
@@ -353,12 +355,13 @@ export function createAccounts(ctx: Ctx): AccountsService {
         const batch = rows.slice(at, at + EXPORT_CONCURRENCY);
         const raws = await Promise.all(
           batch.map((row) =>
-            client.getRaw(row.id).catch((e: unknown) => {
+            // A rate limit is waited out first (`mail/rateLimit.ts`); only what
+            // is still refused after that lands in the catch below.
+            withRateLimitRetry(() => client.getRaw(row.id)).catch((e: unknown) => {
               // A dead grant is not one message's problem: every fetch after it
               // fails the same way, and "exported 0, skipped 4,000" would bury
               // the one sentence the user can act on.
-              if (e instanceof AuthError) throw e;
-              // Deleted server-side since it was listed, or a transient failure.
+              if (e instanceof AuthError) throw e;              // Deleted server-side since it was listed, or a transient failure.
               return null;
             }),
           ),

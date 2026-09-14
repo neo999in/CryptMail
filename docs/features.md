@@ -641,9 +641,16 @@ appended to the file as they arrive (`openTextFileWriter` in
 memory; the row shows progress. A listing failure ends the export; a single
 message the provider refuses is skipped and counted in the result.
 
+Rate limits are waited out, not counted as failures
+([`mail/rateLimit.ts`](../app/src/mail/rateLimit.ts)). Found on a device: a
+387-message Gmail export first skipped 226 messages, every one refused with
+`403 Quota exceeded … Units per minute per user`. A 429, or a 403 naming a quota
+or rate limit, is now retried with a backoff that reaches a full minute; after
+that fix the same mailbox exported all 387 in about four minutes.
+
 Known cost: Gmail's list spends a metadata request per row, so a whole-mailbox
-export is roughly two requests a message. An ids-only listing on `MailClient`
-would halve that.
+export is roughly two requests a message, and that quota is what sets its
+speed. An ids-only listing on `MailClient` would halve it.
 
 ### 0.14 Sign-only / verify-only mode · Impact S · Effort S — ◐ partly built
 
