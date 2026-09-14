@@ -1,14 +1,15 @@
 import { MotiView } from 'moti';
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthError, Provider } from '../auth';
 import { canConnectGmail, canConnectOutlook, degradedReason } from '../config';
 import { useApp } from '../state/AppState';
-import { color, font, glass, radius, shadow, space, type } from '../theme';
+import { color, font, motion, radius, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
-import { Callout, Muted, Title } from '../ui/primitives';
+import { Banner, Callout, Group, PressableRow } from '../ui/primitives';
 import { useAccent } from '../ui/appearance';
 
 /** Onboarding: provider OAuth, least-privilege scopes. */
@@ -39,13 +40,13 @@ export function ConnectScreen() {
   return (
     <ScrollView
       style={s.screen}
-      contentContainerStyle={[s.content, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 }]}
+      contentContainerStyle={[s.content, { paddingTop: insets.top + 56, paddingBottom: insets.bottom + space.xl }]}
       showsVerticalScrollIndicator={false}
     >
-      <Reveal delay={0}>
+      <Reveal step={0}>
         <View style={s.brand}>
-          <View style={[s.brandMark, { backgroundColor: accent }]}>
-            <Icon name="lock" size={18} color={color.ground} strokeWidth={2.1} />
+          <View style={s.brandMark}>
+            <Icon name="lock" size={18} color={color.ink} strokeWidth={2.1} />
           </View>
           <Text style={s.brandText}>
             Crypt<Text style={{ fontFamily: font.displayBold }}>Mail</Text>
@@ -53,94 +54,95 @@ export function ConnectScreen() {
         </View>
 
         <Text style={s.pitch}>
-          Your inbox, <Text style={[s.pitchAccent, { color: accent }]}>unreadable</Text> to everyone but the person you sent it to.
+          Your inbox, <Text style={{ color: accent }}>unreadable</Text> to everyone but the person you sent it to.
         </Text>
+        <Text style={s.lede}>Keep your address. CryptMail layers end-to-end encryption on top of it.</Text>
       </Reveal>
 
-      <Reveal delay={90}>
-      <View style={s.card}>
-        <Title>Connect your inbox</Title>
-        <Muted>Keep your address. We layer encryption on top.</Muted>
-
-        <View style={{ height: 8 }} />
+      <Reveal step={1}>
+        <Text style={s.heading}>Connect your inbox</Text>
         {/* With no OAuth client there is nothing to sign in to. The button is
             disabled rather than hidden, so the reason below it has something to
             explain — and so nobody goes looking for a mailbox that was never
             going to appear. */}
-        <ProviderButton
-          glyph="G"
-          tint={color.coral}
-          label="Continue with Gmail"
-          onPress={() => void connect('gmail')}
-          busy={busy === 'gmail'}
-          disabled={!canConnectGmail || (busy !== null && busy !== 'gmail')}
-          note={canConnectGmail ? undefined : 'Not configured'}
-        />
-        <ProviderButton
-          glyph="⊞"
-          tint="#6DB0FF"
-          label="Continue with Outlook"
-          onPress={() => void connect('outlook')}
-          busy={busy === 'outlook'}
-          disabled={!canConnectOutlook || (busy !== null && busy !== 'outlook')}
-          note={canConnectOutlook ? undefined : 'Not configured'}
-        />
-        <ProviderButton glyph="@" tint={color.inkDim} label="Other (IMAP / SMTP)" disabled note="Phase 1" />
+        <Group style={s.flush}>
+          <ProviderRow
+            glyph="G"
+            label="Continue with Gmail"
+            onPress={() => void connect('gmail')}
+            busy={busy === 'gmail'}
+            disabled={!canConnectGmail || (busy !== null && busy !== 'gmail')}
+            note={canConnectGmail ? undefined : 'Not configured'}
+          />
+          <ProviderRow
+            glyph="O"
+            label="Continue with Outlook"
+            onPress={() => void connect('outlook')}
+            busy={busy === 'outlook'}
+            disabled={!canConnectOutlook || (busy !== null && busy !== 'outlook')}
+            note={canConnectOutlook ? undefined : 'Not configured'}
+          />
+          <ProviderRow glyph="@" label="Other (IMAP / SMTP)" disabled note="Coming later" />
+        </Group>
 
-        <View style={s.reassure}>
-          <Icon name="shield" size={17} color={color.mint} />
-          <Text style={s.reassureText}>
-            Sign-in uses OAuth — we never see your password, and your private key never leaves this device.
-          </Text>
-        </View>
-
+        {error ? (
+          <View style={s.stack}>
+            <Callout>{error}</Callout>
+          </View>
+        ) : null}
         {reason ? (
-          <View style={{ marginTop: 14 }}>
+          <View style={s.stack}>
             <Callout>{reason}</Callout>
           </View>
         ) : null}
 
-        {error ? (
-          <View style={{ marginTop: 14 }}>
-            <Callout>{error}</Callout>
-          </View>
-        ) : null}
-      </View>
-      </Reveal>
-
-      <Reveal delay={180}>
-        <View style={s.guarantees}>
-          <Guarantee icon="key" text="Your private key is generated here and never leaves this device." />
-          <Guarantee icon="mail" text="Encrypted mail lands in your normal mailbox — as ciphertext." />
-          <Guarantee icon="alert" text="No key for a recipient? CryptMail refuses to send, never downgrades." />
+        <View style={s.stack}>
+          <Banner tone="ok" icon="shield">
+            Sign-in uses OAuth — CryptMail never sees your password.
+          </Banner>
         </View>
       </Reveal>
 
-      <Reveal delay={240}>
-        <Text style={s.foot}>
-          Prototype · Phase 0 · Gmail and Outlook, manual key exchange, no backend.
-        </Text>
+      <Reveal step={2}>
+        <Text style={s.heading}>What CryptMail promises</Text>
+        <Group style={s.flush}>
+          <Guarantee icon="key" title="Your key stays here" text="Your private key is generated on this device and never leaves it." />
+          <Guarantee icon="mail" title="Same mailbox" text="Encrypted mail lands in your normal inbox — as ciphertext to anyone else." />
+          {/* Rule 1, said the way it actually behaves: held in the outbox while
+              an invite goes out, never sent in the clear. */}
+          <Guarantee icon="lock" title="Never downgraded" text="No key for a recipient yet? The message waits in your outbox — it is never sent unencrypted." />
+        </Group>
+      </Reveal>
+
+      <Reveal step={3}>
+        <Text style={s.foot}>Prototype · Phase 0</Text>
       </Reveal>
     </ScrollView>
   );
 }
 
-/** A block of the onboarding entrance — fades and rises into place on mount. */
-function Reveal({ delay, children }: { delay: number; children: React.ReactNode }) {
+/**
+ * A block of the onboarding entrance — fades and rises into place on mount.
+ *
+ * Discrete motion, so it answers to reduced motion alone, and honouring it
+ * means arriving in place rather than staying hidden.
+ */
+function Reveal({ step, children }: { step: number; children: React.ReactNode }) {
+  const reducedMotion = useReducedMotion();
+  if (reducedMotion) return <View>{children}</View>;
   return (
     <MotiView
-      from={{ opacity: 0, translateY: 12 }}
+      from={{ opacity: 0, translateY: 8 }}
       animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 460, delay }}
+      transition={{ type: 'timing', duration: motion.base, delay: step * 60 }}
     >
       {children}
     </MotiView>
   );
 }
 
-function ProviderButton({
+function ProviderRow({
   glyph,
-  tint,
   label,
   onPress,
   disabled,
@@ -148,105 +150,92 @@ function ProviderButton({
   note,
 }: {
   glyph: string;
-  tint: string;
   label: string;
   onPress?: () => void;
   disabled?: boolean;
   busy?: boolean;
+  /** Why the row is unavailable — shown, and read out. */
   note?: string;
 }) {
   return (
-    <Pressable
+    <PressableRow
+      accessibilityHint={note}
+      accessibilityLabel={label}
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ busy: !!busy, disabled: !!disabled }}
       disabled={disabled || busy}
       onPress={onPress}
-      style={({ pressed }) => [s.provider, disabled && { opacity: 0.45 }, pressed && { opacity: 0.75 }]}
+      style={s.provider}
     >
-      <View style={[s.glyph, { borderColor: `${tint}55`, backgroundColor: `${tint}22` }]}>
-        <Text style={[s.glyphText, { color: tint }]}>{glyph}</Text>
+      {/* Neutral on purpose: a coral "G" read as the colour of a blocked send. */}
+      <View style={[s.glyph, disabled && { opacity: 0.5 }]}>
+        <Text style={s.glyphText}>{glyph}</Text>
       </View>
-      <Text style={s.providerLabel}>{label}</Text>
+      <Text style={[s.providerLabel, disabled && { color: color.inkFaint }]}>{label}</Text>
       {busy ? (
-        <ActivityIndicator size="small" color={tint} />
+        <ActivityIndicator size="small" color={color.ink} />
       ) : note ? (
         <Text style={s.note}>{note}</Text>
       ) : (
-        <Chevron />
+        <Icon name="chevron" size={16} color={color.inkDim} />
       )}
-    </Pressable>
+    </PressableRow>
   );
 }
 
-/** The three promises the product is actually making, stated before sign-in. */
-function Guarantee({ icon, text }: { icon: IconName; text: string }) {
+/** The promises the product is actually making, stated before sign-in. */
+function Guarantee({ icon, title, text }: { icon: IconName; title: string; text: string }) {
   return (
     <View style={s.guarantee}>
-      <Icon name={icon} size={14} color={color.inkFaint} />
-      <Text style={s.guaranteeText}>{text}</Text>
+      <Icon name={icon} size={20} color={color.inkDim} />
+      <View style={{ flex: 1 }}>
+        <Text style={s.guaranteeTitle}>{title}</Text>
+        <Text style={s.guaranteeText}>{text}</Text>
+      </View>
     </View>
   );
 }
 
-const Chevron = () => <Icon name="chevron" size={14} color={color.inkFaint} />;
-
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
-  content: { paddingHorizontal: 20 },
-  brand: { alignItems: 'center', flexDirection: 'row', gap: 10, marginBottom: 22 },
+  content: { paddingHorizontal: space.lg },
+
+  brand: { alignItems: 'center', flexDirection: 'row', gap: space.sm, marginBottom: space.xl },
   brandMark: {
     alignItems: 'center',
+    backgroundColor: color.surfaceRaised,
     borderRadius: radius.sm,
     height: 34,
     justifyContent: 'center',
     width: 34,
-    ...shadow.raised,
   },
   brandText: { color: color.ink, fontFamily: font.display, fontSize: 18, letterSpacing: -0.3 },
 
-  pitch: { color: color.ink, fontFamily: font.displayBold, fontSize: 27, letterSpacing: -0.5, lineHeight: 34, marginBottom: 26 },
-  pitchAccent: {},
+  pitch: { color: color.ink, fontFamily: font.displayBold, fontSize: 28, letterSpacing: -0.5, lineHeight: 35 },
+  lede: { ...type.body, color: color.inkDim, marginTop: space.md },
 
-  card: {
-    backgroundColor: color.surface,
-    borderColor: color.line,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: 18,
-  },
+  heading: { ...type.heading, color: color.ink, marginBottom: space.md, marginTop: space.xl + space.sm },
+  // The screen already carries the gutter; `Group` brings its own for
+  // full-width settings lists.
+  flush: { marginHorizontal: 0 },
+  stack: { marginTop: space.md },
 
-  provider: {
+  provider: { alignItems: 'center', flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg, paddingVertical: 15 },
+  glyph: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: glass.hairline,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 13,
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.pill,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
   },
-  glyph: { alignItems: 'center', borderRadius: 7, borderWidth: 1, height: 26, justifyContent: 'center', width: 26 },
-  glyphText: { fontFamily: font.monoMedium, fontSize: 13 },
-  providerLabel: { ...type.strong, color: color.ink, flex: 1 },
-  note: { ...type.eyebrow, color: color.inkFaint },
+  glyphText: { color: color.ink, fontFamily: font.sansBold, fontSize: 14 },
+  providerLabel: { ...type.settingsRow, color: color.ink, flex: 1 },
+  note: { ...type.small, color: color.inkFaint },
 
-  reassure: {
-    backgroundColor: color.mintBg,
-    borderColor: 'rgba(87,214,163,0.25)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-    padding: 13,
-  },
-  reassureText: { color: color.mintInk, flex: 1, fontFamily: font.sans, fontSize: 12.5, lineHeight: 18 },
+  guarantee: { alignItems: 'flex-start', flexDirection: 'row', gap: space.lg, padding: space.lg },
+  guaranteeTitle: { ...type.strong, color: color.ink },
+  guaranteeText: { ...type.small, color: color.inkDim, marginTop: 2 },
 
-  guarantees: { gap: 12, marginTop: space.xl, paddingHorizontal: 4 },
-  guarantee: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
-  guaranteeText: { ...type.small, color: color.inkDim, flex: 1 },
-
-  foot: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11, marginTop: 26, textAlign: 'center' },
+  foot: { ...type.small, color: color.inkFaint, marginTop: space.xl, textAlign: 'center' },
 });
