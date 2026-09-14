@@ -115,6 +115,15 @@ case "${1:-help}" in
   key) # key <keycode>: 66=ENTER 67=DEL 123=MOVE_END 4=BACK
     "$ADB" shell input keyevent "${2:?keycode}" ;;
 
+  keyboard) # show the full on-screen keyboard even with the host keyboard attached
+    # The emulator reports the host's keyboard as a physical one, so Gboard shows
+    # only a floating suggestion pill — and nothing about a layout that must sit
+    # above the keyboard can be seen. Restarting the IME applies the setting.
+    ime=com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME
+    "$ADB" shell settings put secure show_ime_with_hard_keyboard 1
+    "$ADB" shell "ime disable $ime; ime enable $ime; ime set $ime" >/dev/null
+    echo "on-screen keyboard enabled" ;;
+
   clear-anr) # answer a system "isn't responding" dialog with Wait, if one is up
     clear_anr ;;
 

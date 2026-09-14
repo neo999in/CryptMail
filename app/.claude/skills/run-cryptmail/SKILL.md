@@ -30,6 +30,7 @@ D=.claude/skills/run-cryptmail/driver.sh
 bash $D devices              # attached devices + AVDs
 bash $D boot                 # cold-boot the first AVD (~50s); skip if one is healthy
 bash $D metro                # reuse Metro on :8081, or start one in watch mode (~60s)
+bash $D keyboard             # full on-screen keyboard (else Gboard shows only a pill)
 bash $D launch               # force-stop, start, wait for real UI (~35-55s): "app ready"
 bash $D dismiss-logbox       # close the dev "Open debugger to view warnings" banner
 bash $D shot inbox           # -> $TMP/cryptmail-shots/inbox.png — then READ it
@@ -67,6 +68,7 @@ Clean up a test draft through the app: `key 4` (hide keyboard), then
 | `tap <x> <y>` | tap in **device** pixels |
 | `type <text>` | type slowly; spaces become `%s`; r's are spaced out |
 | `key <code>` | 66 Enter, 67 Del, 123 End, 4 Back |
+| `keyboard` | show the full on-screen keyboard despite the host keyboard |
 | `clear-anr` | answer an "isn't responding" dialog with Wait |
 | `dismiss-logbox` | close the dev warnings banner |
 | `log [n]` | last n `ReactNativeJS` lines |
@@ -111,6 +113,11 @@ npx tsc --noEmit && npm test -- --ci     # 84 suites, 1514 tests at time of writ
   `system_server` hung and ANR'd every app (black screen, "Process system isn't
   responding" behind it). `adb emu kill` + a snapshot boot came back in 7s with
   the same fault. `boot` always passes `-no-snapshot-load`.
+- **The emulator hides the real keyboard.** It reports the host keyboard as a
+  physical one, so Gboard shows only a floating suggestion pill — which also
+  sits on top of whatever is at the bottom of the screen and eats taps there.
+  A formatting bar hidden behind the keyboard shipped past that; run `keyboard`
+  before checking anything that has to sit above it.
 - **Don't poll `uiautomator` tightly.** A dump every 2s on a struggling
   emulator coincided with the system ANRs; `launch` polls every 5s after a 15s
   head start.
