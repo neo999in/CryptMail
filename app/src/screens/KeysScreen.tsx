@@ -5,26 +5,27 @@ import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, groupFingerprint, initials } from '../lib/format';
-import { RootStackParamList } from '../navigation';
+import { back, RootStackParamList } from '../navigation';
 import { ContactKey } from '../store/keyring';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
-import { color, font, glass, radius, type } from '../theme';
+import { color, font, radius, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
+import { Icon } from '../ui/Icon';
 import {
   Avatar,
   Badge,
   Banner,
   Callout,
-  Card,
   EmptyState,
   Field,
+  Group,
+  GroupHeading,
+  IconButton,
   Input,
-  Muted,
   PrimaryButton,
-  SectionLabel,
   SecondaryButton,
-  Title,
+  SettingsRow,
   useFocus,
 } from '../ui/primitives';
 
@@ -168,229 +169,252 @@ export function KeysScreen({ navigation }: Props) {
     }
   };
 
+  const pasted = paste.trim().length > 0;
+
   return (
-    <ScrollView
-      style={s.screen}
-      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Card>
-        <Title>Your public key</Title>
-        <Muted>Share this with anyone who should be able to send you encrypted mail.</Muted>
+    <View style={s.screen}>
+      <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
+        <Text style={s.title}>Keys</Text>
+      </View>
 
-        {identity ? (
-          <>
-            <View style={s.fpGrid}>
-              {groupFingerprint(identity.fingerprint).map((group, i) => (
-                <Text key={`${group}-${i}`} style={s.fpCell}>
-                  {group}
-                </Text>
-              ))}
-            </View>
-            <View style={s.row}>
-              <SecondaryButton title={copied ? 'Copied' : 'Copy key'} icon={copied ? 'check' : 'copy'} onPress={() => void copyMine()} />
-              <Text style={s.address}>{identity.email}</Text>
-            </View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + space.xl, paddingTop: space.sm }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <GroupHeading>Your key</GroupHeading>
 
-            {/*
-              Unprompted, because the user has no other way to learn it: the key
-              is wrapped by the platform keystore, which has no backup path of
-              its own. Someone who never opens this screen finds out only after
-              the phone is gone, when nothing can be done about it.
-            */}
-            <View style={{ marginTop: 14 }}>
-              {backupMissing || !recovery.backedUpAt ? (
-                <Banner tone="warn" icon="alert">
-                  This key has no backup. Lose this device and every message ever sent to it becomes
-                  unreadable — permanently.
-                </Banner>
-              ) : (
-                <Banner tone="ok" icon="shield">
-                  Backed up {new Date(recovery.backedUpAt).toLocaleDateString()}.
-                </Banner>
-              )}
-              <View style={s.row}>
-                <SecondaryButton
-                  title={backupMissing ? 'Back up this key…' : 'Backup and recovery…'}
-                  icon="shield"
-                  onPress={() => navigation.navigate('Recovery')}
-                />
-              </View>
-            </View>
-          </>
-        ) : (
-          <Muted>No identity key yet.</Muted>
-        )}
-      </Card>
-
-      {/*
-        Publishing is asked for, never assumed. The listing is public — it tells
-        anyone who looks that this address has a key — and it is also the only
-        thing that lets a stranger's first message to this address be encrypted.
-        Both halves of that are said out loud rather than one of them buried.
-      */}
-      {identity ? (
-        <Card style={{ marginTop: 14 }}>
-          <Title>Publish your key</Title>
-          {published === 'published' ? (
-            <>
-              <View style={s.statusBanner}>
-                <Banner tone="ok" icon="shield">
-                  Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
-                </Banner>
-              </View>
-              <Muted>
-                What is listed is your address and your public key. Nothing about your messages, and
-                nobody you correspond with.
-              </Muted>
-            </>
-          ) : published === 'pending' ? (
-            <>
-              <View style={s.statusBanner}>
-                <Banner tone="warn" icon="clock">
-                  Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
-                  your key is stored but not served to anyone.
-                </Banner>
-              </View>
-              {verifyLink ? (
-                <>
-                  {/*
-                    The link came out of this mailbox, and CryptMail checked that
-                    it was sent by the keyserver, that it names this device's own
-                    fingerprint, and that it points at a /verify/ path on
-                    keys.openpgp.org — see keys/verifyLink.ts. Hence a button
-                    rather than "go and find the email".
-                  */}
-                  <Muted>
-                    The confirmation email is here. CryptMail checked that {directoryName} sent it and
-                    that it names this device&apos;s key.
-                  </Muted>
-                  <View style={s.row}>
-                    <PrimaryButton title="Open the confirmation link" icon="link" onPress={() => void openVerifyLink()} />
-                  </View>
-                </>
-              ) : (
-                <Muted>
-                  CryptMail checks on each sync and will notice once the link has been opened, on this
-                  device or any other. It also watches your recent inbox for the confirmation email —
-                  if your provider filed it as spam, or it has scrolled out of the last twenty
-                  messages, open the link from your mail app instead.
-                </Muted>
-              )}
-              {publishError ? (
-                <View style={{ marginTop: 12 }}>
-                  <Banner tone="warn" icon="alert">{publishError}</Banner>
-                </View>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Muted>
-                Listing your public key is what lets someone send you encrypted mail the first time
-                they write, without asking you for anything first.
-              </Muted>
-              <View style={{ marginTop: 10 }}>
-                <Callout>
-                  The listing is public: anyone who tries your address learns that it has a key. Your
-                  messages and your contacts are not part of it.
-                </Callout>
-              </View>
-              <View style={s.row}>
-                <PrimaryButton
-                  title={`Publish to ${directoryName}`}
-                  icon="shield"
-                  busy={publishing}
-                  onPress={() => void doPublish()}
-                />
-                {published === 'declined' ? null : (
-                  <SecondaryButton title="Not now" icon="close" onPress={() => void declinePublish()} />
-                )}
-              </View>
-              {publishError ? (
-                <View style={{ marginTop: 12 }}>
-                  <Banner tone="warn" icon="alert">
-                    {publishError} Your key is not listed; nothing was sent.
-                  </Banner>
-                </View>
-              ) : null}
-            </>
-          )}
-        </Card>
-      ) : null}
-
-      <Card style={{ marginTop: 14 }}>
-        <Title>Add someone&apos;s key</Title>
-        <Muted>Paste the armored public key block they sent you — exported from GnuPG, Proton Mail, or any OpenPGP tool.</Muted>
-        <View style={{ height: 10 }} />
-        <Field label="Public key block" focused={pasteFocus.focused} tone={error ? 'warn' : 'default'}>
-          <Input
-            autoCapitalize="none"
-            autoCorrect={false}
-            big
-            multiline
-            onChangeText={setPaste}
-            placeholder={'-----BEGIN PGP PUBLIC KEY BLOCK-----'}
-            style={s.pasteInput}
-            value={paste}
-            {...pasteFocus.bind}
-          />
-        </Field>
-        {error ? (
-          <View style={{ marginBottom: 12 }}>
-            <Callout>{error}</Callout>
+        {/*
+          Unprompted, because the user has no other way to learn it: the key
+          is wrapped by the platform keystore, which has no backup path of
+          its own. Someone who never opens this screen finds out only after
+          the phone is gone, when nothing can be done about it.
+        */}
+        {identity && backupMissing ? (
+          <View style={s.gutter}>
+            <Banner tone="warn" icon="alert">
+              This key has no backup. Lose this device and every message ever sent to it becomes
+              unreadable — permanently.
+            </Banner>
           </View>
         ) : null}
-        <View style={s.importRow}>
-          <View style={{ flex: 1 }}>
-            <PrimaryButton
-              title="Import key"
-              icon="key"
-              onPress={() => void doImport()}
-              disabled={paste.trim().length === 0}
+
+        <Group>
+          {identity ? (
+            <View style={s.pad}>
+              <View style={s.ownHead}>
+                <View style={s.ownGlyph}>
+                  <Icon name="key" size={20} color={color.ink} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={s.ownAddress}>
+                    {identity.email}
+                  </Text>
+                  <Text style={s.hint}>Share this with anyone who should be able to send you encrypted mail.</Text>
+                </View>
+              </View>
+
+              <Text style={s.eyebrow}>Fingerprint</Text>
+              <Inset>
+                <View style={s.fpGrid}>
+                  {groupFingerprint(identity.fingerprint).map((group, i) => (
+                    <Text key={`${group}-${i}`} style={s.fpCell}>
+                      {group}
+                    </Text>
+                  ))}
+                </View>
+              </Inset>
+
+              <SecondaryButton
+                title={copied ? 'Copied' : 'Copy public key'}
+                icon={copied ? 'check' : 'copy'}
+                onPress={() => void copyMine()}
+              />
+            </View>
+          ) : (
+            <View style={s.pad}>
+              <Text style={s.hint}>No identity key on this device yet.</Text>
+            </View>
+          )}
+          {identity ? (
+            <SettingsRow
+              icon="shield"
+              label={backupMissing ? 'Back up this key' : 'Backup and recovery'}
+              value={
+                !backupMissing && recovery.backedUpAt
+                  ? `Backed up ${new Date(recovery.backedUpAt).toLocaleDateString()}`
+                  : 'Never backed up'
+              }
+              tint={backupMissing ? color.coral : undefined}
+              onPress={() => navigation.navigate('Recovery')}
+              trailing={<Icon name="chevron" size={18} color={color.inkFaint} />}
             />
+          ) : null}
+        </Group>
+
+        {/*
+          Publishing is asked for, never assumed. The listing is public — it tells
+          anyone who looks that this address has a key — and it is also the only
+          thing that lets a stranger's first message to this address be encrypted.
+          Both halves of that are said out loud rather than one of them buried.
+        */}
+        {identity ? (
+          <>
+            <GroupHeading>Key directory</GroupHeading>
+            <Group>
+              <View style={s.pad}>
+                {published === 'published' ? (
+                  <>
+                    <Banner tone="ok" icon="shield">
+                      Listed on {directoryName}. Anyone can now write to you encrypted on their first try.
+                    </Banner>
+                    <Text style={s.body}>
+                      What is listed is your address and your public key. Nothing about your messages, and
+                      nobody you correspond with.
+                    </Text>
+                  </>
+                ) : published === 'pending' ? (
+                  <>
+                    <Banner tone="warn" icon="clock">
+                      Uploaded. {directoryName} has emailed you a confirmation link — until you open it,
+                      your key is stored but not served to anyone.
+                    </Banner>
+                    {verifyLink ? (
+                      <>
+                        {/*
+                          The link came out of this mailbox, and CryptMail checked that
+                          it was sent by the keyserver, that it names this device's own
+                          fingerprint, and that it points at a /verify/ path on
+                          keys.openpgp.org — see keys/verifyLink.ts. Hence a button
+                          rather than "go and find the email".
+                        */}
+                        <Text style={s.body}>
+                          The confirmation email is here. CryptMail checked that {directoryName} sent it and
+                          that it names this device&apos;s key.
+                        </Text>
+                        <PrimaryButton title="Open the confirmation link" icon="link" onPress={() => void openVerifyLink()} />
+                      </>
+                    ) : (
+                      <Text style={s.body}>
+                        CryptMail checks on each sync and will notice once the link has been opened, on this
+                        device or any other. It also watches your recent inbox for the confirmation email —
+                        if your provider filed it as spam, or it has scrolled out of the last twenty
+                        messages, open the link from your mail app instead.
+                      </Text>
+                    )}
+                    {publishError ? (
+                      <Banner tone="warn" icon="alert">{publishError}</Banner>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Text style={s.body}>
+                      Listing your public key is what lets someone send you encrypted mail the first time
+                      they write, without asking you for anything first.
+                    </Text>
+                    <Callout>
+                      The listing is public: anyone who tries your address learns that it has a key. Your
+                      messages and your contacts are not part of it.
+                    </Callout>
+                    <PrimaryButton
+                      title={`Publish to ${directoryName}`}
+                      icon="shield"
+                      busy={publishing}
+                      onPress={() => void doPublish()}
+                    />
+                    {published === 'declined' ? null : (
+                      <SecondaryButton title="Not now" onPress={() => void declinePublish()} />
+                    )}
+                    {publishError ? (
+                      <Banner tone="warn" icon="alert">
+                        {publishError} Your key is not listed; nothing was sent.
+                      </Banner>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            </Group>
+          </>
+        ) : null}
+
+        <GroupHeading>Add someone&apos;s key</GroupHeading>
+        <Group>
+          <View style={s.pad}>
+            <Text style={s.hint}>
+              Paste the armored public key block they sent you — exported from GnuPG, Proton Mail, or any
+              OpenPGP tool.
+            </Text>
+            <Field
+              label="Public key block"
+              focused={pasteFocus.focused}
+              tone={error ? 'warn' : 'default'}
+              style={s.fieldFlush}
+            >
+              <Input
+                autoCapitalize="none"
+                autoCorrect={false}
+                big
+                multiline
+                onChangeText={setPaste}
+                placeholder={'-----BEGIN PGP PUBLIC KEY BLOCK-----'}
+                style={s.pasteInput}
+                value={paste}
+                {...pasteFocus.bind}
+              />
+            </Field>
+            {error ? <Callout>{error}</Callout> : null}
+            <View style={s.importRow}>
+              <View style={{ flex: 1 }}>
+                <PrimaryButton title="Import key" icon="key" onPress={() => void doImport()} disabled={!pasted} />
+              </View>
+              <SecondaryButton
+                title={pasted ? 'Clear' : 'Paste'}
+                icon={pasted ? 'close' : 'copy'}
+                onPress={() => (pasted ? setPaste('') : void pasteFromClipboard())}
+              />
+            </View>
           </View>
-          <SecondaryButton
-            title={paste.trim().length > 0 ? 'Clear' : 'Paste'}
-            icon={paste.trim().length > 0 ? 'close' : 'copy'}
-            onPress={() => (paste.trim().length > 0 ? setPaste('') : void pasteFromClipboard())}
-          />
-        </View>
-      </Card>
+        </Group>
 
-      <SectionLabel style={s.sectionHead}>
-        Keyring · {contacts.length}
-        {unverified > 0 ? ` · ${unverified} unverified` : ''}
-      </SectionLabel>
+        <GroupHeading>
+          {`Keyring · ${contacts.length}${unverified > 0 ? ` · ${unverified} unverified` : ''}`}
+        </GroupHeading>
 
-      {contacts.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon="key"
-            title="No contact keys yet"
-            hint="Without a key, CryptMail will not send to that address at all."
-          />
-        </Card>
-      ) : (
-        contacts.map((contact) => (
-          <ContactRow
-            key={contact.email}
-            contact={contact}
-            ceremony={verifying?.email === contact.email ? verifying.number : null}
-            onStartVerify={() => void startVerify(contact)}
-            onConfirm={() => void confirmVerify(contact)}
-            onCancel={() => setVerifying(null)}
-            onForget={() =>
-              confirmDialog('Forget key?', `Remove ${contact.email}'s key from this device?`, [
-                { label: 'Cancel' },
-                { label: 'Forget', tone: 'destructive', onPress: () => void forgetKey(contact.email) },
-              ])
-            }
-          />
-        ))
-      )}
-    </ScrollView>
+        <Group>
+          {contacts.length === 0 ? (
+            <EmptyState
+              icon="key"
+              title="No contact keys yet"
+              hint="Without a key, CryptMail will not send to that address at all."
+            />
+          ) : (
+            contacts.map((contact) => (
+              <ContactRow
+                key={contact.email}
+                contact={contact}
+                ceremony={verifying?.email === contact.email ? verifying.number : null}
+                onStartVerify={() => void startVerify(contact)}
+                onConfirm={() => void confirmVerify(contact)}
+                onCancel={() => setVerifying(null)}
+                onForget={() =>
+                  confirmDialog('Forget key?', `Remove ${contact.email}'s key from this device?`, [
+                    { label: 'Cancel' },
+                    { label: 'Forget', tone: 'destructive', onPress: () => void forgetKey(contact.email) },
+                  ])
+                }
+              />
+            ))
+          )}
+        </Group>
+      </ScrollView>
+    </View>
   );
+}
+
+/** A recessed block for cryptographic text — a fingerprint, a safety number. */
+function Inset({ children }: { children: React.ReactNode }) {
+  return <View style={s.inset}>{children}</View>;
 }
 
 function ContactRow({
@@ -418,81 +442,114 @@ function ContactRow({
         : { tone: 'plain' as const, label: 'trusted on first use' };
 
   return (
-    <Card style={{ marginBottom: 10 }}>
+    <View style={s.contact}>
       <View style={s.contactHead}>
-        <Avatar seed={contact.email} label={initials(name)} />
+        <Avatar seed={contact.email} label={initials(name)} size={38} />
         <View style={{ flex: 1 }}>
-          <Text style={s.contactName}>{name}</Text>
-          <Text style={s.contactEmail}>{contact.email}</Text>
+          <Text numberOfLines={1} style={s.contactName}>
+            {name}
+          </Text>
+          <Text numberOfLines={1} style={s.contactEmail}>
+            {contact.email}
+          </Text>
         </View>
         <Badge tone={badge.tone} icon={badge.icon}>
           {badge.label}
         </Badge>
       </View>
 
-      <Text style={s.fingerprint}>{groupFingerprint(contact.fingerprint).join(' ')}</Text>
-      <Text style={s.source}>
-        via {contact.source}
-        {contact.verifiedAt ? ` · compared ${new Date(contact.verifiedAt).toLocaleDateString()}` : ''}
-      </Text>
+      <View style={s.contactBody}>
+        <Text selectable style={s.fingerprint}>
+          {groupFingerprint(contact.fingerprint).join(' ')}
+        </Text>
+        <Text style={s.source}>
+          via {contact.source}
+          {contact.verifiedAt ? ` · compared ${new Date(contact.verifiedAt).toLocaleDateString()}` : ''}
+        </Text>
 
-      {ceremony ? (
-        <View style={s.ceremony}>
-          <Muted>
-            Read these digits to {name} over a channel you already trust — in person, or a call where
-            you recognise their voice. They will see the same number.
-          </Muted>
-          <Text style={s.safetyNumber}>{ceremony}</Text>
-          <View style={s.row}>
-            <PrimaryButton title="They match" icon="check" onPress={onConfirm} />
-            <SecondaryButton title="Cancel" icon="close" onPress={onCancel} />
+        {ceremony ? (
+          <View style={s.ceremony}>
+            <Text style={s.hint}>
+              Read these digits to {name} over a channel you already trust — in person, or a call where
+              you recognise their voice. They will see the same number.
+            </Text>
+            <Inset>
+              <Text selectable style={s.safetyNumber}>
+                {ceremony}
+              </Text>
+            </Inset>
+            <View style={s.actions}>
+              <View style={{ flex: 1 }}>
+                <PrimaryButton title="They match" icon="check" onPress={onConfirm} />
+              </View>
+              <SecondaryButton title="Cancel" onPress={onCancel} />
+            </View>
           </View>
-        </View>
-      ) : null}
-
-      <View style={s.row}>
-        {contact.trust !== 'verified' && !ceremony ? (
-          <SecondaryButton title="Verify…" icon="check" onPress={onStartVerify} />
-        ) : null}
-        <SecondaryButton title="Forget" icon="close" onPress={onForget} tone="danger" />
+        ) : (
+          <View style={s.actions}>
+            {contact.trust !== 'verified' ? (
+              <SecondaryButton title="Verify…" icon="check" onPress={onStartVerify} />
+            ) : null}
+            <SecondaryButton title="Forget" icon="trash" onPress={onForget} tone="danger" />
+          </View>
+        )}
       </View>
-    </Card>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  fpGrid: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: glass.hairline,
+  topbar: {
+    alignItems: 'center',
+    backgroundColor: color.surface,
+    flexDirection: 'row',
+    gap: space.sm,
+    paddingBottom: space.md,
+    paddingHorizontal: space.md,
+  },
+  title: { ...type.display, color: color.ink, flex: 1 },
+
+  /** Something standing in the gutter between a heading and its group. */
+  gutter: { marginBottom: space.md, marginHorizontal: space.lg },
+  pad: { gap: space.md, padding: space.lg },
+
+  body: { ...type.body, color: color.inkDim },
+  hint: { ...type.small, color: color.inkDim },
+  eyebrow: { ...type.eyebrow, color: color.inkFaint, marginBottom: -space.xs },
+
+  ownHead: { alignItems: 'center', flexDirection: 'row', gap: space.md },
+  ownGlyph: {
+    alignItems: 'center',
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.lg,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  ownAddress: { ...type.heading, color: color.ink, marginBottom: 2 },
+
+  inset: {
+    backgroundColor: color.ground2,
+    borderColor: color.border,
     borderRadius: radius.sm,
     borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 15,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.md,
   },
+  fpGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   fpCell: {
     color: color.ink,
     fontFamily: font.mono,
     fontSize: 14,
     letterSpacing: 1,
-    paddingVertical: 4,
+    paddingVertical: space.xs,
     textAlign: 'center',
     width: '25%',
   },
 
-  ceremony: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: glass.hairline,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    gap: 10,
-    marginTop: 12,
-    padding: 12,
-  },
+  ceremony: { gap: space.md, marginTop: space.xs },
   safetyNumber: {
     color: color.ink,
     fontFamily: font.mono,
@@ -502,27 +559,20 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /**
-   * A status banner sitting straight under a `Title`.
-   *
-   * `type.heading` carries no line-height, so the title's box is tight to its
-   * glyphs and a banner placed after it reads as touching — every other card
-   * puts a `Muted` in between, whose leading hides the gap. This is the same
-   * 12px the rest of the card is spaced on.
-   */
-  statusBanner: { marginBottom: 12, marginTop: 12 },
+  actions: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
 
-  row: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 12 },
-  address: { ...type.meta, color: color.inkFaint, flex: 1 },
-
+  // The field's own bottom margin is for a stack of fields; here the group's
+  // gap already spaces it.
+  fieldFlush: { marginBottom: 0 },
   pasteInput: { fontFamily: font.mono, fontSize: 11.5, minHeight: 96 },
-  importRow: { alignItems: 'stretch', flexDirection: 'row', gap: 9 },
+  importRow: { alignItems: 'stretch', flexDirection: 'row', gap: space.sm },
 
-  sectionHead: { marginBottom: 10, marginTop: 24 },
-
-  contactHead: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  contactName: { ...type.strong, color: color.ink },
-  contactEmail: { ...type.meta, color: color.inkFaint, marginTop: 1 },
-  fingerprint: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5, lineHeight: 18, marginTop: 12 },
-  source: { ...type.eyebrow, color: color.inkFaint, letterSpacing: 0.4, marginTop: 4, textTransform: 'none' },
+  contact: { gap: space.md, padding: space.lg },
+  contactHead: { alignItems: 'center', flexDirection: 'row', gap: space.md },
+  // Indented to the text column, so the avatar stands alone on the left.
+  contactBody: { gap: space.sm, marginLeft: 38 + space.md },
+  contactName: { ...type.row, color: color.ink },
+  contactEmail: { ...type.meta, color: color.inkFaint, marginTop: 2 },
+  fingerprint: { ...type.meta, color: color.inkDim, lineHeight: 18 },
+  source: { ...type.small, color: color.inkFaint, marginTop: -space.xs },
 });

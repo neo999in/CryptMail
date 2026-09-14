@@ -162,10 +162,12 @@ function FullStack() {
         options={{ headerShown: false, presentation: 'modal' }}
         initialParams={{}}
       />
-      <Stack.Screen name="Keys" component={KeysScreen} options={{ title: 'Keys' }} />
+      {/* Keys and Recovery draw their own top bar, like Settings and Account —
+          a native header is OS chrome that answers to none of the tokens. */}
+      <Stack.Screen name="Keys" component={KeysScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ headerShown: false }} />
       {/* Draws its own top bar, like Settings — it opens with a search field
           and a filter, and a native header above those is one bar too many. */}
-      <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ title: 'Key recovery' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Appearance" component={AppearanceScreen} options={{ headerShown: false }} />
       {/* Settings → Mail → Swipe options. Both are pushes, like Accounts. */}

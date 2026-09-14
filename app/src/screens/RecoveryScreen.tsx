@@ -1,3 +1,4 @@
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -7,22 +8,26 @@ import { cryptoMode } from '../config';
 import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
 import { RecoveryBackup } from '../core';
 import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
+import { back, RootStackParamList } from '../navigation';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
-import { color, font, glass, radius, type } from '../theme';
+import { color, font, radius, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
+import { Icon, IconName } from '../ui/Icon';
 import {
   Banner,
   Callout,
-  Card,
   Field,
+  Group,
+  GroupHeading,
+  IconButton,
   Input,
-  Muted,
   PrimaryButton,
   SecondaryButton,
-  Title,
   useFocus,
 } from '../ui/primitives';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Recovery'>;
 
 /**
  * Backup and restore for this device's identity key.
@@ -37,7 +42,7 @@ import {
  * The two halves are deliberately separate: the code goes on paper, the blob
  * goes in storage, and neither alone restores anything.
  */
-export function RecoveryScreen() {
+export function RecoveryScreen({ navigation }: Props) {
   const { identity, recovery, exportRecovery, restoreFromRecovery } = useApp();
   const insets = useSafeAreaInsets();
 
@@ -148,183 +153,274 @@ export function RecoveryScreen() {
     );
   };
 
+  const codeTyped = codeInput.length > 0;
+  const codeValid = isValidRecoveryCode(codeInput);
+
   return (
-    <ScrollView
-      style={s.screen}
-      contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 }}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      {unprotected ? (
-        <View style={{ marginBottom: 14 }}>
-          <Banner tone="warn" icon="alert">
-            This key has no backup. If you lose this device, every message ever sent to it becomes
-            unreadable — permanently, and by everyone.
-          </Banner>
-        </View>
-      ) : recovery.backedUpAt ? (
-        <View style={{ marginBottom: 14 }}>
-          <Banner tone="ok" icon="check">
-            Backed up {new Date(recovery.backedUpAt).toLocaleDateString()}. The code is only useful
-            with the backup text, and vice versa.
-          </Banner>
-        </View>
-      ) : null}
+    <View style={s.screen}>
+      <View style={[s.topbar, { paddingTop: insets.top + 6 }]}>
+        <IconButton icon="back" label="Back" onPress={() => back(navigation)} size={40} />
+        <Text style={s.title}>Key recovery</Text>
+      </View>
 
-      <Card>
-        <Title>Back up this key</Title>
-        <Muted>
-          Creates a recovery code and a block of backup text. Keep them apart: the code on paper, the
-          text somewhere you can get to it from another device. Neither one restores anything alone.
-        </Muted>
-
-        {!identity ? (
-          <View style={{ marginTop: 14 }}>
-            <Muted>No identity key on this device yet.</Muted>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + space.xl, paddingTop: space.lg }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {unprotected ? (
+          <View style={s.gutter}>
+            <Banner tone="warn" icon="alert">
+              This key has no backup. If you lose this device, every message ever sent to it becomes
+              unreadable — permanently, and by everyone.
+            </Banner>
           </View>
-        ) : !backup ? (
-          <View style={{ marginTop: 14 }}>
-            <PrimaryButton
-              title={recovery.backedUpAt ? 'Create a new backup' : 'Create a backup'}
-              icon="shield"
-              onPress={() => void doExport()}
-              busy={busy}
-            />
-            {recovery.backedUpAt ? (
-              <Text style={s.note}>
-                A new backup issues a new code. The previous code stops being the one to keep.
+        ) : recovery.backedUpAt ? (
+          <View style={s.gutter}>
+            <Banner tone="ok" icon="check">
+              Backed up {new Date(recovery.backedUpAt).toLocaleDateString()}. The code is only useful
+              with the backup text, and vice versa.
+            </Banner>
+          </View>
+        ) : null}
+
+        {/* The two halves, drawn as two: what goes on paper, what goes in storage. */}
+        <View style={s.halves}>
+          <Half icon="edit" title="Recovery code" hint="On paper, kept at home" />
+          <Half icon="file" title="Backup text" hint="In a drive or password manager" />
+        </View>
+
+        <GroupHeading>Back up this key</GroupHeading>
+        <Group>
+          <View style={s.pad}>
+            {!backup ? (
+              <Text style={s.body}>
+                Creates a recovery code and a block of backup text. Keep them apart: the code on paper, the
+                text somewhere you can get to it from another device. Neither one restores anything alone.
               </Text>
             ) : null}
-          </View>
-        ) : (
-          <View style={{ marginTop: 16 }}>
-            <Text style={s.eyebrow}>Recovery code — write this down now</Text>
-            <View style={s.codeBox}>
-              {backup.code.split('-').map((group, i) => (
-                <Text key={`${group}-${i}`} style={s.codeCell}>
-                  {group}
+
+            {!identity ? (
+              <Text style={s.hint}>No identity key on this device yet.</Text>
+            ) : !backup ? (
+              <>
+                <PrimaryButton
+                  title={recovery.backedUpAt ? 'Create a new backup' : 'Create a backup'}
+                  icon="shield"
+                  onPress={() => void doExport()}
+                  busy={busy}
+                />
+                {recovery.backedUpAt ? (
+                  <Text style={s.hint}>
+                    A new backup issues a new code. The previous code stops being the one to keep.
+                  </Text>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Step n={1} title="Write the recovery code down now" />
+                <View style={s.inset}>
+                  <View style={s.codeGrid}>
+                    {backup.code.split('-').map((group, i) => (
+                      <Text key={`${group}-${i}`} style={s.codeCell}>
+                        {group}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+                <Text style={s.hint}>
+                  This is shown once and is not stored anywhere on this device — that is what makes it
+                  worth keeping. Letters are unambiguous: there is no O, I, L or U.
                 </Text>
-              ))}
-            </View>
-            <Text style={s.note}>
-              This is shown once and is not stored anywhere on this device — that is what makes it
-              worth keeping. Letters are unambiguous: there is no O, I, L or U.
+                <View style={s.actions}>
+                  <SecondaryButton
+                    title={copied === 'code' ? 'Copied' : 'Copy code'}
+                    icon={copied === 'code' ? 'check' : 'copy'}
+                    onPress={() => void copy('code', backup.code)}
+                  />
+                </View>
+
+                <View style={s.divider} />
+
+                <Step n={2} title="Store the backup text somewhere else" />
+                <View style={s.inset}>
+                  <Text style={s.blob} selectable numberOfLines={5}>
+                    {backup.blob}
+                  </Text>
+                </View>
+                <PrimaryButton
+                  title="Save backup to a file"
+                  icon="download"
+                  onPress={() => void saveBackupFile(backup)}
+                />
+                <View style={s.actions}>
+                  <SecondaryButton
+                    title={copied === 'blob' ? 'Copied' : 'Copy backup text'}
+                    icon={copied === 'blob' ? 'check' : 'copy'}
+                    onPress={() => void copy('blob', backup.blob)}
+                  />
+                </View>
+                <Text style={s.hint}>
+                  The file holds the backup text only — never the code. Put it somewhere you can reach
+                  from a device you do not own yet.
+                </Text>
+
+                <View style={s.divider} />
+
+                <SecondaryButton title="Done" icon="check" onPress={() => setBackup(null)} />
+              </>
+            )}
+          </View>
+        </Group>
+
+        <GroupHeading>Restore from a backup</GroupHeading>
+        <Group>
+          <View style={s.pad}>
+            <Text style={s.body}>
+              Load the backup file or paste its text, then type the recovery code. The same key comes
+              back, with the same fingerprint — nobody who writes to you has to change anything.
             </Text>
 
-            <View style={s.row}>
-              <SecondaryButton
-                title={copied === 'code' ? 'Copied' : 'Copy code'}
-                icon={copied === 'code' ? 'check' : 'copy'}
-                onPress={() => void copy('code', backup.code)}
-              />
-              <SecondaryButton
-                title={copied === 'blob' ? 'Copied' : 'Copy backup text'}
-                icon={copied === 'blob' ? 'check' : 'copy'}
-                onPress={() => void copy('blob', backup.blob)}
-              />
+            <View>
+              <View style={s.fieldHead}>
+                <Text style={s.eyebrow}>Backup text</Text>
+                <SecondaryButton title="Load file" icon="file" onPress={() => void loadBackupFile()} />
+              </View>
+              <Field focused={blobFocus.focused} style={s.fieldFlush}>
+                <Input
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  big
+                  multiline
+                  onChangeText={setBlobInput}
+                  placeholder={blobPlaceholder}
+                  style={s.blobInput}
+                  value={blobInput}
+                  {...blobFocus.bind}
+                />
+              </Field>
             </View>
 
-            <View style={{ marginTop: 10 }}>
-              <PrimaryButton
-                title="Save backup to a file"
-                icon="download"
-                onPress={() => void saveBackupFile(backup)}
-              />
-              <Text style={s.note}>
-                The file holds the backup text only — never the code. Put it somewhere you can reach
-                from a device you do not own yet.
-              </Text>
+            <View>
+              <Text style={[s.eyebrow, s.fieldLabel]}>Recovery code</Text>
+              <Field
+                focused={codeFocus.focused}
+                tone={codeTyped && !codeFocus.focused && !codeValid ? 'warn' : 'default'}
+                style={s.fieldFlush}
+              >
+                <Input
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  onChangeText={setCodeInput}
+                  // Reformatted as they type, so what is on screen matches the paper.
+                  onBlur={() => {
+                    codeFocus.bind.onBlur();
+                    if (codeInput.trim()) setCodeInput(formatRecoveryCode(codeInput));
+                  }}
+                  onFocus={codeFocus.bind.onFocus}
+                  placeholder="K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-2N8Q"
+                  style={s.codeInput}
+                  value={codeInput}
+                />
+              </Field>
+              {codeTyped && !codeValid ? (
+                <Text style={[s.hint, s.fieldNote]}>A recovery code is 32 characters — eight groups of four.</Text>
+              ) : null}
             </View>
 
-            <Text style={[s.eyebrow, { marginTop: 18 }]}>Backup text</Text>
-            <Text style={s.blob} selectable numberOfLines={6}>
-              {backup.blob}
-            </Text>
+            {error ? <Callout>{error}</Callout> : null}
 
-            <View style={{ marginTop: 14 }}>
-              <SecondaryButton title="Done" icon="check" onPress={() => setBackup(null)} />
-            </View>
+            <PrimaryButton
+              title="Restore identity"
+              icon="key"
+              onPress={confirmRestore}
+              busy={busy}
+              disabled={blobInput.trim().length === 0 || !codeValid}
+            />
           </View>
-        )}
-      </Card>
+        </Group>
+      </ScrollView>
+    </View>
+  );
+}
 
-      <Card style={{ marginTop: 14 }}>
-        <Title>Restore from a backup</Title>
-        <Muted>
-          Load the backup file or paste its text, then type the recovery code. The same key comes
-          back, with the same fingerprint — nobody who writes to you has to change anything.
-        </Muted>
-        <View style={{ marginTop: 12, marginBottom: 4 }}>
-          <SecondaryButton title="Load from a file" icon="file" onPress={() => void loadBackupFile()} />
-        </View>
+/** One of the two things a backup is made of, and where it belongs. */
+function Half({ icon, title, hint }: { icon: IconName; title: string; hint: string }) {
+  return (
+    <View style={s.half}>
+      <Icon name={icon} size={20} color={color.inkDim} />
+      <Text style={s.halfTitle}>{title}</Text>
+      <Text style={s.halfHint}>{hint}</Text>
+    </View>
+  );
+}
 
-        <Field label="Backup text" focused={blobFocus.focused}>
-          <Input
-            autoCapitalize="none"
-            autoCorrect={false}
-            big
-            multiline
-            onChangeText={setBlobInput}
-            placeholder={blobPlaceholder}
-            style={s.blobInput}
-            value={blobInput}
-            {...blobFocus.bind}
-          />
-        </Field>
-
-        <Field label="Recovery code" focused={codeFocus.focused}>
-          <Input
-            autoCapitalize="characters"
-            autoCorrect={false}
-            onChangeText={setCodeInput}
-            // Reformatted as they type, so what is on screen matches the paper.
-            onBlur={() => {
-              codeFocus.bind.onBlur();
-              if (codeInput.trim()) setCodeInput(formatRecoveryCode(codeInput));
-            }}
-            onFocus={codeFocus.bind.onFocus}
-            placeholder="K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-2N8Q"
-            style={s.codeInput}
-            value={codeInput}
-          />
-        </Field>
-
-        {error ? (
-          <View style={{ marginBottom: 12 }}>
-            <Callout>{error}</Callout>
-          </View>
-        ) : null}
-
-        <PrimaryButton
-          title="Restore identity"
-          icon="key"
-          onPress={confirmRestore}
-          busy={busy}
-          disabled={blobInput.trim().length === 0 || !isValidRecoveryCode(codeInput)}
-        />
-        {codeInput.length > 0 && !isValidRecoveryCode(codeInput) ? (
-          <Text style={s.note}>A recovery code is 32 characters — eight groups of four.</Text>
-        ) : null}
-      </Card>
-    </ScrollView>
+/** A numbered step in the backup ceremony. Numbered, not coloured: order is the point. */
+function Step({ n, title }: { n: number; title: string }) {
+  return (
+    <View accessibilityRole="header" style={s.step}>
+      <View style={s.stepDot}>
+        <Text style={s.stepNum}>{n}</Text>
+      </View>
+      <Text style={s.stepTitle}>{title}</Text>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { backgroundColor: 'transparent', flex: 1 },
 
-  eyebrow: { ...type.eyebrow, color: color.inkFaint, letterSpacing: 0.8, marginBottom: 8 },
+  topbar: {
+    alignItems: 'center',
+    backgroundColor: color.surface,
+    flexDirection: 'row',
+    gap: space.sm,
+    paddingBottom: space.md,
+    paddingHorizontal: space.md,
+  },
+  title: { ...type.display, color: color.ink, flex: 1 },
 
-  codeBox: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: glass.hairline,
+  gutter: { marginBottom: space.md, marginHorizontal: space.lg },
+  pad: { gap: space.md, padding: space.lg },
+
+  body: { ...type.body, color: color.inkDim },
+  hint: { ...type.small, color: color.inkFaint },
+  eyebrow: { ...type.eyebrow, color: color.inkFaint },
+
+  halves: { flexDirection: 'row', gap: space.sm, marginHorizontal: space.lg },
+  half: {
+    backgroundColor: color.card,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flex: 1,
+    gap: space.xs,
+    padding: space.md,
+  },
+  halfTitle: { ...type.strong, color: color.ink, marginTop: space.xs },
+  halfHint: { ...type.small, color: color.inkFaint },
+
+  step: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
+  stepDot: {
+    alignItems: 'center',
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.pill,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  stepNum: { ...type.strong, color: color.ink, fontSize: 12.5 },
+  stepTitle: { ...type.strong, color: color.ink, flex: 1 },
+
+  inset: {
+    backgroundColor: color.ground2,
+    borderColor: color.border,
     borderRadius: radius.sm,
     borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 8,
-    paddingVertical: 14,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.md,
   },
+  codeGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   codeCell: {
     color: color.ink,
     fontFamily: font.mono,
@@ -334,16 +430,15 @@ const s = StyleSheet.create({
     textAlign: 'center',
     width: '25%',
   },
+  blob: { ...type.meta, color: color.inkDim, fontSize: 10.5, lineHeight: 15, paddingHorizontal: space.xs },
 
-  blob: {
-    color: color.inkDim,
-    fontFamily: font.mono,
-    fontSize: 10.5,
-    lineHeight: 15,
-  },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  divider: { backgroundColor: color.border, height: 1, marginVertical: space.xs },
+
+  fieldHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: space.sm },
+  fieldLabel: { marginBottom: space.sm },
+  fieldFlush: { marginBottom: 0 },
+  fieldNote: { marginTop: space.sm },
   blobInput: { fontFamily: font.mono, fontSize: 11.5, minHeight: 96 },
   codeInput: { fontFamily: font.mono, fontSize: 15, letterSpacing: 1.2 },
-
-  note: { ...type.small, color: color.inkFaint, lineHeight: 18, marginTop: 10 },
-  row: { alignItems: 'center', flexDirection: 'row', gap: 10, marginTop: 14 },
 });
