@@ -244,6 +244,7 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                   label={initials(accountLabel(account))}
                   mode={settingsOf(account).avatar}
                   photo={account.photo}
+                  provider={account.provider}
                   seed={account.email}
                   size={40}
                 />

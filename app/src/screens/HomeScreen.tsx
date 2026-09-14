@@ -331,6 +331,7 @@ export function HomeScreen(props: HomeProps) {
                 label={initials(activeRef ? accountLabel(activeRef) : (session?.name ?? session?.email ?? ''))}
                 mode={settingsOf(activeRef).avatar}
                 photo={activeRef?.photo ?? session?.photo}
+                provider={activeRef?.provider}
                 seed={session?.email ?? ''}
                 size={36}
               />

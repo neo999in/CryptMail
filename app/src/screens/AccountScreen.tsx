@@ -24,7 +24,7 @@ import { back, RootStackParamList } from '../navigation';
 import { SEARCH_INDEX_MAX_BYTES } from '../search/search';
 import { useApp } from '../state/AppState';
 import { ExportProgress, StorageUsage } from '../state/types';
-import { accountLabel, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
+import { accountLabel, AVATAR_MODES, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
 import { MAX_SIGNATURE_LENGTH } from '../store/accountsStore';
 import { PublishStatus } from '../store/publishStore';
 import { SEARCH_STORE_KEY } from '../store/searchIndex';
@@ -66,11 +66,10 @@ const SYNC_LABEL: Record<SyncWindow, string> = {
   all: 'All mail',
 };
 
-const AVATAR_MODES: AvatarMode[] = ['photo', 'initials'];
-
 const AVATAR_LABEL: Record<AvatarMode, string> = {
   photo: 'Picture',
   initials: 'Initials',
+  provider: 'Logo',
 };
 
 export function AccountScreen({ navigation, route }: Props) {
@@ -295,6 +294,7 @@ export function AccountScreen({ navigation, route }: Props) {
             label={initials(label)}
             mode={settings.avatar}
             photo={account.photo}
+            provider={account.provider}
             seed={account.email}
             size={72}
           />

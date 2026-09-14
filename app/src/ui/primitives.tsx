@@ -22,8 +22,11 @@ import { useReducedMotion } from 'react-native-reanimated';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
 import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, tint, type } from '../theme';
+import type { Provider } from '../auth/types';
+import type { AvatarMode } from '../store/accountScope';
 import { useAccent } from './appearance';
 import { Icon, IconName } from './Icon';
+import { GoogleLogo, MicrosoftLogo } from './providerLogos';
 
 /* --------------------------------------------------------------- motion ---- */
 
@@ -266,19 +269,23 @@ export function Avatar({
   size = 34,
   photo,
   mode = 'photo',
+  provider,
 }: {
   seed: string;
   label: string;
   size?: number;
   photo?: string;
   /**
-   * `initials` ignores `photo` entirely — the account's own "Show as" choice.
+   * The account's own "Show as" choice. `initials` ignores `photo` entirely;
+   * `provider` draws the provider's mark instead of either.
    *
    * It is a mode rather than the caller dropping the `photo` prop so that every
    * avatar of one account reads the same setting, instead of each call site
    * remembering to look it up.
    */
-  mode?: 'photo' | 'initials';
+  mode?: AvatarMode;
+  /** Whose mark `mode="provider"` draws. A provider with no mark (IMAP) falls back to initials. */
+  provider?: Provider;
 }) {
   const [broken, setBroken] = useState(false);
   let h = 0;
@@ -289,7 +296,25 @@ export function Avatar({
   // failure does not suppress the next one's perfectly good picture.
   useEffect(() => setBroken(false), [photo]);
 
+  const mark =
+    mode === 'provider'
+      ? provider === 'gmail'
+        ? <GoogleLogo size={Math.round(size * 0.5)} />
+        : provider === 'outlook'
+          ? <MicrosoftLogo size={Math.round(size * 0.44)} />
+          : null
+      : null;
   const showPhoto = mode === 'photo' && Boolean(photo) && !broken;
+
+  if (mark) {
+    // A neutral disc, not the address tint: the mark carries its own colour,
+    // and a coloured ground behind four brand colours reads as confetti.
+    return (
+      <View style={[s.avatar, s.avatarMark, { width: size, height: size, borderRadius: size / 2 }]}>
+        {mark}
+      </View>
+    );
+  }
 
   return (
     <View
@@ -1007,6 +1032,7 @@ const s = StyleSheet.create({
   // The backstop clip, not the one that rounds the photo — see `Avatar`.
   avatar: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { color: ON_ACCENT, fontFamily: font.sansBold },
+  avatarMark: { backgroundColor: color.surfaceRaised, borderColor: color.border, borderWidth: 1 },
 
   // A solid neutral button — near-white on true black — rather than an
   // accent-filled one. The accent is reserved for selection and the one or

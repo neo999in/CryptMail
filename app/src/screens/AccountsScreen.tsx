@@ -75,6 +75,7 @@ export function AccountsScreen({ navigation }: Props) {
                   label={initials(label)}
                   mode={settingsOf(account).avatar}
                   photo={account.photo}
+                  provider={account.provider}
                   seed={account.email}
                   size={40}
                 />

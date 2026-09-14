@@ -97,6 +97,12 @@ describe('account settings', () => {
     expect(state.accounts[1].settings?.avatar).toBe('initials');
   });
 
+  it('keeps the provider-mark avatar mode', () => {
+    const state = setAccountSettings(upsertAccount(NO_ACCOUNTS, ONE), ONE.id, { avatar: 'provider' });
+
+    expect(state.accounts[0].settings?.avatar).toBe('provider');
+  });
+
   /**
    * A value from a future build, an older one, or a hand-edited blob. Coerced
    * on read for the same reason `normalisePrefs` does it: a screen must never be

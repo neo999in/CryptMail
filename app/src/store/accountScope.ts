@@ -23,8 +23,14 @@ export type SyncWindow = 'all' | '7' | '30' | '90';
 
 export const SYNC_WINDOWS: SyncWindow[] = ['7', '30', '90', 'all'];
 
-/** Whether an account's avatar shows the provider's photo or its initials. */
-export type AvatarMode = 'photo' | 'initials';
+/**
+ * What an account's avatar shows: the provider's photo, its initials, or the
+ * provider's own mark (the Google "G", the Microsoft squares) — the last is for
+ * telling a Gmail and an Outlook mailbox apart at a glance on the rail.
+ */
+export type AvatarMode = 'photo' | 'initials' | 'provider';
+
+export const AVATAR_MODES: AvatarMode[] = ['photo', 'initials', 'provider'];
 
 /**
  * What the user has decided about one mailbox.

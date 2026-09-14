@@ -13,6 +13,7 @@ import {
   AccountId,
   AccountRef,
   AccountSettings,
+  AVATAR_MODES,
   AvatarMode,
   DEFAULT_ACCOUNT_SETTINGS,
   SYNC_WINDOWS,
@@ -126,7 +127,8 @@ export const MAX_SIGNATURE_LENGTH = 2000;
 
 function settingsFrom(ref: Pick<AccountRef, 'settings'>): AccountSettings {
   const stored = (ref.settings ?? {}) as Partial<AccountSettings>;
-  const avatar: AvatarMode = stored.avatar === 'initials' ? 'initials' : 'photo';
+  const avatar: AvatarMode =
+    stored.avatar && AVATAR_MODES.includes(stored.avatar) ? stored.avatar : DEFAULT_ACCOUNT_SETTINGS.avatar;
   return {
     displayName: typeof stored.displayName === 'string' ? stored.displayName : '',
     avatar,
