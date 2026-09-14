@@ -331,6 +331,26 @@ export const swipeColor = {
  */
 export const fabClearance = 86;
 
+/**
+ * The colours a message's own text can be written in (rich-text compose).
+ *
+ * Content, not chrome: these land in the email as `color` styles and are read
+ * by other people's clients, most of them on a white page — so they are
+ * mid-tones that hold on light *and* dark, not tints of this app's palette.
+ * Nothing here is the accent or a trust colour, and none of them may become
+ * one: text a sender coloured mint must not read as "verified". The reader
+ * adapts foreground colours for the dark ground anyway (`html/colors.ts`).
+ */
+export const messageTextColors = [
+  { label: 'Red', value: '#D93025' },
+  { label: 'Orange', value: '#E8710A' },
+  { label: 'Yellow', value: '#B58B00' },
+  { label: 'Green', value: '#188038' },
+  { label: 'Blue', value: '#1A73E8' },
+  { label: 'Purple', value: '#9334E6' },
+  { label: 'Grey', value: '#80868B' },
+] as const;
+
 export const space = {
   xs: 4,
   sm: 8,

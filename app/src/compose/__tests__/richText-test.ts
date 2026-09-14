@@ -64,6 +64,12 @@ describe('htmlToText', () => {
     expect(htmlToText('<pre><code>a\n  b</code></pre>')).toBe('a\n  b');
   });
 
+  it('keeps the words of headings, underline and coloured text', () => {
+    const html = '<h1>Plan</h1><p><u>Read</u> this <span style="color: #D93025">first</span></p>';
+    expect(htmlToText(html)).toBe('Plan\nRead this first');
+    expect(hasFormatting(html)).toBe(true);
+  });
+
   it('is empty for an empty editor', () => {
     expect(htmlToText('<p></p>')).toBe('');
   });

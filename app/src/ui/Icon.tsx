@@ -52,7 +52,10 @@ export type IconName =
   | 'list-ul'
   | 'list-ol'
   | 'quote'
-  | 'hr';
+  | 'hr'
+  | 'underline'
+  | 'text-size'
+  | 'text-color';
 
 type Props = {
   name: IconName;
@@ -415,6 +418,24 @@ function glyph(name: IconName, p: object) {
       );
     case 'hr':
       return <Path d="M3 12h18" {...p} />;
+    case 'underline':
+      return (
+        <>
+          <Path d="M7 4v7a5 5 0 0 0 10 0V4" {...p} />
+          <Path d="M5 20h14" {...p} />
+        </>
+      );
+    case 'text-size':
+      // A small A beside a large one.
+      return (
+        <>
+          <Path d="m2.5 19 3.5-8 3.5 8M3.8 16h4.4" {...p} />
+          <Path d="m10.5 19 5-13 5 13M12.4 14.5h6.2" {...p} />
+        </>
+      );
+    case 'text-color':
+      // The letter only: the bar under it is drawn by the caller, in the colour.
+      return <Path d="m6.5 16 5.5-13 5.5 13M8.6 11.5h6.8" {...p} />;
     default:
       return <Ellipse cx={12} cy={12} rx={8} ry={8} {...p} />;
   }

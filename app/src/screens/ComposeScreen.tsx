@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   NativeSyntheticEvent,
   Platform,
@@ -50,7 +51,7 @@ import { CannedReply, cannedReplyLabel } from '../store/cannedRepliesStore';
 import { color, font, radius, shadow, type } from '../theme';
 import { useAccent } from '../ui/appearance';
 import { useCannedReplies } from '../ui/cannedReplies';
-import { RichTextComposer, RichTextComposerHandle } from '../ui/RichTextComposer';
+import { RichTextEditor, RichTextSession, RichTextSessionHandle, RichTextToolbar } from '../ui/RichTextComposer';
 import { useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { AttachmentChip } from '../ui/attachments';
@@ -111,7 +112,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
  * ## Formatting
  *
  * The message is plain text until the user turns formatting on (the "B" in the
- * bar), and then it is written in `RichTextComposer`. From that moment `html`
+ * bar), and then it is written in the rich-text editor, with the formatting bar
+ * pinned to the bottom of the screen above the keyboard. Its ✕ hides the bar
+ * and keeps the formatting; removing formatting is in the overflow. From the
+ * moment formatting is on `html`
  * is the message and `body` is derived from it on every edit — the text
  * alternative it leaves with, and what the draft, the signature code and the
  * emptiness checks read. Turning formatting on costs nothing; turning it off
@@ -184,7 +188,18 @@ export function ComposeScreen({ route, navigation }: Props) {
   htmlRef.current = html;
   /** Bumped to remount the editor on an HTML change it did not make itself. */
   const [editorKey, setEditorKey] = useState(0);
-  const editor = useRef<RichTextComposerHandle>(null);
+  const editor = useRef<RichTextSessionHandle>(null);
+  /** Whether the formatting bar is up. Formatting stays on when it is hidden. */
+  const [formatBar, setFormatBar] = useState(false);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
   useEffect(() => {
     if (bodySignature.current === signature) return;
     const from = bodySignature.current;
@@ -510,19 +525,35 @@ export function ComposeScreen({ route, navigation }: Props) {
   };
 
   /**
-   * Formatting on or off. On is free — the text becomes paragraphs and a quote
-   * a blockquote, and nothing is lost. Off keeps the words (`body` is already
-   * the text of the HTML) and asks only when bold, a list or a link would go.
+   * The "B" in the top bar. The first press turns formatting on — free: the
+   * text becomes paragraphs and a quote a blockquote — and raises the bar.
+   * After that it only shows and hides the bar, as the bar's ✕ does. Neither
+   * throws formatting away; `removeFormatting` does.
    */
-  const toggleFormatting = () => {
-    bodyCaret.current = null;
+  const pressFormat = () => {
     if (html === undefined) {
+      bodyCaret.current = null;
       setHtml(textToHtml(body));
       setEditorKey((k) => k + 1);
+      setFormatBar(true);
       return;
     }
-    if (!hasFormatting(html)) {
+    setFormatBar((open) => !open);
+  };
+
+  /**
+   * Back to plain text, from the overflow. The words stay (`body` is already
+   * the text of the HTML); it asks only when bold, a list or a link would go.
+   */
+  const removeFormatting = () => {
+    setShowMore(false);
+    if (html === undefined) return;
+    const drop = () => {
       setHtml(undefined);
+      setFormatBar(false);
+    };
+    if (!hasFormatting(html)) {
+      drop();
       return;
     }
     confirmDialog(
@@ -530,7 +561,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       'The words stay. Bold, lists and quotes become plain text, and a link keeps its address next to its label.',
       [
         { label: 'Keep formatting' },
-        { label: 'Remove formatting', tone: 'destructive', onPress: () => setHtml(undefined) },
+        { label: 'Remove formatting', tone: 'destructive', onPress: drop },
       ],
     );
   };
@@ -777,8 +808,40 @@ export function ComposeScreen({ route, navigation }: Props) {
     }
   };
 
+  const showFormatBar = rich && formatBar;
+  /** The navigation-bar inset belongs under the keyboard while it is up, not above it. */
+  const bottomInset = keyboardUp ? 0 : insets.bottom;
+
+  /**
+   * The page and its bottom bars, inside the editing session when formatting
+   * is on: the editor and its bar are two halves of one session that live in
+   * two places. `editorKey` remounts it when the document is replaced from
+   * outside the editor (formatting turned on, a From switch's signature).
+   */
+  const withRichText = (page: React.ReactElement) =>
+    html === undefined ? (
+      page
+    ) : (
+      <RichTextSession
+        key={editorKey}
+        ref={editor}
+        initialValue={html}
+        onChangeHTML={onRichChange}
+        placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
+        // Straight into the editor when formatting was just turned on: the
+        // user was writing, and the remount took the caret away.
+        autoFocus={startInBody || editorKey > 0}
+      >
+        {page}
+      </RichTextSession>
+    );
+
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.screen}>
+    // `padding` on Android too. The app is edge-to-edge (`edgeToEdgeEnabled` in
+    // android/gradle.properties), and there `adjustResize` no longer shrinks the
+    // window — so without it the status bar and the formatting bar sit behind
+    // the keyboard instead of on top of it.
+    <KeyboardAvoidingView behavior="padding" style={s.screen}>
       {/*
         The top bar carries the whole identity of the message — who it is from,
         what it is, and the one action that sends it. It is drawn here rather
@@ -827,11 +890,12 @@ export function ComposeScreen({ route, navigation }: Props) {
         {RICH_TEXT_AVAILABLE ? (
           <IconButton
             icon="bold"
-            label={rich ? 'Formatting on. Turn it off' : 'Format text'}
-            onPress={toggleFormatting}
+            label={!rich ? 'Format text' : formatBar ? 'Hide formatting' : 'Show formatting'}
+            selected={rich ? formatBar : undefined}
+            onPress={pressFormat}
             size={38}
             glyph={20}
-            tint={rich ? accent : color.inkDim}
+            tint={rich && formatBar ? accent : color.inkDim}
           />
         ) : null}
         <IconButton
@@ -890,6 +954,8 @@ export function ComposeScreen({ route, navigation }: Props) {
         </View>
       )}
 
+      {withRichText(
+        <>
       <ScrollView
         // `flexGrow` so the message below can take whatever height the header
         // and the attachment row leave, rather than the screen ending in a
@@ -1006,18 +1072,7 @@ export function ComposeScreen({ route, navigation }: Props) {
         */}
         <View style={s.bodyWrap}>
           {html !== undefined ? (
-            <RichTextComposer
-              key={editorKey}
-              ref={editor}
-              initialValue={html}
-              onChangeHTML={onRichChange}
-              placeholder={plain ? 'Anyone who handles this can read it.' : 'Only the recipients can read this.'}
-              // Straight into the editor when formatting was just turned on:
-              // the user was writing, and the remount took the caret away.
-              autoFocus={startInBody || editorKey > 0}
-              keyboardAvoider={false}
-              minHeight={200}
-            />
+            <RichTextEditor />
           ) : (
             <Input
               autoFocus={startInBody}
@@ -1110,7 +1165,9 @@ export function ComposeScreen({ route, navigation }: Props) {
         sentence is the point of the strip — an arrow at the top of the screen
         can say "send", but only this can say "their key changed".
       */}
-      <View style={[s.statusbar, alarming && s.statusbarWarn, { paddingBottom: insets.bottom + 12 }]}>
+      <View
+        style={[s.statusbar, alarming && s.statusbarWarn, { paddingBottom: (showFormatBar ? 0 : bottomInset) + 12 }]}
+      >
         <View style={s.status}>
           <Icon
             name={alarming ? 'alert' : queued || missing.length > 0 ? 'clock' : 'lock'}
@@ -1149,6 +1206,12 @@ export function ComposeScreen({ route, navigation }: Props) {
             what it says, in demo mode and live alike. */}
         {gate.reason && gate.allowed && !plain ? <Text style={s.gateNote}>{gate.reason}</Text> : null}
       </View>
+
+      {/* Last, so it sits on the keyboard: the formatting bar, when it is up.
+          The status bar above it gives up the bottom inset to it. */}
+      {showFormatBar ? <RichTextToolbar onClose={() => setFormatBar(false)} bottomInset={bottomInset} /> : null}
+        </>,
+      )}
 
       {/*
         The From picker. It says what a switch actually changes, because "from"
@@ -1278,6 +1341,13 @@ export function ComposeScreen({ route, navigation }: Props) {
         )}
 
         <View style={s.sheetRule} />
+
+        {rich ? (
+          <PressableRow accessibilityRole="button" onPress={removeFormatting} style={s.moreRow}>
+            <Icon name="text-size" size={19} color={color.inkDim} />
+            <Text style={s.cannedTitle}>Remove formatting</Text>
+          </PressableRow>
+        ) : null}
 
         <PressableRow accessibilityRole="button" onPress={discard} style={s.moreRow}>
           <Icon name="trash" size={19} color={color.coral} />

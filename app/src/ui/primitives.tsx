@@ -461,6 +461,7 @@ export function IconButton({
   glyph,
   weight,
   fill,
+  selected,
 }: {
   icon: IconName;
   label: string;
@@ -479,6 +480,9 @@ export function IconButton({
   /** Stroke weight for the glyph, where the default reads too light — a bar of
    *  icons standing on its own, with no text beside it to carry the emphasis. */
   weight?: number;
+  /** For a toggle (a toolbar's Bold): announced as selected, since the tint
+   *  that shows it is colour alone. Leave unset on an ordinary action. */
+  selected?: boolean;
 }) {
   const press = usePressScale(0.92);
   return (
@@ -486,6 +490,7 @@ export function IconButton({
       <Pressable
         accessibilityLabel={label}
         accessibilityRole="button"
+        accessibilityState={selected === undefined ? undefined : { selected }}
         hitSlop={10}
         onPress={onPress}
         onPressIn={press.onPressIn}

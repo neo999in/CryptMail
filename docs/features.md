@@ -392,9 +392,13 @@ Remote images load unless the mailbox blocks them (0.8); there is no
 per-message consent step.
 
 Rich-text compose is built. The "B" in Compose's top bar turns formatting on,
-and the message is then written in `ui/RichTextComposer.tsx`: bold, italic,
-strikethrough, lists, blockquote, links (the rule button stays inert on the
-stock editor bundle, as that file explains). The HTML is the message and the
+and the message is then written in `ui/RichTextComposer.tsx`: a borderless
+editor where the plain body was, and a formatting bar pinned to the bottom of
+the screen, on top of the keyboard — ✕ (hide the bar, keep the formatting),
+text size (title, heading, normal), bold, italic, underline, text colour,
+strikethrough, lists, quote and link. Removing formatting is in the overflow.
+Text colours are a fixed set of mid-tones (`messageTextColors` in `theme.ts`)
+that read on other clients' white pages, and none of them is a trust colour. The HTML is the message and the
 text is derived from it on every edit by
 [`compose/richText.ts`](../app/src/compose/richText.ts) — lists keep their
 markers, quotes their `>`, links their address — and both leave as a
