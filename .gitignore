@@ -73,6 +73,10 @@ test-results/
 
 # Claude Code config
 .claude/
+# ...except the app's shared skills (run-cryptmail: the emulator driver)
+!app/.claude/
+app/.claude/*
+!app/.claude/skills/
 
 # local-only commit notes
 commit.md
