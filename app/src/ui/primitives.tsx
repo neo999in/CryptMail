@@ -484,7 +484,7 @@ export function SecondaryButton({
  * them to read. At 36 / `inkDim` / 1.9 a row of those reads as disabled
  * controls, so every top bar in the app spreads this instead.
  */
-export const barIcon = { size: 36, glyph: 24, tint: color.ink, weight: 2.2 } as const;
+export const barIcon = { size: 36, glyph: 24, tint: color.ink, weight: 1.7 } as const;
 
 export function IconButton({
   icon,
