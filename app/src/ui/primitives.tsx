@@ -309,8 +309,16 @@ export function Avatar({
   if (mark) {
     // A neutral disc, not the address tint: the mark carries its own colour,
     // and a coloured ground behind four brand colours reads as confetti.
+    //
+    // Keyed apart from the face below. Both are a root `View` in the same slot,
+    // so without a key React reuses this one's native view and only diffs the
+    // border off it — and on Android that rounded, clipping view keeps a stale
+    // clip, so switching back to the photo draws an empty disc.
     return (
-      <View style={[s.avatar, s.avatarMark, { width: size, height: size, borderRadius: size / 2 }]}>
+      <View
+        key="mark"
+        style={[s.avatar, s.avatarMark, { width: size, height: size, borderRadius: size / 2 }]}
+      >
         {mark}
       </View>
     );
@@ -318,6 +326,7 @@ export function Avatar({
 
   return (
     <View
+      key="face"
       style={[
         s.avatar,
         {
