@@ -316,7 +316,9 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                 onPress={() => choose(d.key)}
               />
             ))}
-            {CATEGORIES.filter((cat) => cat !== 'spam').map((cat) => (
+            {/* Not Primary: the inbox's own Primary tab is that list, and a
+                second way in from here read as a different one. */}
+            {CATEGORIES.filter((cat) => cat !== 'spam' && cat !== 'primary').map((cat) => (
               <DrawerItem
                 key={cat}
                 icon={CATEGORY_ICON[cat]}
