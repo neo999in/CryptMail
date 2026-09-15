@@ -1,6 +1,6 @@
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { SectionList, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { messageMatchesQuery } from '../search/search';
@@ -12,7 +12,7 @@ import { useAppearance } from '../ui/appearance';
 import { useChrome } from '../ui/chrome';
 import { OriginRect } from '../ui/expand';
 import { mailBandBelow, mailTopInset } from '../ui/mailBar';
-import { MAIL_LIST_WINDOW, MailListRow, SectionHeading, useComposeScroll } from '../ui/mailList';
+import { AnimatedSectionList, MAIL_LIST_WINDOW, MailListRow, SectionHeading, useComposeScroll } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useToast } from '../ui/ToastContext';
 import { useLatest } from '../ui/useLatest';
@@ -41,9 +41,9 @@ export function SnoozedBody({
   headerHeight,
   barHeight,
   entry,
-  onComposeCollapse,
+  composeFold,
 }: BodyProps) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+  const composeScroll = useComposeScroll(composeFold);
   const { messages, snoozed, session, encryptionFor, searchIndex, snoozeMessage, unsnoozeMessage } = useApp();
   const { showToast } = useToast();
   const { rowPadding } = useAppearance();
@@ -138,7 +138,7 @@ export function SnoozedBody({
 
   return (
     <View style={s.screen}>
-      <SectionList
+      <AnimatedSectionList
         {...MAIL_LIST_WINDOW}
         {...composeScroll}
         sections={sections}

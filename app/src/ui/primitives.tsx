@@ -18,7 +18,16 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { useReducedMotion } from 'react-native-reanimated';
+import Reanimated, {
+  cancelAnimation,
+  Easing as ReEasing,
+  makeMutable,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
 import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, tint, type } from '../theme';
@@ -30,41 +39,34 @@ import { GoogleLogo, MicrosoftLogo } from './providerLogos';
 
 /* --------------------------------------------------------------- motion ---- */
 
-/** react-native-web has no native animated module; asking for one only warns. */
-const NATIVE_DRIVER = Platform.OS !== 'web';
-
 /**
  * Press feedback for anything that reads as a raised control. Opacity alone is
  * ambiguous on a dark ground — a small scale makes the touch land.
  */
 /**
- * The returned `style` must be applied **unconditionally**, even while the
- * control is disabled or busy.
+ * Apply the returned `style` to a **Reanimated** `Animated.View`, and apply it
+ * unconditionally, even while the control is disabled or busy.
  *
- * Swapping it for `undefined` removes the `transform` array from the view's
- * props while the native animation driver still holds the node, and Fabric's
- * prop-override path asserts on exactly that:
- *
- *   assert(outputReadableMap.getType("transform") == ReadableType.Array && …)
- *   — SurfaceMountingManager.overridePropsReadableMap
- *
- * which is a hard `AssertionError` on the main thread, i.e. the whole app dies.
- * It cost a crash on every send, because the Send button sets `busy` mid-flight.
- *
- * Nothing is lost by always applying it: `Pressable`'s own `disabled` already
- * stops `onPressIn`/`onPressOut`, so a disabled control never animates anyway.
+ * This used React Native's `Animated` with the native driver, and swapping its
+ * style for `undefined` mid-flight removed the `transform` array from a node the
+ * driver still held — a Fabric `AssertionError` on the main thread, which cost a
+ * crash on every send because the Send button sets `busy` mid-flight. Reanimated
+ * owns its animated props through a style hook rather than a detached native
+ * node, so that failure has nowhere to happen; always applying the style is
+ * kept anyway, since it costs nothing: `Pressable`'s own `disabled` already
+ * stops `onPressIn`/`onPressOut`.
  */
 function usePressScale(to = 0.97) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const drive = (value: number) =>
-    Animated.timing(scale, {
-      toValue: value,
-      duration: motion.fast,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: NATIVE_DRIVER,
-    }).start();
+  const scale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
+  const drive = (value: number) => {
+    scale.value = reducedMotion
+      ? value
+      : withTiming(value, { duration: motion.fast, easing: ReEasing.out(ReEasing.quad) });
+  };
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return {
-    style: { transform: [{ scale }] },
+    style,
     onPressIn: () => drive(to),
     onPressOut: () => drive(1),
   };
@@ -417,7 +419,7 @@ export function PrimaryButton({
   const press = usePressScale();
   const off = disabled || busy;
   return (
-    <Animated.View style={press.style}>
+    <Reanimated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled: !!off }}
@@ -436,7 +438,7 @@ export function PrimaryButton({
           </>
         )}
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 
@@ -457,7 +459,7 @@ export function SecondaryButton({
   const press = usePressScale();
   const danger = tone === 'danger';
   return (
-    <Animated.View style={press.style}>
+    <Reanimated.View style={press.style}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ disabled: !!disabled }}
@@ -470,7 +472,7 @@ export function SecondaryButton({
         {icon ? <Icon name={icon} size={15} color={danger ? color.coral : color.ink} /> : null}
         <Text style={[s.secondaryBtnText, danger && { color: color.coral }]}>{title}</Text>
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 
@@ -520,7 +522,7 @@ export function IconButton({
 }) {
   const press = usePressScale(0.92);
   return (
-    <Animated.View style={press.style}>
+    <Reanimated.View style={press.style}>
       <Pressable
         accessibilityLabel={label}
         accessibilityRole="button"
@@ -539,7 +541,7 @@ export function IconButton({
       >
         <Icon name={icon} size={glyph ?? Math.round(size * 0.47)} color={tint} strokeWidth={weight} fill={fill} />
       </Pressable>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 
@@ -608,25 +610,54 @@ export function Divider() {
 
 /** Pulsing placeholder block. Loading should have the shape of the result. */
 export function Skeleton({ width, height, radius: r = radius.xs }: { width: number | string; height: number; radius?: number }) {
-  const pulse = useRef(new Animated.Value(0.4)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
-        Animated.timing(pulse, { toValue: 0.4, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+  const pulse = useSkeletonPulse();
+  const style = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
   return (
-    <Animated.View
-      style={[s.skeleton, { width: width as ViewStyle['width'], height, borderRadius: r, opacity: pulse }]}
+    <Reanimated.View
+      style={[s.skeleton, { width: width as ViewStyle['width'], height, borderRadius: r }, style]}
     />
   );
 }
+
+/**
+ * One pulse for every placeholder on screen.
+ *
+ * Each `Skeleton` used to run its own endless loop, so a loading list of five
+ * rows ran fifteen, slightly out of step. Now the first placeholder to mount
+ * starts a single repeating animation, the rest read it, and the last to unmount
+ * stops it. Under reduced motion there is no pulse at all — a steady mid tone
+ * still says "loading" by its shape.
+ */
+function useSkeletonPulse() {
+  const reducedMotion = useReducedMotion();
+  useEffect(() => {
+    skeletonUsers += 1;
+    if (skeletonUsers === 1) {
+      if (reducedMotion) {
+        skeletonPulse.value = SKELETON_STEADY;
+      } else {
+        skeletonPulse.value = SKELETON_LOW;
+        skeletonPulse.value = withRepeat(
+          withTiming(1, { duration: SKELETON_HALF_MS, easing: ReEasing.inOut(ReEasing.quad) }),
+          -1,
+          true,
+        );
+      }
+    }
+    return () => {
+      skeletonUsers -= 1;
+      if (skeletonUsers === 0) cancelAnimation(skeletonPulse);
+    };
+  }, [reducedMotion]);
+  return skeletonPulse;
+}
+
+const SKELETON_LOW = 0.4;
+const SKELETON_STEADY = 0.6;
+const SKELETON_HALF_MS = 700;
+const skeletonPulse = makeMutable(SKELETON_LOW);
+let skeletonUsers = 0;
 
 /** Centered icon + copy for "nothing here" and "nothing matched". */
 export function EmptyState({

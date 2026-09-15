@@ -54,6 +54,7 @@ import {
   MailListRow,
   MailSkeletonList,
   SectionHeading,
+  AnimatedSectionList,
   useComposeScroll,
 } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
@@ -96,9 +97,9 @@ export function MailboxBody({
   clearFilters,
   entry,
   labelFilter,
-  onComposeCollapse,
+  composeFold,
 }: BodyProps & { box: SecondaryBox }) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+  const composeScroll = useComposeScroll(composeFold);
   const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session, labels } = useApp();
   const { items, loading, refreshing, loadingMore, canLoadMore, error } = boxes[box];
   const { rowPadding } = useAppearance();
@@ -255,7 +256,7 @@ export function MailboxBody({
       {loading && items.length === 0 ? (
         <MailSkeletonList />
       ) : (
-        <SectionList
+        <AnimatedSectionList
           ref={listRef}
           {...MAIL_LIST_WINDOW}
           {...composeScroll}

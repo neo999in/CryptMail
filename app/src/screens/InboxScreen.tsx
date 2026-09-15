@@ -1,6 +1,6 @@
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, BackHandler, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { categorizeMessage, CATEGORY_LABELS } from '../categorizer/categorizer';
@@ -27,6 +27,7 @@ import {
   MailListRow,
   MailSkeletonList,
   SectionHeading,
+  AnimatedSectionList,
   useComposeScroll,
 } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
@@ -57,9 +58,9 @@ export function InboxBody({
   entry,
   labelFilter,
   onSelecting,
-  onComposeCollapse,
+  composeFold,
 }: BodyProps) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+  const composeScroll = useComposeScroll(composeFold);
   const {
     session,
     accounts,
@@ -407,7 +408,7 @@ export function InboxBody({
       {firstLoad ? (
         <MailSkeletonList />
       ) : (
-        <SectionList
+        <AnimatedSectionList
           {...MAIL_LIST_WINDOW}
           {...composeScroll}
           sections={sections}

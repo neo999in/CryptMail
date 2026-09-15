@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Contact, ContactTrust, trustSummary } from '../contacts/contacts';
@@ -72,9 +73,9 @@ export function ContactsBody({
   contactFilter,
   clearSearch,
   showAllContacts,
-  onComposeCollapse,
+  composeFold,
 }: BodyProps) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+  const composeScroll = useComposeScroll(composeFold);
   // The keyed half of the book. `useContacts` is shared with Compose, which
   // wants the whole of it — see the note at the top of this file.
   const everyone = useContacts();
@@ -97,7 +98,7 @@ export function ContactsBody({
 
   return (
     <View style={s.screen}>
-      <ScrollView
+      <Animated.ScrollView
         {...composeScroll}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }}
         keyboardShouldPersistTaps="handled"
@@ -159,7 +160,7 @@ export function ContactsBody({
             ))}
           </View>
         )}
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   );
 }

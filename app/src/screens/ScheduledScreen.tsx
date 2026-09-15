@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { describeCheck } from '../outbox/checkResult';
@@ -23,8 +24,8 @@ import { BodyProps } from './HomeScreen';
  * their own: a held message is not a received one, and it is here to be acted on
  * rather than read.
  */
-export function ScheduledBody({ navigation, query, clearSearch, onComposeCollapse }: BodyProps) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+export function ScheduledBody({ navigation, query, clearSearch, composeFold }: BodyProps) {
+  const composeScroll = useComposeScroll(composeFold);
   const { scheduled, keyring, identity, undiscoverable, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   // Held mail has not been encrypted yet — it is still the text this device
@@ -99,7 +100,7 @@ export function ScheduledBody({ navigation, query, clearSearch, onComposeCollaps
           />
         )
       ) : (
-        <ScrollView
+        <Animated.ScrollView
           {...composeScroll}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}
           showsVerticalScrollIndicator={false}
@@ -175,7 +176,7 @@ export function ScheduledBody({ navigation, query, clearSearch, onComposeCollaps
             </View>
           );
         })}
-        </ScrollView>
+        </Animated.ScrollView>
       )}
     </View>
   );

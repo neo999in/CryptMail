@@ -14,10 +14,13 @@
  */
 import { MotiView } from 'moti';
 import React from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
+  SharedValue,
+  useAnimatedReaction,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -285,18 +288,19 @@ export const MailListRow = React.memo(MailListRowImpl, sameRow);
  * mark rather than as "the" action. Every list that shows mail carries it,
  * because composing is never about which mailbox you happen to be looking at.
  *
- * `collapsed` folds the label away to a round icon button while the list is
+ * `foldTarget` folds the label away to a round icon button while the list is
  * being read downwards, so it covers less of the rows; scrolling back up opens
  * it again. The accessibility label says Compose either way.
  */
 export function ComposeFab({
   onPress,
   bottom,
-  collapsed = false,
+  foldTarget,
 }: {
   onPress: () => void;
   bottom: number;
-  collapsed?: boolean;
+  /** 0 open, 1 folded — written by a list's `useComposeScroll` on the UI thread. */
+  foldTarget: SharedValue<number>;
 }) {
   const [pressed, setPressed] = React.useState(false);
   // The label's natural width, measured off-screen once, so the pill can
@@ -306,12 +310,19 @@ export function ComposeFab({
 
   // One value, 0 open → 1 folded, springing on the UI thread. Width, padding
   // and the label's fade are all read from it in a single style, so they move
-  // as one instead of as three separately timed layout animations.
-  const fold = useSharedValue(collapsed ? 1 : 0);
-  React.useEffect(() => {
-    const target = collapsed ? 1 : 0;
-    fold.value = reduceMotion ? target : withSpring(target, FOLD_SPRING);
-  }, [collapsed, fold, reduceMotion]);
+  // as one instead of as three separately timed layout animations. It follows
+  // the list's target without React: a scroll never re-renders anything.
+  // Starts open, never read from `foldTarget` during render; the reaction's
+  // first run (previous = null) carries it to wherever the list already is.
+  const fold = useSharedValue(0);
+  useAnimatedReaction(
+    () => foldTarget.value,
+    (target, previous) => {
+      if (target === previous) return;
+      fold.value = reduceMotion ? target : withSpring(target, FOLD_SPRING);
+    },
+    [reduceMotion],
+  );
 
   const open = FAB_OPEN_PAD_LEFT + FAB_GLYPH + FAB_GAP + labelWidth + FAB_OPEN_PAD_RIGHT;
   const pill = useAnimatedStyle(() =>
@@ -373,30 +384,40 @@ const FOLD_SPRING = { damping: 26, stiffness: 380, mass: 0.6, overshootClamping:
 
 /**
  * Scroll handling that folds the compose button: reading down folds it,
- * reaching back up or returning to the top opens it. Spread onto a list.
+ * reaching back up or returning to the top opens it.
  *
- * A small dead zone stops a finger's jitter from flapping it, and `onCollapse`
- * is expected to ignore a repeat of its current value — the home screen's flag
- * does — so this can report on every frame.
+ * A worklet, run on the UI thread for every scroll frame, writing the fold
+ * target the button reacts to. So the fold starts on the frame the finger
+ * moves, however busy the JS thread is — a page of mail landing mid-scroll used
+ * to hold it back. A small dead zone stops a finger's jitter from flapping it.
+ *
+ * Spread onto a **Reanimated** scrollable: `Animated.ScrollView`, or
+ * `AnimatedSectionList` below. A plain list cannot take a worklet handler.
  */
-export function useComposeScroll(onCollapse: (collapsed: boolean) => void) {
-  const last = React.useRef(0);
-  const onScroll = React.useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = e.nativeEvent.contentOffset.y;
-      const dy = y - last.current;
+export function useComposeScroll(foldTarget: SharedValue<number>) {
+  const last = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const y = e.contentOffset.y;
+      const dy = y - last.value;
       if (y <= 8) {
-        onCollapse(false);
-        last.current = y;
+        if (foldTarget.value !== 0) foldTarget.value = 0;
+        last.value = y;
       } else if (Math.abs(dy) > 6) {
-        onCollapse(dy > 0);
-        last.current = y;
+        const next = dy > 0 ? 1 : 0;
+        if (foldTarget.value !== next) foldTarget.value = next;
+        last.value = y;
       }
     },
-    [onCollapse],
-  );
+  });
   return { onScroll, scrollEventThrottle: 16 } as const;
 }
+
+/**
+ * `SectionList`, able to take a worklet scroll handler. Typed as the plain list
+ * so each screen keeps its item and section generics.
+ */
+export const AnimatedSectionList = Animated.createAnimatedComponent(SectionList) as unknown as typeof SectionList;
 
 export function SectionHeading({ title }: { title: string }) {
   return <Text style={s.sectionHead}>{title}</Text>;

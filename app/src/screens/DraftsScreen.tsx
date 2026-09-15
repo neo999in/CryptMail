@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Draft, listDrafts } from '../drafts/drafts';
@@ -25,8 +26,8 @@ import { BodyProps } from './HomeScreen';
  * their own thing: a draft is not a received message, and drawing it as one
  * would invite tapping it to read rather than to resume.
  */
-export function DraftsBody({ navigation, query, clearSearch, onComposeCollapse }: BodyProps) {
-  const composeScroll = useComposeScroll(onComposeCollapse);
+export function DraftsBody({ navigation, query, clearSearch, composeFold }: BodyProps) {
+  const composeScroll = useComposeScroll(composeFold);
   const { drafts, deleteDraft, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
@@ -76,7 +77,7 @@ export function DraftsBody({ navigation, query, clearSearch, onComposeCollapse }
           />
         )
       ) : (
-      <ScrollView
+      <Animated.ScrollView
         {...composeScroll}
         contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 10 }}
         showsVerticalScrollIndicator={false}
@@ -129,7 +130,7 @@ export function DraftsBody({ navigation, query, clearSearch, onComposeCollapse }
           </View>
           </SwipeableRow>
         ))}
-      </ScrollView>
+      </Animated.ScrollView>
       )}
     </View>
   );

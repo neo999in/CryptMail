@@ -27,6 +27,7 @@
 import { useIsFocused } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SharedValue, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CATEGORY_LABELS } from '../categorizer/categorizer';
@@ -100,11 +101,11 @@ export type BodyProps = HomeProps & {
    */
   onSelecting: (selecting: boolean) => void;
   /**
-   * A body's list reports its scroll direction here, folding the compose button
-   * to an icon while reading down. Spread `useComposeScroll(onComposeCollapse)`
-   * onto the list.
+   * The compose button's fold target, 0 open and 1 folded. A body's list writes
+   * it from the UI thread — spread `useComposeScroll(composeFold)` onto a
+   * Reanimated scrollable.
    */
-  onComposeCollapse: (collapsed: boolean) => void;
+  composeFold: SharedValue<number>;
 };
 
 const TITLES: Record<string, string> = {
@@ -183,19 +184,18 @@ class SelectingFlag {
 
 function ComposeSlot({
   flag,
-  collapsedFlag,
+  fold,
   bottom,
   onPress,
 }: {
   flag: SelectingFlag;
-  /** The same kind of flag, for the fold: a scroll must not re-render the screen either. */
-  collapsedFlag: SelectingFlag;
+  /** Read by the button on the UI thread — a scroll re-renders nothing. */
+  fold: SharedValue<number>;
   bottom: number;
   onPress: () => void;
 }) {
   const selecting = useSyncExternalStore(flag.subscribe, flag.get);
-  const collapsed = useSyncExternalStore(collapsedFlag.subscribe, collapsedFlag.get);
-  return selecting ? null : <ComposeFab bottom={bottom} collapsed={collapsed} onPress={onPress} />;
+  return selecting ? null : <ComposeFab bottom={bottom} foldTarget={fold} onPress={onPress} />;
 }
 
 export function HomeScreen(props: HomeProps) {
@@ -231,7 +231,7 @@ export function HomeScreen(props: HomeProps) {
   // the compose slot listens. See `SelectingFlag`.
   const selectingFlag = useMemo(() => new SelectingFlag(), []);
   const setSelecting = selectingFlag.set;
-  const collapsedFlag = useMemo(() => new SelectingFlag(), []);
+  const composeFold = useSharedValue(0);
   // A label deleted while it was the filter stops filtering, rather than
   // leaving an empty list narrowed by something the sheet can no longer show.
   const labelFilter = chosenLabel && labels.labels[chosenLabel] ? chosenLabel : null;
@@ -308,7 +308,7 @@ export function HomeScreen(props: HomeProps) {
     showAllContacts,
     labelFilter,
     onSelecting: setSelecting,
-    onComposeCollapse: collapsedFlag.set,
+    composeFold,
   };
 
   // A body that is not up cannot hold a selection, so leaving it clears the flag
@@ -316,7 +316,7 @@ export function HomeScreen(props: HomeProps) {
   // opens again.
   useEffect(() => {
     setSelecting(false);
-    collapsedFlag.set(false);
+    composeFold.value = 0;
   }, [destination]);
 
   return (
@@ -461,7 +461,7 @@ export function HomeScreen(props: HomeProps) {
         <InboxBody {...bodyProps} />
       )}
 
-      <ComposeSlot flag={selectingFlag} collapsedFlag={collapsedFlag} bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
+      <ComposeSlot flag={selectingFlag} fold={composeFold} bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
 
 
       <Sheet bottomInset={insets.bottom} onClose={() => setFilterOpen(false)} title="Filter" visible={filterOpen}>
