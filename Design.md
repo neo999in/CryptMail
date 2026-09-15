@@ -415,7 +415,7 @@ The parts that have to stay together:
   the transition both draw, which is why it lives in `ui/` rather than in the
   inbox. The last frame of the collapse is pixel-identical to what the list is
   about to draw under it; a second definition drifts, and the drift reads as a
-  cut. Anything added to a row — the unread dot included — belongs in that file,
+  cut. Anything added to a row — its labels included — belongs in that file,
   not in the list's wrapper.
 - **Only the frame's box is animated.** The box travels between the row's
   rectangle and the display, and `overflow: hidden` does the work: the message

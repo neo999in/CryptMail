@@ -101,10 +101,6 @@ function MailRowCardImpl({
 
   return (
     <View style={[s.rowTap, { paddingVertical: padding }]}>
-      {/* Part of the card, not of the list row that wraps it: the ghost the
-          closing transition draws has to carry it too, or a mail collapses onto
-          a row missing its dot. */}
-      {summary.unread ? <View style={[s.unreadDot, { backgroundColor: accent }]} /> : null}
       {selected ? (
         <View accessibilityLabel="Selected" style={[s.check, { backgroundColor: accent }]}>
           <Icon name="check" size={22} color={ON_ACCENT} strokeWidth={2.6} />
@@ -121,7 +117,8 @@ function MailRowCardImpl({
               out-shouting the subject, so it sits beside the date at the size
               of the date, not as a captioned badge. */}
           <Icon name={lock.icon} size={13} color={lock.tint} />
-          <Text style={[s.time, { color: accent }]} accessibilityLabel={lock.label}>
+          {/* Accent for unread only; a read row's date steps back with its text. */}
+          <Text style={[s.time, { color: summary.unread ? accent : color.inkFaint }]} accessibilityLabel={lock.label}>
             {relativeTime(summary.date)}
           </Text>
         </View>
@@ -166,7 +163,6 @@ function MailRowCardImpl({
 
 /** Chips drawn before the rest are counted — a row must stay one line tall there. */
 const MAX_CHIPS = 3;
-
 /** Whether this message left the account currently in front. */
 function isFrom(summary: MailSummary, address?: string): boolean {
   if (!address) return false;
@@ -188,11 +184,7 @@ const s = StyleSheet.create({
   mailbox: { ...type.meta, color: color.inkFaint, marginTop: 3 },
 
   threadChip: { backgroundColor: color.surfaceRaised, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 1 },
-  threadChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },
-
-  unreadDot: { borderRadius: 4, height: 8, left: 4, position: 'absolute', top: 26, width: 8 },
-
-  check: { alignItems: 'center', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
+  threadChipText: { color: color.inkDim, fontFamily: font.sansSemibold, fontSize: 11 },  check: { alignItems: 'center', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
 
   labels: { alignItems: 'center', flexDirection: 'row', flexWrap: 'nowrap', gap: 6, marginTop: 5, overflow: 'hidden' },
   labelChip: {

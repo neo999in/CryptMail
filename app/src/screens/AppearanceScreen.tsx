@@ -226,7 +226,6 @@ function Preview({ accent, density }: { accent: string; density: Density }) {
       </View>
       {[0, 1].map((row) => (
         <View key={row} style={[s.previewRow, { paddingVertical: pad }]}>
-          {row === 0 ? <View style={[s.previewUnreadDot, { backgroundColor: accent }]} /> : <View style={s.previewUnreadDot} />}
           <View style={s.previewRowAvatar} />
           <View style={{ flex: 1, gap: 5 }}>
             <View style={[s.previewLine, { width: '55%' }]} />
@@ -292,7 +291,6 @@ const s = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 12,
   },
-  previewUnreadDot: { backgroundColor: 'transparent', borderRadius: 3, height: 6, width: 6 },
   previewRowAvatar: { backgroundColor: color.surfaceRaised, borderRadius: 15, height: 30, width: 30 },
   previewLine: { backgroundColor: color.surfaceRaised, borderRadius: 3, height: 7 },
   previewFab: {

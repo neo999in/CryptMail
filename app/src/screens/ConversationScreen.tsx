@@ -565,7 +565,6 @@ function MessageBlock({
         onPress={onToggle}
         style={({ pressed }) => [s.head, pressed && s.pressed]}
       >
-        {message.unread && !open ? <View style={[s.unreadDot, { backgroundColor: accent }]} /> : null}
         <Avatar seed={message.from.address} label={initials(name)} size={38} />
         <View style={s.main}>
           <View style={s.line}>
@@ -783,8 +782,6 @@ const s = StyleSheet.create({
   block: { borderTopColor: color.line, borderTopWidth: StyleSheet.hairlineWidth },
   head: { alignItems: 'center', flexDirection: 'row', gap: 10, paddingVertical: 14 },
   pressed: { backgroundColor: color.rowPress },
-  // In the gutter, beside the avatar: the inbox row's unread dot.
-  unreadDot: { borderRadius: 4, height: 8, left: -12, marginTop: -4, position: 'absolute', top: '50%', width: 8 },
 
   main: { flex: 1, minWidth: 0 },
   line: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
