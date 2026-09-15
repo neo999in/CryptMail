@@ -7,6 +7,7 @@ import { useContacts } from '../contacts/useContacts';
 import { displayName, initials, shortFingerprint } from '../lib/format';
 import { color, font, radius, space, type } from '../theme';
 import { Icon } from '../ui/Icon';
+import { useComposeScroll } from '../ui/mailList';
 import { Avatar, Badge, BadgeTone, Banner, EmptyState, SecondaryButton } from '../ui/primitives';
 import { BodyProps } from './HomeScreen';
 
@@ -65,7 +66,15 @@ const MATCHES: Record<ContactFilter, (trust: ContactTrust) => boolean> = {
   unverified: (t) => t === 'seen' || t === 'changed',
 };
 
-export function ContactsBody({ navigation, query, contactFilter, clearSearch, showAllContacts }: BodyProps) {
+export function ContactsBody({
+  navigation,
+  query,
+  contactFilter,
+  clearSearch,
+  showAllContacts,
+  onComposeCollapse,
+}: BodyProps) {
+  const composeScroll = useComposeScroll(onComposeCollapse);
   // The keyed half of the book. `useContacts` is shared with Compose, which
   // wants the whole of it — see the note at the top of this file.
   const everyone = useContacts();
@@ -89,6 +98,7 @@ export function ContactsBody({ navigation, query, contactFilter, clearSearch, sh
   return (
     <View style={s.screen}>
       <ScrollView
+        {...composeScroll}
         contentContainerStyle={{ paddingBottom: insets.bottom + space.xl }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

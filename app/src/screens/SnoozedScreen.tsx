@@ -12,7 +12,7 @@ import { useAppearance } from '../ui/appearance';
 import { useChrome } from '../ui/chrome';
 import { OriginRect } from '../ui/expand';
 import { mailBandBelow, mailTopInset } from '../ui/mailBar';
-import { MAIL_LIST_WINDOW, MailListRow, SectionHeading } from '../ui/mailList';
+import { MAIL_LIST_WINDOW, MailListRow, SectionHeading, useComposeScroll } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { useToast } from '../ui/ToastContext';
 import { useLatest } from '../ui/useLatest';
@@ -34,7 +34,16 @@ import { BodyProps } from './HomeScreen';
  * Rows are grouped by when they return, soonest first, rather than by when
  * they arrived: that is the question a person opening this list is asking.
  */
-export function SnoozedBody({ navigation, query, clearSearch, headerHeight, barHeight, entry }: BodyProps) {
+export function SnoozedBody({
+  navigation,
+  query,
+  clearSearch,
+  headerHeight,
+  barHeight,
+  entry,
+  onComposeCollapse,
+}: BodyProps) {
+  const composeScroll = useComposeScroll(onComposeCollapse);
   const { messages, snoozed, session, encryptionFor, searchIndex, snoozeMessage, unsnoozeMessage } = useApp();
   const { showToast } = useToast();
   const { rowPadding } = useAppearance();
@@ -131,6 +140,7 @@ export function SnoozedBody({ navigation, query, clearSearch, headerHeight, barH
     <View style={s.screen}>
       <SectionList
         {...MAIL_LIST_WINDOW}
+        {...composeScroll}
         sections={sections}
         keyExtractor={(item) => item.entry.id}
         renderItem={renderItem}

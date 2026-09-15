@@ -27,6 +27,7 @@ import {
   MailListRow,
   MailSkeletonList,
   SectionHeading,
+  useComposeScroll,
 } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { BulkBar } from '../ui/bulkBar';
@@ -56,7 +57,9 @@ export function InboxBody({
   entry,
   labelFilter,
   onSelecting,
+  onComposeCollapse,
 }: BodyProps) {
+  const composeScroll = useComposeScroll(onComposeCollapse);
   const {
     session,
     accounts,
@@ -406,6 +409,7 @@ export function InboxBody({
       ) : (
         <SectionList
           {...MAIL_LIST_WINDOW}
+          {...composeScroll}
           sections={sections}
           keyExtractor={(item) => item.thread.id}
           renderItem={renderItem}

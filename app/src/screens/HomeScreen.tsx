@@ -99,6 +99,12 @@ export type BodyProps = HomeProps & {
    * steps aside for the bulk action bar the body draws in its place.
    */
   onSelecting: (selecting: boolean) => void;
+  /**
+   * A body's list reports its scroll direction here, folding the compose button
+   * to an icon while reading down. Spread `useComposeScroll(onComposeCollapse)`
+   * onto the list.
+   */
+  onComposeCollapse: (collapsed: boolean) => void;
 };
 
 const TITLES: Record<string, string> = {
@@ -175,9 +181,21 @@ class SelectingFlag {
   };
 }
 
-function ComposeSlot({ flag, bottom, onPress }: { flag: SelectingFlag; bottom: number; onPress: () => void }) {
+function ComposeSlot({
+  flag,
+  collapsedFlag,
+  bottom,
+  onPress,
+}: {
+  flag: SelectingFlag;
+  /** The same kind of flag, for the fold: a scroll must not re-render the screen either. */
+  collapsedFlag: SelectingFlag;
+  bottom: number;
+  onPress: () => void;
+}) {
   const selecting = useSyncExternalStore(flag.subscribe, flag.get);
-  return selecting ? null : <ComposeFab bottom={bottom} onPress={onPress} />;
+  const collapsed = useSyncExternalStore(collapsedFlag.subscribe, collapsedFlag.get);
+  return selecting ? null : <ComposeFab bottom={bottom} collapsed={collapsed} onPress={onPress} />;
 }
 
 export function HomeScreen(props: HomeProps) {
@@ -213,6 +231,7 @@ export function HomeScreen(props: HomeProps) {
   // the compose slot listens. See `SelectingFlag`.
   const selectingFlag = useMemo(() => new SelectingFlag(), []);
   const setSelecting = selectingFlag.set;
+  const collapsedFlag = useMemo(() => new SelectingFlag(), []);
   // A label deleted while it was the filter stops filtering, rather than
   // leaving an empty list narrowed by something the sheet can no longer show.
   const labelFilter = chosenLabel && labels.labels[chosenLabel] ? chosenLabel : null;
@@ -289,11 +308,16 @@ export function HomeScreen(props: HomeProps) {
     showAllContacts,
     labelFilter,
     onSelecting: setSelecting,
+    onComposeCollapse: collapsedFlag.set,
   };
 
   // A body that is not up cannot hold a selection, so leaving it clears the flag
-  // the compose button reads.
-  useEffect(() => setSelecting(false), [destination]);
+  // the compose button reads. A new body also starts at its top, so the button
+  // opens again.
+  useEffect(() => {
+    setSelecting(false);
+    collapsedFlag.set(false);
+  }, [destination]);
 
   return (
     <View style={s.screen}>
@@ -437,7 +461,7 @@ export function HomeScreen(props: HomeProps) {
         <InboxBody {...bodyProps} />
       )}
 
-      <ComposeSlot flag={selectingFlag} bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
+      <ComposeSlot flag={selectingFlag} collapsedFlag={collapsedFlag} bottom={insets.bottom + 22} onPress={() => navigation.navigate('Compose', {})} />
 
 
       <Sheet bottomInset={insets.bottom} onClose={() => setFilterOpen(false)} title="Filter" visible={filterOpen}>

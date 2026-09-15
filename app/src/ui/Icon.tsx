@@ -26,6 +26,7 @@ export type IconName =
   | 'user'
   | 'users'
   | 'edit'
+  | 'compose'
   | 'star'
   | 'archive'
   | 'clock'
@@ -219,6 +220,17 @@ function glyph(name: IconName, p: object) {
         <>
           <Path d="M5 19h4L19 9a2 2 0 0 0-3-3L6 16l-1 3z" {...p} />
           <Path d="m14 8 3 3" {...p} />
+        </>
+      );
+    case 'compose':
+      // A fuller pencil than `edit`, drawn for the compose button, where it is
+      // the whole control once the label folds away: rounded barrel, a clear
+      // ferrule line, and a baseline to write on.
+      return (
+        <>
+          <Path d="M14.6 5.4a2.1 2.1 0 0 1 3 0l1 1a2.1 2.1 0 0 1 0 3L9 19l-4.5 1 1-4.5z" {...p} />
+          <Path d="m13 7 4 4" {...p} />
+          <Path d="M13 20h7" {...p} />
         </>
       );
     case 'star':

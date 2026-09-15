@@ -9,6 +9,7 @@ import { useApp } from '../state/AppState';
 import { fixedSwipes } from '../swipe/swipe';
 import { color, font, radius, type } from '../theme';
 import { Icon } from '../ui/Icon';
+import { useComposeScroll } from '../ui/mailList';
 import { useMailPrefs } from '../ui/mailPrefs';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { SwipeableRow } from '../ui/swipeRow';
@@ -24,7 +25,8 @@ import { BodyProps } from './HomeScreen';
  * their own thing: a draft is not a received message, and drawing it as one
  * would invite tapping it to read rather than to resume.
  */
-export function DraftsBody({ navigation, query, clearSearch }: BodyProps) {
+export function DraftsBody({ navigation, query, clearSearch, onComposeCollapse }: BodyProps) {
+  const composeScroll = useComposeScroll(onComposeCollapse);
   const { drafts, deleteDraft, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
@@ -75,6 +77,7 @@ export function DraftsBody({ navigation, query, clearSearch }: BodyProps) {
         )
       ) : (
       <ScrollView
+        {...composeScroll}
         contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 10 }}
         showsVerticalScrollIndicator={false}
       >

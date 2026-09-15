@@ -8,6 +8,7 @@ import { textMatchesQuery } from '../search/search';
 import { useApp } from '../state/AppState';
 import { color, font, glass, radius, type } from '../theme';
 import { Icon } from '../ui/Icon';
+import { useComposeScroll } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { BodyProps } from './HomeScreen';
 
@@ -22,7 +23,8 @@ import { BodyProps } from './HomeScreen';
  * their own: a held message is not a received one, and it is here to be acted on
  * rather than read.
  */
-export function ScheduledBody({ navigation, query, clearSearch }: BodyProps) {
+export function ScheduledBody({ navigation, query, clearSearch, onComposeCollapse }: BodyProps) {
+  const composeScroll = useComposeScroll(onComposeCollapse);
   const { scheduled, keyring, identity, undiscoverable, sendScheduledNow, cancelScheduled, saveDraft } = useApp();
   const insets = useSafeAreaInsets();
   // Held mail has not been encrypted yet — it is still the text this device
@@ -98,6 +100,7 @@ export function ScheduledBody({ navigation, query, clearSearch }: BodyProps) {
         )
       ) : (
         <ScrollView
+          {...composeScroll}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}
           showsVerticalScrollIndicator={false}
         >

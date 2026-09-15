@@ -14,7 +14,15 @@
  */
 import { MotiView } from 'moti';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
 import { MailSummary } from '../mail/types';
 import { EncryptionState } from '../state/types';
@@ -276,9 +284,49 @@ export const MailListRow = React.memo(MailListRowImpl, sameRow);
  * button in neutral ink — not an accent-filled circle, which reads as a brand
  * mark rather than as "the" action. Every list that shows mail carries it,
  * because composing is never about which mailbox you happen to be looking at.
+ *
+ * `collapsed` folds the label away to a round icon button while the list is
+ * being read downwards, so it covers less of the rows; scrolling back up opens
+ * it again. The accessibility label says Compose either way.
  */
-export function ComposeFab({ onPress, bottom }: { onPress: () => void; bottom: number }) {
+export function ComposeFab({
+  onPress,
+  bottom,
+  collapsed = false,
+}: {
+  onPress: () => void;
+  bottom: number;
+  collapsed?: boolean;
+}) {
   const [pressed, setPressed] = React.useState(false);
+  // The label's natural width, measured off-screen once, so the pill can
+  // animate between its full width and a circle rather than jump.
+  const [labelWidth, setLabelWidth] = React.useState(0);
+  const reduceMotion = useReducedMotion();
+
+  // One value, 0 open → 1 folded, springing on the UI thread. Width, padding
+  // and the label's fade are all read from it in a single style, so they move
+  // as one instead of as three separately timed layout animations.
+  const fold = useSharedValue(collapsed ? 1 : 0);
+  React.useEffect(() => {
+    const target = collapsed ? 1 : 0;
+    fold.value = reduceMotion ? target : withSpring(target, FOLD_SPRING);
+  }, [collapsed, fold, reduceMotion]);
+
+  const open = FAB_OPEN_PAD_LEFT + FAB_GLYPH + FAB_GAP + labelWidth + FAB_OPEN_PAD_RIGHT;
+  const pill = useAnimatedStyle(() =>
+    labelWidth
+      ? {
+          width: interpolate(fold.value, [0, 1], [open, FAB_SIZE], Extrapolation.CLAMP),
+          paddingLeft: interpolate(fold.value, [0, 1], [FAB_OPEN_PAD_LEFT, FAB_ROUND_PAD], Extrapolation.CLAMP),
+        }
+      : {},
+  );
+  // Gone by the time the pill is half folded, so no clipped letters show.
+  const label = useAnimatedStyle(() => ({
+    opacity: interpolate(fold.value, [0, 0.5], [1, 0], Extrapolation.CLAMP),
+  }));
+
   return (
     <MotiView
       from={{ opacity: 0, scale: 0.6 }}
@@ -286,19 +334,68 @@ export function ComposeFab({ onPress, bottom }: { onPress: () => void; bottom: n
       transition={{ type: 'spring', damping: 15, stiffness: 220, mass: 0.7 }}
       style={[s.fab, shadow.floating, { bottom }]}
     >
+      <Text
+        aria-hidden
+        importantForAccessibility="no-hide-descendants"
+        onLayout={(e) => setLabelWidth(Math.ceil(e.nativeEvent.layout.width))}
+        style={[s.fabLabel, s.fabMeasure]}
+      >
+        Compose
+      </Text>
       <Pressable
         accessibilityLabel="Compose"
         accessibilityRole="button"
         onPress={onPress}
         onPressIn={() => setPressed(true)}
         onPressOut={() => setPressed(false)}
-        style={s.fabPress}
       >
-        <Icon name="edit" size={22} color={color.ground} strokeWidth={2.2} />
-        <Text style={s.fabLabel}>Compose</Text>
+        <Animated.View style={[s.fabPress, pill]}>
+          <Icon name="compose" size={FAB_GLYPH} color={color.ground} strokeWidth={2} />
+          <Animated.Text numberOfLines={1} style={[s.fabLabel, { marginLeft: FAB_GAP }, label]}>
+            Compose
+          </Animated.Text>
+        </Animated.View>
       </Pressable>
     </MotiView>
   );
+}
+
+/** Glyph size, icon-to-label gap, and the pill's paddings open and folded. */
+const FAB_GLYPH = 22;
+const FAB_GAP = 9;
+const FAB_OPEN_PAD_LEFT = 20;
+const FAB_OPEN_PAD_RIGHT = 22;
+/** The folded circle: the glyph plus 16 on each side, the same as its height. */
+const FAB_ROUND_PAD = 16;
+const FAB_SIZE = FAB_GLYPH + FAB_ROUND_PAD * 2;
+/** Quick and settled — no overshoot, which on a width reads as a wobble. */
+const FOLD_SPRING = { damping: 26, stiffness: 380, mass: 0.6, overshootClamping: true };
+
+/**
+ * Scroll handling that folds the compose button: reading down folds it,
+ * reaching back up or returning to the top opens it. Spread onto a list.
+ *
+ * A small dead zone stops a finger's jitter from flapping it, and `onCollapse`
+ * is expected to ignore a repeat of its current value — the home screen's flag
+ * does — so this can report on every frame.
+ */
+export function useComposeScroll(onCollapse: (collapsed: boolean) => void) {
+  const last = React.useRef(0);
+  const onScroll = React.useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      const dy = y - last.current;
+      if (y <= 8) {
+        onCollapse(false);
+        last.current = y;
+      } else if (Math.abs(dy) > 6) {
+        onCollapse(dy > 0);
+        last.current = y;
+      }
+    },
+    [onCollapse],
+  );
+  return { onScroll, scrollEventThrottle: 16 } as const;
 }
 
 export function SectionHeading({ title }: { title: string }) {
@@ -416,11 +513,14 @@ const s = StyleSheet.create({
   fabPress: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 9,
-    paddingHorizontal: 22,
-    paddingVertical: 16,
+    height: FAB_SIZE,
+    overflow: 'hidden',
+    paddingLeft: FAB_OPEN_PAD_LEFT,
+    paddingRight: FAB_OPEN_PAD_RIGHT,
   },
   fabLabel: { color: color.ground, fontFamily: font.sansBold, fontSize: 15 },
+  /** Laid out for its width only; never seen and never read out. */
+  fabMeasure: { left: 0, opacity: 0, position: 'absolute', top: 0 },
 
   skelRow: {
     alignItems: 'center',
