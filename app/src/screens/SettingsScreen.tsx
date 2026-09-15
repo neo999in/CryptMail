@@ -1,14 +1,15 @@
 /**
  * Settings.
  *
- * Two groups of rows, each a destination that exists. Copilot, Calendar and
- * Contacts are not built, so they are not drawn — a settings screen full of
- * rows that do nothing is how a product stops being trusted about the rows
- * that do.
+ * One group of rows, each a destination that exists. Copilot and Calendar are
+ * not built, so they are not drawn — a settings screen full of rows that do
+ * nothing is how a product stops being trusted about the rows that do.
  *
  * This is also where the old account sheet's scattered entries landed. Keys,
- * recovery, drafts, scheduled and sign-out are all reachable from one place now,
- * with the mailbox switcher living in the drawer rail where switching is fast.
+ * recovery and sign-out are all reachable from one place now, with the mailbox
+ * switcher living in the drawer rail where switching is fast. Drafts, Scheduled
+ * and Contacts are not repeated here: they are home-screen destinations, and
+ * the drawer has them.
  */
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useMemo } from 'react';
@@ -22,7 +23,6 @@ import { accountLabel } from '../store/accountScope';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { useAppearance } from '../ui/appearance';
-import { Destination, useDestination } from '../ui/destination';
 import { confirmDialog } from '../ui/dialog';
 import { IconName } from '../ui/Icon';
 import { useMailPrefs } from '../ui/mailPrefs';
@@ -43,18 +43,11 @@ export function SettingsScreen({ navigation }: Props) {
   const { session, accounts, activeAccount, unified, signOut } = useApp();
   const { auroraColors, density, theme } = useAppearance();
   const { swipeLeft, swipeRight } = useMailPrefs();
-  const { setDestination } = useDestination();
   const insets = useSafeAreaInsets();
 
   /** What to call the mailbox in front on the Accounts row. */
   const active = accounts.find((a) => a.id === activeAccount);
   const inFront = active ? accountLabel(active) : (session?.email ?? '');
-
-  /** Drafts and Scheduled are destinations on the home screen, not routes. */
-  const go = (destination: Destination) => {
-    setDestination(destination);
-    navigation.navigate('Home');
-  };
 
   const confirmSignOut = () =>
     confirmDialog('Sign out?', 'Your keys stay on this device. You can reconnect the same mailbox any time.', [
@@ -64,23 +57,6 @@ export function SettingsScreen({ navigation }: Props) {
 
   const groups: { heading: string; rows: Row[] }[] = useMemo(
     () => [
-      {
-        heading: 'Quick Settings',
-        rows: [
-          {
-            icon: 'palette',
-            label: 'Display & Appearance',
-            // The reference's own idea, and a good one: the current state reads
-            // without opening the screen.
-            value: `${THEME_LABEL[theme]} / ${auroraColors.name} / ${CAPITALISED_DENSITY[density]}`,
-            onPress: () => navigation.navigate('Appearance'),
-          },
-          // Destinations on the home screen, not screens — so these send you
-          // back to it with that destination selected (`ui/destination.tsx`).
-          { icon: 'edit', label: 'Drafts', onPress: () => go('drafts') },
-          { icon: 'clock', label: 'Scheduled', onPress: () => go('scheduled') },
-        ],
-      },
       {
         heading: 'General',
         rows: [
@@ -95,7 +71,7 @@ export function SettingsScreen({ navigation }: Props) {
               accounts.length > 1
                 ? unified
                   ? `${accounts.length} mailboxes`
-                  : `${accounts.length} mailboxes · ${inFront} in front`
+                  : `${accounts.length} mailboxes · ${inFront} active`
                 : inFront,
             // Switching still lives in the drawer rail, which is one gesture
             // from the inbox. This is the other half: naming a mailbox, what it
@@ -112,10 +88,12 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Mail'),
           },
           {
-            icon: 'users',
-            label: 'Contacts and trust',
-            value: 'Everyone this device has seen, and how far each is trusted',
-            onPress: () => go('contacts'),
+            icon: 'palette',
+            label: 'Display & Appearance',
+            // The reference's own idea, and a good one: the current state reads
+            // without opening the screen.
+            value: `${THEME_LABEL[theme]} / ${auroraColors.name} / ${CAPITALISED_DENSITY[density]}`,
+            onPress: () => navigation.navigate('Appearance'),
           },
           {
             icon: 'key',
@@ -131,7 +109,7 @@ export function SettingsScreen({ navigation }: Props) {
     // `confirmSignOut` closes over `signOut` only, which is stable for the life
     // of the app — see the note on the actions `useApp()` exposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts.length, auroraColors.name, density, inFront, navigation, setDestination, swipeLeft, swipeRight, theme, unified],
+    [accounts.length, auroraColors.name, density, inFront, navigation, swipeLeft, swipeRight, theme, unified],
   );
 
   return (
