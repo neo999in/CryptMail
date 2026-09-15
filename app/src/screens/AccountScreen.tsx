@@ -163,7 +163,7 @@ export function AccountScreen({ navigation, route }: Props) {
   const bytes = usage ? `${formatBytes(usage.total)} on this device` : 'Measuring…';
   const counts = active
     ? `${bytes} · ${Object.keys(searchIndex).length} messages indexed · ${Object.keys(drafts).length} drafts · ${Object.keys(scheduled).length} queued`
-    : `${bytes} · message counts are shown while it is in front`;
+    : `${bytes} · message counts are shown while it is active`;
   const indexBytes = usage?.byStore[SEARCH_STORE_KEY] ?? 0;
 
   /** Export is open to any mailbox that is fetching mail; it pages the provider. */
@@ -303,7 +303,7 @@ export function AccountScreen({ navigation, route }: Props) {
           {label !== account.email ? <Text style={s.identityAddress}>{account.email}</Text> : null}
           <Text style={s.identityProvider}>
             {providerName(account.provider)}
-            {stale ? ' · needs sign-in' : active && !unified ? ' · in front' : ''}
+            {stale ? ' · needs sign-in' : active && !unified ? ' · active' : ''}
           </Text>
         </View>
 
@@ -320,7 +320,7 @@ export function AccountScreen({ navigation, route }: Props) {
           <Group>
             <SettingsRow
               icon="inbox"
-              label="Put this mailbox in front"
+              label="Make this mailbox active"
               onPress={() => {
                 // Same call the rail makes: leaving the merged view is part of
                 // choosing one mailbox, and both land in a single sync.
@@ -440,7 +440,7 @@ export function AccountScreen({ navigation, route }: Props) {
               <Icon color={color.inkDim} name="key" size={21} />
               <View style={{ flex: 1 }}>
                 <Text style={s.readoutLabel}>Sending key</Text>
-                <Text style={s.readoutValue}>Shown while this mailbox is in front</Text>
+                <Text style={s.readoutValue}>Shown while this mailbox is active</Text>
               </View>
             </View>
           )}
@@ -496,7 +496,7 @@ export function AccountScreen({ navigation, route }: Props) {
               icon="refresh"
               label="Resume syncing"
               onPress={() => void resumeAccount(account.id)}
-              value="Paused. Its keys, drafts and mail on this device are all still here — resuming brings it back in front."
+              value="Paused. Its keys, drafts and mail on this device are all still here — resuming makes it active again."
             />
           ) : lastSyncing ? (
             // Not a row that looks pressable and refuses. The reason is the

@@ -60,7 +60,7 @@ export function AccountsScreen({ navigation }: Props) {
               : paused
                 ? 'Not syncing'
                 : active && !unified
-                  ? 'In front'
+                  ? 'Active'
                   : 'Connected';
             const label = accountLabel(account);
             return (
