@@ -109,6 +109,16 @@ and synchronously — see [features.md](features.md) 0.11.
 > depth for the same reason (see the note in the file), and it is erased by both
 > scopes of "reset this mailbox" alongside the search index.
 
+> **Fetched encrypted mail.** A message's `raw` bytes are cached for encrypted
+> mail only, in [`rawCache.ts`](../app/src/store/rawCache.ts), so reopening one
+> skips the network and still decrypts locally. It is **ciphertext** — the
+> provider's bytes, never the decrypted tree — so it adds no plaintext to the
+> device: reading it still needs the private key and its passphrase, where a
+> decrypted copy would need only the device key. One sealed file per message
+> under the OS cache directory (AsyncStorage's 6 MB Android cap rules it out),
+> skipped above 1.5 MB, evicted oldest-first past 25 MB per account, and
+> erased by removing the account and by both reset scopes.
+
 ### `pending_outbox`
 Queued sends, with the reason each one is held: `time` (scheduled for later) or
 `awaiting-key` (a recipient has no published key yet), plus which addresses are

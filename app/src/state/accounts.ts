@@ -30,6 +30,7 @@ import { SEARCH_STORE_KEY } from '../store/searchIndex';
 import { SNOOZE_STORE_KEY } from '../store/snoozeStore';
 import { emptySpamState, SPAM_STORE_KEY } from '../store/spamModelStore';
 import { removeScoped } from '../store/secureJson';
+import { clearRawCache, RAW_CACHE_STORE_KEY, rawCacheBytes } from '../store/rawCache';
 import { measureAccountStorage } from '../store/storageUsage';
 import { openTextFileWriter, saveTextFile } from '../lib/files';
 import { emlFilename, entryToMbox, mboxFilename } from '../mail/mbox';
@@ -236,6 +237,9 @@ export function createAccounts(ctx: Ctx): AccountsService {
       sessions.delete(id);
       mail.clients.delete(id);
       await removeScoped(PER_ACCOUNT_STORE_KEYS, id);
+      // Files, not an AsyncStorage key, so not in that list — but just as much
+      // this account's, and re-adding the address must not find them.
+      await clearRawCache(id);
       store.patch({ needsReauth: store.get().needsReauth.filter((flagged) => flagged !== id) });
 
       const saved = await persist(withoutAccount(await loadAccounts(), id));
@@ -289,6 +293,9 @@ export function createAccounts(ctx: Ctx): AccountsService {
           ? [SEARCH_STORE_KEY, MAIL_CACHE_STORE_KEY]
           : [SEARCH_STORE_KEY, SPAM_STORE_KEY, SNOOZE_STORE_KEY, MAIL_CACHE_STORE_KEY];
       await removeScoped(bases, id);
+      // The fetched messages go in both scopes too. They are still encrypted,
+      // but they are this device's copy of the mailbox all the same.
+      await clearRawCache(id);
 
       if (id === store.get().activeAccount) {
         store.patch({
@@ -408,7 +415,16 @@ export function createAccounts(ctx: Ctx): AccountsService {
      * Read from the sealed values, never unsealed — which is what makes it
      * fair to ask about a mailbox that is not in front. See `storageUsage.ts`.
      */
-    storageUsage: (id) => measureAccountStorage(id, PER_ACCOUNT_STORE_KEYS),
+    async storageUsage(id) {
+      const [usage, raw] = await Promise.all([
+        measureAccountStorage(id, PER_ACCOUNT_STORE_KEYS),
+        rawCacheBytes(id),
+      ]);
+      return {
+        total: usage.total + raw,
+        byStore: { ...usage.byStore, [RAW_CACHE_STORE_KEY]: raw },
+      };
+    },
 
     /**
      * Stop syncing a mailbox, keeping everything it owns.

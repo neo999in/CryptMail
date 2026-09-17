@@ -14,6 +14,7 @@ import type { SpamMark } from '../spam/spam';
 import { AccountId, settingsOf } from '../store/accountScope';
 import { findKey } from '../store/keyring';
 import { cacheable, cacheableBox, saveMailCache } from '../store/mailCacheStore';
+import { readCachedRaw, writeCachedRaw } from '../store/rawCache';
 import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
 import { Ctx, MailboxService, message } from './contracts';
@@ -494,7 +495,18 @@ export function createMailbox(ctx: Ctx): MailboxService {
       }
 
       if (!mail.current) throw new Error('Not connected.');
-      const raw = await mail.current.getRaw(summary.id);
+
+      // Encrypted mail this device has fetched before is read back from disk
+      // rather than downloaded again. Only the provider's own bytes are kept —
+      // still ciphertext — so a reopen skips the network but never the
+      // decryption; see `store/rawCache.ts` for why that is the line.
+      const account = ctx.services.accounts.requireActive();
+      const cached = await readCachedRaw(account, summary.id);
+      const raw = cached ?? (await mail.current.getRaw(summary.id));
+      if (cached === null && core.looksEncrypted(raw)) {
+        // Not awaited: sealing and writing must not hold up the reader.
+        void writeCachedRaw(account, summary.id, raw);
+      }
 
       if (!core.looksEncrypted(raw)) {
         // One scan of the MIME tree, two consumers: the spam engine reads the
