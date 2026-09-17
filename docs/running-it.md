@@ -6,7 +6,7 @@ The app has **two independent capabilities** ([app/src/config.ts](../app/src/con
 
 | | Off (default) | On |
 |---|---|---|
-| `mailMode` | `unconfigured` — **no mailbox at all** | real Gmail — needs an OAuth client id |
+| `mailMode` | `unconfigured` — **no mailbox at all** | real Gmail and/or Outlook — needs an OAuth client id per provider (§1, §1c) |
 | `cryptoMode` | `demoCore`, base64, **not encryption** | real post-quantum crypto — needs the native core |
 
 They are deliberately independent, so you can commission one without the other.
@@ -217,18 +217,23 @@ demonstrated more than any of it, so it is now the only path.
 
 ## What is still not true
 
-- **Nothing has run on Android.** No SDK, no NDK, no device. The Rust core has
-  never been cross-compiled and the Kotlin module
-  ([`app/modules/cryptmail-core/`](../app/modules/cryptmail-core)) has never been
-  compiled. This is now the only thing standing between the prototype and its
-  one-sentence goal.
-- **Google OAuth has never run against Google.** No `.env`, no Cloud project.
+As of 2026-09-17. [implementation-status.md](implementation-status.md) is the
+detailed, dated ledger.
+
+- **No physical phone.** The app and the native core have run on an Android
+  emulator, which has no StrongBox, so the hardware-backed key path has never
+  run.
 - **The scheduler only runs while the app runs.** Real background delivery needs
   `expo-background-task`, which cannot be verified without a device.
-- **Recovery does not exist.** The device key protecting local storage has no
-  backup path, so a lost or wiped device is a lost keyring.
+- **A Google token refresh across an access-token expiry has never been
+  observed** (implementation-status §5.3).
+- **Encrypted mail over Microsoft Graph is unproven.** Outlook has been run
+  against a real mailbox, but not with encrypted mail (§1c).
+- **Web never encrypts.** The native core cannot load in a browser, so web stays
+  on the demo core.
 
-Interop, local encryption at rest, the verification ceremony and
-token-revocation handling were on this list and are not any more — see
+Android builds, Google sign-in against real Gmail, key recovery, interop, local
+encryption at rest, the verification ceremony and token-revocation handling were
+on this list and are not any more. See
 [implementation-status.md](implementation-status.md) for what each was replaced
 with and what it still does not prove.

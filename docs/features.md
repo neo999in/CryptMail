@@ -8,7 +8,7 @@ The roadmap answers *"what are we committed to, and in what phase?"*; this file
 answers *"what exactly would we build, which files would it touch, what's
 blocking it, and how would we know it works?"*
 
-Last updated: 2026-09-03.
+Last updated: 2026-09-17.
 
 ---
 
@@ -31,7 +31,7 @@ are prioritisation aids, not estimates.
 
 ## Baseline — what exists today
 
-Twelve features have been built one-by-one on top of the encryption prototype,
+The features below have been built one-by-one on top of the encryption prototype,
 each test-driven and verified in the running app. Knowing this is what makes
 "upcoming" well-defined.
 
@@ -55,7 +55,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | The provider's junk folder, fetched and filed under Spam ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Spam | 20 |
 | Configurable swipe actions ([swipe-actions.md](swipe-actions.md)) | [`swipe/swipe.ts`](../app/src/swipe/swipe.ts), [`store/mailPrefsStore.ts`](../app/src/store/mailPrefsStore.ts) | Mail rows, `Settings → Mail → Swipe options` | 56 |
 
-942 tests in all. Run with `npm test` (jest-expo). Convention: pure logic lives
+1571 tests across 89 suites (2026-09-17). Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
 lives in `store/*`; `state/*` orchestrates (a React end in `AppState.tsx`, the
 work in plain service modules).
@@ -131,8 +131,8 @@ The properties that make it trustworthy:
 - **One path for every change.** Flags go through `mailbox.setFlags` — the tap's
   path — so a rule's archive is optimistic, reaches the provider the row came
   from, and re-fetches if refused.
-- **The inbox of the account in front.** A merged row from another mailbox is
-  left to that mailbox's rules, which run when it is in front. Junk rows are
+- **The inbox of the active account.** A merged row from another mailbox is
+  left to that mailbox's rules, which run when it is active. Junk rows are
   never archived by a rule (they are not in the provider's inbox to begin with).
 - **No rule can match everything.** `ruleProblem` refuses an empty condition or
   a rule with no action, in the service as well as the editor.
@@ -172,6 +172,12 @@ other mail apps on the account.
   undo; there is no second archive. The selection is read back through the rows
   on screen, so it can never act on mail a sync has taken away.
 - The row stays one `Pressable` (tap + long press), per the RN-web note.
+- Entering selection must stay cheap. The swipe wrapper stays mounted with its
+  gesture disabled rather than being swapped out (a swap remounted every row),
+  swipe panes mount only once a pull activates and stay until the row settles,
+  `MailRowCard` is memoised so only the picked row redraws, and the home
+  screen's selecting flag lives outside React state so only the compose button
+  re-renders.
 
 ### 0.3 Undo send · Impact S · Effort S
 
@@ -466,7 +472,7 @@ connected mailboxes is the one store that stays global
 rest, since a list of a person's mailboxes is exactly the metadata this product
 keeps off a server.
 
-`state/accounts.ts` owns which mailbox is in front, and
+`state/accounts.ts` owns which mailbox is active, and
 [`AppState`](../app/src/state/AppState.tsx) exposes `accounts`,
 `activeAccount`, `unified`, and the four actions that change them. Each account
 gets its own `MailClient`, cached in `mail.clients`.
@@ -483,7 +489,10 @@ drawer panel header; that header is now a label, because two controls for one
 setting is the mistake the accent swatches already taught this codebase.
 
 Each avatar is the account's own Google profile picture, with initials as the
-fallback — `Session` carries `name` and `photo` because the sign-in response
+fallback. An account can instead show its initials, or the provider's own mark
+(the Google "G", the Microsoft squares), which tells a Gmail and an Outlook
+mailbox apart on the rail; a provider with no mark falls back to initials.
+`Session` carries `name` and `photo` because the sign-in response
 already contains them, so it costs no extra call and no extra scope. Message
 senders keep initials: loading a remote image because mail arrived is a tracking
 pixel with extra steps.
@@ -505,7 +514,8 @@ Settings → Accounts
 ([`screens/AccountsScreen.tsx`](../app/src/screens/AccountsScreen.tsx)) and the
 per-mailbox screen behind it
 ([`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx)): a display
-name, whether the avatar shows the provider's photo or initials, whether that
+name, whether the avatar shows the provider's photo, initials or the provider's
+logo, whether that
 mailbox's mail may fetch remote images (0.8), how far back it syncs, what it has
 cached here, and removal. Those four settings live on the registry ref rather
 than in a per-account store, because every consumer needs all of them at once
@@ -517,11 +527,11 @@ That screen also carries the two things a per-account app owed the user and had
 nowhere to put. **Which key this mailbox sends with**, and whether it is listed
 in the directory — the keyring, the publication record and the recovery mark are
 all per-account stores, but Keys and Recovery are reached from Settings and
-silently describe whichever mailbox is in front. And **"stop syncing"**, the
+silently describe whichever mailbox is active. And **"stop syncing"**, the
 rung between a dead grant and removal: a paused mailbox keeps its place, its
 keys, its drafts and its indexed mail, and simply loses its `MailClient`, so a
 merged sync steps over it and boot does not even ask the provider for a token
-for it. Resuming restores the session and puts it in front — every way of
+for it. Resuming restores the session and makes it active — every way of
 choosing a mailbox means "show me this mail", so `switchAccount` on a paused one
 resumes it rather than refusing. Pausing the last mailbox still syncing is
 refused, and the screen says why before the tap: an app with nothing to read is
@@ -551,12 +561,12 @@ mailbox's token. See
 [the design](superpowers/specs/2026-09-05-multi-gmail-design.md), which also
 records what is still unverified on a device.
 
-Boot restores the mailbox that was in front, paints it, and brings the rest back
+Boot restores the mailbox that was active, paints it, and brings the rest back
 behind it — a second account costs no launch time on the screen the user is
 actually looking at.
 
 A revoked grant is now **one account's problem**. It is flagged
-(`State.needsReauth`), stepped off if it was in front, and shown in the drawer's
+(`State.needsReauth`), stepped off if it was active, and shown in the drawer's
 account rail as "sign in again"; its keyring, drafts and decrypted mail are kept,
 because a dead token says nothing about whether the data on this device is still
 the user's. Clearing every account was correct only while there could be one.
@@ -587,9 +597,13 @@ without breaking search over freshly-opened mail.
 **Status: ✓ built, per account.** The Storage group on
 [`screens/AccountScreen.tsx`](../app/src/screens/AccountScreen.tsx) shows what a
 mailbox takes on this device in bytes, and the search index's share of it, and
-offers two controls: *Clear decrypted content*, which empties the search index
-alone, and *Reset account*, which also drops the learned spam model and any
-snoozes and then syncs again. Neither touches the keyring, the recovery blob,
+offers two controls. *Clear decrypted content* empties the search index, the
+cached mail list and the cache of fetched encrypted messages. *Reset account*
+also drops the learned spam model and any snoozes, then syncs again. The
+fetched-message cache ([`store/rawCache.ts`](../app/src/store/rawCache.ts))
+holds only the provider's ciphertext, so it goes in both scopes because it is
+this device's copy of the mailbox, not because it is readable. Its bytes count
+toward the total shown ([data-model.md](data-model.md)). Neither touches the keyring, the recovery blob,
 drafts or the outbox: those are the private key and the user's unsent work, and
 a control called "reset" must not silently destroy either.
 
@@ -598,7 +612,7 @@ Bytes are measured by
 values, without unsealing them — so they are shown for a mailbox that is not in
 front too, without its index being decrypted behind the user's back. Row counts
 (messages indexed, drafts, queued) still need the plaintext and are shown only
-for the mailbox in front; the row says so for the others.
+for the active mailbox; the row says so for the others.
 
 The index bounds itself. `indexContent` in
 [`search/search.ts`](../app/src/search/search.ts) keeps it under
@@ -639,7 +653,7 @@ The mbox is **the whole mailbox**: `exportMailbox` in
 from the provider to the end, ignoring the sync window (a filter on listing, and
 a backup that silently kept 30 days would be a trap). Spam and Trash are left
 out, and the row says so. Because it pages the provider rather than reading
-`State`, any syncing mailbox can be exported, in front or not. Messages are
+`State`, any syncing mailbox can be exported, active or not. Messages are
 appended to the file as they arrive (`openTextFileWriter` in
 [`lib/files.ts`](../app/src/lib/files.ts)), so the mailbox is never one string in
 memory; the row shows progress. A listing failure ends the export; a single
@@ -732,7 +746,8 @@ dynamic type, high contrast, RTL, localisation, formal design tokens.
 users never receive. Also the hardest copy to translate well — start early.
 
 **Built.** Theming, as of the UI rework: a Settings screen and a Display &
-Appearance screen, with six accent colours and three densities persisted in
+Appearance screen, with the aurora colour palettes (one choice that sets both
+the top bar's band and the accent) and three densities persisted in
 `store/prefsStore.ts`. The accent deliberately does not reach trust colour —
 mint and coral are fixed at every accent — and every row's encryption state
 carries an `accessibilityLabel`, so it is never colour-only.

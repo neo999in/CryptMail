@@ -7,7 +7,7 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-08-31.
+Last updated: 2026-09-17.
 
 > **The demo mailbox was removed on 2026-08-31.** `mail/demoMail.ts`,
 > `auth/demoAuth.ts` and `mail/__tests__/demoMail-test.ts` are gone, and
@@ -88,7 +88,21 @@ does not open a Kotlin/Bouncy Castle shortcut.
 
 ## 3. The app (`app/`)
 
-**✅ Verified.** `npx tsc --noEmit` clean; `npm test -- --ci` — 275 tests, 26 suites.
+**✅ Verified 2026-09-17.** `npx tsc --noEmit` clean; `npm test -- --ci` — 1571 tests, 89 suites.
+(275 tests, 26 suites when this section was first written.)
+
+### On-device cache of fetched encrypted mail — ✅ verified by test, 🟨 on a device
+
+Opening an encrypted message now keeps the provider's raw bytes
+([`store/rawCache.ts`](../app/src/store/rawCache.ts)) so a reopen skips
+`getRaw`. It holds **ciphertext only**, sealed per file, never the decrypted tree.
+`store/__tests__/rawCache-test.ts` covers sealing, the size cap, oldest-first
+eviction, per-account clearing, and failures (a file that does not authenticate,
+no file system) turning into misses rather than errors.
+`state/__tests__/openMessageCache-test.ts` covers a reopen not reaching the
+provider and plain mail never being cached. 🟨 That removing or resetting an
+account clears the cache has been read in `state/accounts.ts`, not tested. The
+file backend itself has not been observed on a device.
 
 ### Capability split — ✅ verified by test
 

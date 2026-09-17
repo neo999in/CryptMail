@@ -204,7 +204,12 @@ Trust state is derived, not stored twice: inbox rows call `encryptionFor()`
 (headers only, no network, no decryption), while opening a message upgrades trust
 using the signature and the keyring. Decrypted subjects/bodies are indexed into
 `searchIndex` so encrypted mail is searchable — only content decrypted on this
-device is ever stored.
+device is ever stored. Opening encrypted mail also caches the provider's raw
+bytes in [app/src/store/rawCache.ts](app/src/store/rawCache.ts), so reopening it
+skips the network. That cache is **ciphertext only**, one sealed file per
+message rather than AsyncStorage, and it is not in `PER_ACCOUNT_STORE_KEYS`, so
+removing or resetting an account clears it explicitly. Never cache the
+decrypted tree there. `searchIndex` stays the only decrypted mail on disk.
 
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))

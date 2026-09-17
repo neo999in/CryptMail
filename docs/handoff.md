@@ -1,5 +1,12 @@
 # Handoff — what is left
 
+> **Snapshot, not current state.** This was written on 2026-08-08, and its counts
+> and "next" items are as of then. Much of §2 has since shipped, including Google
+> sign-in with several mailboxes, Outlook, and the app's test suite, now at 1571
+> tests. For what is true today, read
+> [implementation-status.md](implementation-status.md) and
+> [features.md](features.md).
+
 Written 2026-08-08, after the first Android build. Companion to
 [implementation-status.md](implementation-status.md), which records *what is
 true*; this file records *what to do next*, in order, with the traps.

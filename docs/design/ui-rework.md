@@ -106,13 +106,17 @@ lines) is the biggest change. Target, matching shot 2:
   left the Filter sheet in the same change, so it is offered in one place only.
   See [app/src/ui/inboxTabs.ts](../../app/src/ui/inboxTabs.ts).
 - **Rows**: circular tinted avatar with an initial, sender on line one with the
-  date right-aligned in the accent, subject semibold on line two, snippet dim on
-  line three; encryption badge stays but shrinks to a small lock glyph beside
-  the date, since it is per-row furniture and must not out-shout the subject.
+  date right-aligned, subject on line two, snippet dim on line three; encryption
+  badge stays but shrinks to a small lock glyph beside the date, since it is
+  per-row furniture and must not out-shout the subject. Unread mail is carried
+  by weight and by the date in the accent. There is no unread dot, and a read
+  row's date steps back to `color.inkFaint` with its text.
 - **Grouping**: date-bucket section headers ("Last week", "This month") — the
   existing `dayBucket` already does this and keeps its shape.
 - **FAB**: filled accent circle with a compose glyph, bottom right; loses the
-  brass glass.
+  brass glass. *Since changed:* it is now a "Compose" pill in neutral ink (an
+  accent circle read as a brand mark), and it folds to a round icon while a
+  list is scrolled down — see [Design.md](../../Design.md) §6.
 
 `MailRow`, `FilterPill`, `SkeletonRow` and `AccountSheet` are rewritten in
 place. `AccountSheet` mostly *dissolves*: account switching moves to the drawer
@@ -148,24 +152,29 @@ becomes the two-column drawer of shot 3:
   from — a provider fetch, a local store, a filter — is not something the top of
   the app changes shape over. Settings is the one drawer row that still pushes — Contacts joined the
   destinations, so the address book wears the same bar (its All/Verified/Unverified
-  control in place of the mail lens) rather than arriving as its own screen. The reference also lists Snoozed; **it
-  has no destination in CryptMail today**, so it is not drawn as a dead row —
-  the panel lists what exists. The categories (Primary, Purchases, Bills,
-  Promotions) stay below under a "Categories" heading, which is what this
-  drawer is otherwise for. Snooze and trash remain 0.19 in
-  [features.md](../features.md).
+  control in place of the mail lens) rather than arriving as its own screen. The reference also lists Snoozed; it
+  was left out until it had a destination, and it is drawn now that it has one
+  (0.19 in [features.md](../features.md)) — the panel lists only what exists.
+  The categories (Purchases, Bills, Promotions) stay below under a
+  "Categories" heading, which is what this drawer is otherwise for. Primary was
+  dropped from that list: the inbox's own Primary tab is that list, and a
+  second way in from the drawer read as a different one.
 - A Settings row pinned to the bottom.
 
 ### 5. Settings and Display & Appearance (new screens)
 
-`app/src/screens/SettingsScreen.tsx` — shot 5: a search field (matching both
-label and value line), then **Quick Settings** (Display & Appearance with its
-`Dark / Blue / Roomy` value subtitle, Drafts, Scheduled) and **General**
-(Accounts, Keys and fingerprints, Key recovery, Sign out). Rows with no feature
-behind them are not invented, so the reference's Signatures, Notifications,
-Copilot, Calendar, Contacts, Language and Accessibility rows are all absent —
-this screen lists only destinations that exist. It is where the old account
-sheet's scattered entries landed.
+`app/src/screens/SettingsScreen.tsx` — shot 5, reduced to **one group**,
+General: Accounts (with the active mailbox named in its value line), Mail
+(swipe setup in its value line), Display & Appearance (with its
+`Dark / Borealis Cyan / Roomy` value subtitle), Keys and fingerprints, Key recovery and
+Sign out. It first shipped with a search field and a separate Quick Settings
+group holding Drafts and Scheduled, and Contacts sat under General. Those three
+are home-screen destinations the drawer already lists, so repeating them here
+was dropped, and with them the need for a second group. Rows with no feature
+behind them are not invented, so the reference's Notifications, Copilot,
+Calendar, Language and Accessibility rows are all absent. This screen lists only
+destinations that exist. It is where the old account sheet's scattered entries
+landed.
 
 `app/src/screens/AppearanceScreen.tsx` — shot 4: `Theme | Density` segment, a
 live preview card built from the same row primitives so it cannot drift from the

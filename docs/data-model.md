@@ -127,6 +127,12 @@ always encrypted-or-nothing. See [`outbox/outbox.ts`](../app/src/outbox/outbox.t
 
 ## Backend directory / backup store (Postgres)
 
+> **Not built, and not planned.** CryptMail has no backend. Keys are
+> discovered and published through `keys.openpgp.org` and WKD, and a key backup
+> is a blob the user keeps (see [api.md](api.md) and
+> [key-management.md](key-management.md)). The tables below record the design
+> that was dropped.
+
 The backend holds only opaque or public data. See [api.md](api.md).
 
 ### `directory`

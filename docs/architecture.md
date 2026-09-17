@@ -58,6 +58,10 @@ independently audited. Ideally a single library (e.g. Rust core compiled to all
 targets, or a shared TypeScript module).
 
 ### 2. Provider connectors
+
+> **Prototype status.** Built: Gmail REST and Microsoft Graph, behind the
+> `MailClient` interface in [`mail/types.ts`](../app/src/mail/types.ts)
+> (`list` / `getRaw` / `send` / `updateFlags`). Generic IMAP/SMTP is not built.
 Abstraction over how mail is fetched/sent:
 - **Gmail** → OAuth 2.0 + Gmail REST API (or IMAP/SMTP with XOAUTH2).
 - **Outlook/Microsoft 365** → OAuth 2.0 + Microsoft Graph API (or IMAP/SMTP).
@@ -71,6 +75,14 @@ SQLite database on the device holding message metadata, cached decrypted bodies
 (optional), the contact public-key ring, and the wrapped private key. The DB file
 itself is encrypted at rest (SQLCipher / OS keychain-held key). See
 [data-model.md](data-model.md).
+
+> **Prototype status.** The app does not use SQLite. Each store is a JSON value
+> in AsyncStorage, sealed with XChaCha20-Poly1305 under a device key in
+> `expo-secure-store` and keyed per account. The one exception is fetched
+> encrypted mail. It is kept as one sealed file per message in the OS cache
+> directory ([`store/rawCache.ts`](../app/src/store/rawCache.ts)), because
+> AsyncStorage's 6 MB Android cap is too small for it. That cache is still
+> ciphertext. The only decrypted mail on disk is the bounded search index.
 
 ### 4. UI layer
 Inbox, thread view, compose, key/trust indicators, onboarding, recovery. Renders
@@ -123,6 +135,8 @@ limitation: a device that never reopens cannot deliver what it holds.
 4. App detects PGP/MIME (content type / armor markers) when a message is opened.
 5. Crypto core decrypts with the private key and verifies the signature.
 6. Decrypted content rendered in the UI; optionally cached in the encrypted store.
+   *(Prototype: the ciphertext is cached so a reopen skips the network, and the
+   decrypted subject and body go into the sealed, bounded search index.)*
 7. In the provider's own apps, the same message stays ciphertext.
 
 ## Technology recommendations

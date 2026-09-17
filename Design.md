@@ -150,7 +150,7 @@ twice, it belongs here instead.
 | `Toggle` | a setting that is simply on or off | accent track, and the knob **moves** — never colour alone. Ours, not RN's `Switch`, which cannot follow `useAccent()` |
 | `Sheet` | a modal bottom sheet | scrim + blur + grip. **The only place blur is used.** |
 | `Badge` / `Banner` / `Callout` | encryption and trust state | `enc`→mint, `warn`→coral, `plain`→faint |
-| `Avatar` | a sender or account | circle, tint derived deterministically from the address; `mode="initials"` honours an account's "show as" choice |
+| `Avatar` | a sender or account | circle, tint derived deterministically from the address; `mode` (`photo`, `initials` or `provider`, the provider's logo) honours an account's "show as" choice |
 | `EmptyState` | "nothing here" / "nothing matched" | centred glyph, title, hint, optional action |
 | `Skeleton` | loading | pulsing block — loading should have the shape of the result |
 
@@ -207,6 +207,13 @@ The pieces:
 - `ui/mailList.tsx` — `MailListRow` (the card of `ui/mailRow.tsx` plus the entry
   animation and the origin measurement the expand transition needs),
   `groupByDay` + `SectionHeading`, `MailSkeletonList`, and `ComposeFab`.
+  The compose button folds to a round icon while a list is read downwards and
+  opens again on scrolling up or reaching the top. The home screen owns one
+  `composeFold` shared value and passes it to every body. A body spreads
+  `useComposeScroll(composeFold)` onto a **Reanimated** scrollable
+  (`Animated.ScrollView` or `AnimatedSectionList`). A plain list cannot take the
+  worklet handler, and the fold would then wait on the JS thread. Switching
+  destination resets it to open.
 - `ui/mailFilter.ts` — the "needs attention" filter and its predicate, shared
   because the control and the bodies that apply it are now different components.
   The Filter sheet also lists local labels; the chosen one reaches bodies as
@@ -347,6 +354,30 @@ There are two classes of motion here, and they answer to different rules:
   left behind is a lie about which tab is selected.
 - **A continuous animation** nobody asked for — the aurora band. It keeps the
   display pipeline awake, so it answers to all four gates below.
+
+Gesture-driven and repeating UI motion (the press scale, the skeleton pulse and
+the compose button's fold) runs on **Reanimated** shared values on the UI
+thread, not in React state, so a busy JS thread cannot hold it back.
+
+### The decrypt reveal
+
+When an encrypted message opens, its subject and body resolve left to right out
+of random glyphs ([ui/decrypt.ts](app/src/ui/decrypt.ts) makes the frames and
+[ui/decryptedText.tsx](app/src/ui/decryptedText.tsx) draws them with
+`DecryptedText` and `DecryptReveal`). It runs for 500–1100ms, depending on the
+text's length. That is the one deliberate exception to "anything longer reads
+as lag". Its terms:
+
+- **The noise is decoration only.** It is never derived from the plaintext or
+  the ciphertext, and the last frame is always exactly the real text.
+- **Nothing moves.** The real content is laid out invisibly from the first
+  frame, with the noise drawn over it and clipped to its bounds. A body swaps in
+  when the noise lands rather than fading in. Only the first 1,200 characters of
+  a body are scrambled.
+- **Screen readers only ever get the real content.**
+- It plays only for mail whose headers say it is encrypted. Although it is a
+  one-shot, it checks `useShouldAnimate()` rather than `useReducedMotion()`
+  alone, so reduced motion or battery saver shows the text straight away.
 
 [app/src/ui/aurora/](app/src/ui/aurora/) is the one animated decorative
 surface, and it is allowed **only because of the terms it meets**. All of them

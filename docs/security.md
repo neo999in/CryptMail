@@ -6,8 +6,10 @@ and the assumptions behind each guarantee.
 ## What we protect
 
 - **Message content** (subject, body, attachments) is end-to-end encrypted.
-  Neither the mail provider, network observers, nor the CryptMail backend can
-  read it.
+  Neither the mail provider nor network observers can read it. (CryptMail runs
+  no backend. The key directory is `keys.openpgp.org` plus WKD, which see only
+  public keys. The backend rows below record a design that was dropped; see
+  [api.md](api.md).)
 - **Authenticity:** messages are signed; recipients can verify the sender's key.
 - **Private keys at rest** are wrapped (Argon2id + AES-256-GCM) and held in the OS
   keychain; they never leave the device in usable form.
@@ -73,6 +75,13 @@ The backend is designed so a breach doesn't break confidentiality:
 
 - Private key material zeroized from memory on lock/quit; auto-lock timer.
 - Optional "no plaintext cache" mode (store only ciphertext locally).
+  *Prototype: there is no such mode yet, but the caches are split along that
+  line. Fetched encrypted mail is cached as the provider's ciphertext
+  ([`store/rawCache.ts`](../app/src/store/rawCache.ts)), so reading it still
+  needs the private key and its passphrase. The only decrypted mail on disk is
+  the bounded, sealed search index. **Clear decrypted content** on a mailbox's
+  screen erases the index, the cached mail list and the ciphertext cache, and
+  removing the account erases them too.*
 - DB encrypted at rest (SQLCipher), key in OS keychain (hardware-backed where
   available — Secure Enclave / TPM / StrongBox). *Prototype: local records are
   sealed individually with XChaCha20-Poly1305 under a device key in
