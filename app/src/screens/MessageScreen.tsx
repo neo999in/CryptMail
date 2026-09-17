@@ -29,6 +29,7 @@ import { useAccent, useAppearance } from '../ui/appearance';
 import { HtmlReader } from '../ui/HtmlReader';
 import { Body, LinkSheet } from '../ui/messageBody';
 import { CardBar, PlainBanner, StatusBanner } from '../ui/messageChrome';
+import { DecryptedText } from '../ui/decryptedText';
 import { useChrome, useKeepsBarBeneath } from '../ui/chrome';
 import { ExpandingScreen } from '../ui/expand';
 import { MailRowCard } from '../ui/mailRow';
@@ -508,7 +509,16 @@ export function MessageScreen({ route, navigation }: Props) {
               the placeholder one on the wire, and the real one only exists once
               the body has been decrypted. A plain subject is already known, so
               it is simply drawn. */}
-          {opened || !headerEncrypted ? (
+          {opened && headerEncrypted ? (
+            // The placeholder resolving into the subject it was hiding - the
+            // one moment the reader can see decryption happen.
+            <DecryptedText
+              animate={!opened.error}
+              onLayout={(e) => setSubjectTop(e.nativeEvent.layout.y)}
+              style={s.subject}
+              text={opened.subject}
+            />
+          ) : opened || !headerEncrypted ? (
             <Text onLayout={(e) => setSubjectTop(e.nativeEvent.layout.y)} style={s.subject}>
               {opened?.subject ?? summary.subject}
             </Text>
