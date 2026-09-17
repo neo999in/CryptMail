@@ -26,10 +26,10 @@ import { countRemoteImages } from '../html/remoteImages';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
-import { HtmlReader } from '../ui/HtmlReader';
-import { Body, LinkSheet } from '../ui/messageBody';
+import { HTML_BLOCK_MARGIN, HtmlReader } from '../ui/HtmlReader';
+import { Body, bodyTextStyle, LinkSheet } from '../ui/messageBody';
 import { CardBar, PlainBanner, StatusBanner } from '../ui/messageChrome';
-import { DecryptedText } from '../ui/decryptedText';
+import { DecryptedText, DecryptReveal } from '../ui/decryptedText';
 import { useChrome, useKeepsBarBeneath } from '../ui/chrome';
 import { ExpandingScreen } from '../ui/expand';
 import { MailRowCard } from '../ui/mailRow';
@@ -619,30 +619,39 @@ export function MessageScreen({ route, navigation }: Props) {
                           <Text style={[s.imageStripAction, { color: accent }]}>Load</Text>
                         </PressableRow>
                       ) : null}
-                      <HtmlReader
-                        // Remote images load on open unless this mailbox says
-                        // not to (features.md 0.8, and the Privacy control on
-                        // `screens/AccountScreen.tsx`). The default is still
-                        // "load", which is a real disclosure — a per-recipient
-                        // image URL tells the sender the message was opened,
-                        // when, and from where. What changed is that the choice
-                        // is now the user's: standing, per account, and
-                        // overridable for this one message by the strip above.
-                        // Nothing else here phones anyone.
-                        //
-                        // The *active* account's setting, which is the right
-                        // one: opening a merged-inbox row switches to the
-                        // account that owns it first (`state/mailbox.ts`), so
-                        // by the time this renders, the mail on screen belongs
-                        // to that mailbox.
-                        allowRemoteImages={imagesAllowed}
-                        contentWidth={bodyWidth}
-                        html={opened.html}
-                        onLinkPress={setTappedLink}
-                      />
+                      <DecryptReveal
+                        animate={headerEncrypted}
+                        paragraphMargin={HTML_BLOCK_MARGIN}
+                        style={bodyTextStyle}
+                        text={opened.body}
+                      >
+                        <HtmlReader
+                          // Remote images load on open unless this mailbox says
+                          // not to (features.md 0.8, and the Privacy control on
+                          // `screens/AccountScreen.tsx`). The default is still
+                          // "load", which is a real disclosure — a per-recipient
+                          // image URL tells the sender the message was opened,
+                          // when, and from where. What changed is that the choice
+                          // is now the user's: standing, per account, and
+                          // overridable for this one message by the strip above.
+                          // Nothing else here phones anyone.
+                          //
+                          // The *active* account's setting, which is the right
+                          // one: opening a merged-inbox row switches to the
+                          // account that owns it first (`state/mailbox.ts`), so
+                          // by the time this renders, the mail on screen belongs
+                          // to that mailbox.
+                          allowRemoteImages={imagesAllowed}
+                          contentWidth={bodyWidth}
+                          html={opened.html}
+                          onLinkPress={setTappedLink}
+                        />
+                      </DecryptReveal>
                     </>
                   ) : (
-                    <Body text={opened.body} onLinkPress={setTappedLink} />
+                    <DecryptReveal animate={headerEncrypted} style={bodyTextStyle} text={opened.body}>
+                      <Body text={opened.body} onLinkPress={setTappedLink} />
+                    </DecryptReveal>
                   )}
                   <AttachmentList
                     attachments={opened.attachments}

@@ -23,6 +23,9 @@ import { Banner, frost, PrimaryButton, SecondaryButton } from './primitives';
  * exclusion is the security boundary, so nothing about which schemes are
  * tappable is decided here.
  */
+/** The body's text style, for anything drawn in its place — the decrypt reveal. */
+export const bodyTextStyle = { color: color.body, fontFamily: font.sans, fontSize: 15.5, lineHeight: 25 } as const;
+
 export function Body({ text, onLinkPress }: { text: string; onLinkPress: (url: string) => void }) {
   return (
     <Text style={s.body}>
@@ -118,7 +121,7 @@ export function LinkSheet({ url, onClose }: { url: string | null; onClose: () =>
 }
 
 const s = StyleSheet.create({
-  body: { color: color.body, fontFamily: font.sans, fontSize: 15.5, lineHeight: 25 },
+  body: bodyTextStyle,
   // Underlined as well as tinted: colour alone is not a signal everyone can see.
   link: { color: defaultAccent, textDecorationLine: 'underline' },
 

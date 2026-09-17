@@ -49,6 +49,13 @@ import { color, font, radius, space, type } from '../theme';
 import { useAccent } from './appearance';
 import { Icon } from './Icon';
 
+/**
+ * The space above and below a paragraph. Exported because the decrypt reveal
+ * lays its noise out in the same paragraphs, so the text does not shift when
+ * the rendered message takes its place.
+ */
+export const HTML_BLOCK_MARGIN = space.sm;
+
 export type HtmlReaderScheme = 'dark' | 'light';
 
 /**
@@ -275,8 +282,8 @@ export function HtmlReader({
         color: theme.body,
       },
       tagsStyles: {
-        p: { marginVertical: space.sm },
-        div: { marginVertical: space.sm },
+        p: { marginVertical: HTML_BLOCK_MARGIN },
+        div: { marginVertical: HTML_BLOCK_MARGIN },
         li: { lineHeight: 25, marginVertical: 2 },
         ul: { marginVertical: space.sm, paddingLeft: space.lg },
         ol: { marginVertical: space.sm, paddingLeft: space.lg },
