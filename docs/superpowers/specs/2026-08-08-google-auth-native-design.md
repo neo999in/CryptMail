@@ -205,7 +205,8 @@ secondary source describes a different return shape from the API reference. What
 matters is whether it keeps returning valid tokens across a long-lived session
 without a fresh interactive sign-in.
 
-**Prove this early**, because §7.3's background scheduler depends on it: if a
+**Prove this early**, because §7.3's background scheduler (built 2026-09-18,
+unverified) depends on it: if a
 token cannot be refreshed while the app is backgrounded, scheduled sends fail in
 a way no amount of scheduler work fixes. The cheapest check is signing in, then
 forcing an expiry and calling `freshAccessToken()`.

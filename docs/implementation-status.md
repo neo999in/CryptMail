@@ -453,13 +453,47 @@ the tests passed while certifying nothing — hence the pure-JS hash. And a
 fingerprint of `"not-hex"` normalised to one hex character and produced a
 perfectly plausible six-group number, hence the length floor.
 
-### 7.3 The scheduler only runs while the app runs — ⛔ needs a device
+### 7.3 Background delivery of queued mail — 🟨 built, never run on a device
 
-Unchanged, and deliberately so. Background delivery needs
-`expo-background-task`, which cannot run on web, cannot run under jest, and
-cannot be verified without a device. Writing it now would add unverifiable
-native-dependent code to a repo whose scheduler currently works correctly within
-its stated limits. Blocked behind §5.2 along with everything else.
+§5.2 closed, which was the stated blocker, so it is written — as of 2026-09-18.
+The OS runs the same `scheduler.run()` the in-app 15 s interval calls, through
+`expo-background-task` (WorkManager on Android): no more often than every 15
+minutes, and when the system chooses, not on the minute.
+
+- [`background/pass.ts`](../app/src/background/pass.ts) decides *whose*
+  services run it. With the app's JS alive, the app's own — a second service
+  graph would hold a second outbox and a second `inFlight` set, and send the
+  same message twice. With it not alive, a throwaway headless graph that boots
+  **only the mailbox that was in front** (`boot(…, { restoreOthers: false })`),
+  since that is the outbox `run()` drains. The app's boot waits out a headless
+  pass that was mid-send when it opened (`backgroundIdle()`).
+- [`background/task.ts`](../app/src/background/task.ts) is the only file that
+  touches the native modules. The task is registered only while the outbox is
+  non-empty, and unregisters itself when a pass empties it.
+- Nothing about *what* is sent changed: the pass goes through `deliver`, so rule
+  1 holds as it does on screen.
+
+**Tested:** the routing, under jest (`background/__tests__/pass-test.ts`) —
+foreground reuse, one headless graph per overlapping wake-up, boot waiting on
+a pass, and a failed boot never read as an empty outbox.
+
+**Not verified, and each needs a device or an emulator:**
+
+- that `defineTask` at the top of `index.ts` is found on a headless launch;
+- that the task fires at all — `triggerTaskWorkerForTestingAsync()` in a debug
+  build is the cheap check;
+- that a headless launch and an activity opened during it share one JS runtime,
+  which is what the foreground/headless routing assumes. If they do not, the
+  wait in boot does not reach across and a double send is possible;
+- that `expo-secure-store` and the core's keystore unlock with no activity (the
+  core's passphrase deliberately has no biometric gate for this —
+  `KeystorePassphrase.kt`);
+- that a Google token refreshes from the background at all (§5.3). If it does
+  not, a pass fails the send and rescues it to Drafts, as a foreground failure
+  does.
+
+Only the account in front has its outbox drained — the same limit the in-app
+interval has.
 
 ### 7.4 ~~No token-revocation handling~~ — ✅ fixed
 

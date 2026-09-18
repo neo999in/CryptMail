@@ -26,6 +26,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { attachForeground, backgroundIdle } from '../background/pass';
+import { setBackgroundSchedule } from '../background/task';
 import { MailSummary } from '../mail/types';
 import { publishStatusFor, PublishStatus } from '../store/publishStore';
 import { MailHolder, Services } from './contracts';
@@ -75,22 +77,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   // Boot: restore an existing session, if any.
+  //
+  // From here on a background pass runs on these services rather than building
+  // its own. One that was already running headless when the app opened may
+  // have sent a message without yet writing the outbox back, so boot — which
+  // reads that outbox — waits for it first (`background/pass.ts`).
   useEffect(() => {
     let cancelled = false;
-    void services.session.boot(() => cancelled);
+    const detach = attachForeground(wiring.current!);
+    void backgroundIdle().then(() => {
+      if (!cancelled) void services.session.boot(() => cancelled);
+    });
     return () => {
       cancelled = true;
+      detach();
     };
   }, [services]);
 
   // Client-side scheduler: deliver due messages while the app runs, and catch up
-  // on launch.
+  // on launch. Closed, the background task takes over, at the OS's pace.
   useEffect(() => {
     if (!state.session) return;
     void services.scheduler.run();
     const handle = setInterval(() => void services.scheduler.run(), SCHEDULER_INTERVAL_MS);
     return () => clearInterval(handle);
   }, [services, state.session]);
+
+  // Background delivery: the OS wakes a pass while the outbox holds anything,
+  // and not otherwise (`background/task.ts`). Left alone while booting, when
+  // the outbox has not been read yet and would look empty.
+  const outboxWaiting = !!state.session && Object.keys(state.scheduled).length > 0;
+  useEffect(() => {
+    if (state.booting) return;
+    void setBackgroundSchedule(outboxWaiting);
+  }, [outboxWaiting, state.booting]);
 
   const value = useMemo(
     (): State & Actions => ({

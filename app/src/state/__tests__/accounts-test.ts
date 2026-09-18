@@ -355,6 +355,24 @@ describe('switching', () => {
     expect(relaunched.get().activeAccount).toBe(ONE);
     expect(relaunched.get().accounts).toHaveLength(2);
   });
+
+  /** What a background scheduler pass asks for: its outbox is the one in front. */
+  it('restores only the account in front when asked not to restore the others', async () => {
+    const first = harness();
+    await connectBoth(first);
+    await first.services.accounts.switchAccount(ONE);
+
+    const background = harness();
+    await background.services.session.boot(() => false, { restoreOthers: false });
+    await settle();
+    const everything = harness();
+    await everything.services.session.boot(() => false);
+    await settle();
+
+    expect(background.get().activeAccount).toBe(ONE);
+    expect(background.services.accounts.sessionFor(TWO)).toBeFalsy();
+    expect(everything.services.accounts.sessionFor(TWO)).toBeTruthy();
+  });
 });
 
 describe('removing an account', () => {

@@ -55,8 +55,13 @@ export type MailHolder = {
 };
 
 export type SessionService = {
-  /** Restore every stored session on launch. `isCancelled` guards a unmounted provider. */
-  boot(isCancelled: () => boolean): Promise<void>;
+  /**
+   * Restore every stored session on launch. `isCancelled` guards a unmounted provider.
+   *
+   * `restoreOthers: false` restores only the mailbox that was in front — what a
+   * background scheduler pass wants, since the outbox it drains is that one's.
+   */
+  boot(isCancelled: () => boolean, opts?: { restoreOthers?: boolean }): Promise<void>;
   /**
    * Connect a mailbox. The first one signs in; a later one adds an account.
    * With no provider, the first one this build can reach. `imap` also needs

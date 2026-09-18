@@ -160,8 +160,8 @@ export function SnoozedBody({
             <EmptyState
               icon="bell"
               title="Nothing snoozed"
-              // Honest about the one limit: the tick that wakes mail runs inside
-              // the app (features.md, "the scheduler only runs while the app runs").
+              // Honest about the one limit: a background pass may wake it, but
+              // nothing posts a notification, so it is seen when the app opens.
               hint="Snooze a message from the inbox and it waits here until its time, then returns to the inbox the next time CryptMail is open."
             />
           )

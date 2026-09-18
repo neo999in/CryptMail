@@ -256,8 +256,11 @@ detailed, dated ledger.
 - **No physical phone.** The app and the native core have run on an Android
   emulator, which has no StrongBox, so the hardware-backed key path has never
   run.
-- **The scheduler only runs while the app runs.** Real background delivery needs
-  `expo-background-task`, which cannot be verified without a device.
+- **Background delivery has never run on a device.** Scheduled and held mail
+  are also delivered by an `expo-background-task` pass every 15 minutes or
+  more, but nobody has seen one fire (implementation-status §7.3). In a debug
+  build, `triggerTaskWorkerForTestingAsync()` from `expo-background-task`
+  forces one.
 - **A Google token refresh across an access-token expiry has never been
   observed** (implementation-status §5.3).
 - **Encrypted mail over Microsoft Graph is unproven.** Outlook has been run

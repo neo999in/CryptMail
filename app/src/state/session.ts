@@ -279,7 +279,7 @@ export function createSession(ctx: Ctx): SessionService {
      * looking at. The rest arrive in the switcher and in the merged inbox a
      * moment later.
      */
-    async boot(isCancelled) {
+    async boot(isCancelled, opts) {
       try {
         // Before anything reads a store. Every local store is encrypted at rest
         // and none of them can be decrypted until the device key is loaded.
@@ -320,6 +320,7 @@ export function createSession(ctx: Ctx): SessionService {
         if (isCancelled()) return;
         store.patch({ booting: false, session: wanted, ...attached });
 
+        if (opts?.restoreOthers === false) return;
         void restoreRest(
           ordered.filter((a) => a.id !== account),
           isCancelled,

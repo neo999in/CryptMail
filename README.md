@@ -94,7 +94,7 @@ for UI work only.
 | Real Outlook (Microsoft Graph) | ✅ Run against a real mailbox · 🟨 encrypted mail over Graph unproven |
 | Any other mailbox (IMAP/SMTP) | 🟨 Built and tested against in-memory servers · never run against a real one |
 | Key recovery, safety-number verification, sealed local storage | ✅ Built and tested |
-| Background delivery of queued mail | ⛔ Only while the app is open |
+| Background delivery of queued mail | 🟨 Built on `expo-background-task` · never run on a device |
 | Physical phone (StrongBox) | ⛔ Emulator only so far |
 
 ✅ means someone ran it and read the output. The deliberately pessimistic ledger

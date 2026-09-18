@@ -920,10 +920,13 @@ than shipping without any Tier 0 item.
 2. ~~**Trust on first use with no verification ceremony.**~~ **Fixed.** Safety
    numbers derived from both fingerprints, and `markVerified` refuses if the key
    changed since the number was shown. QR scanning is still to come.
-3. **The scheduler only runs while the app runs.** Scheduled sends and snoozes
-   fire from a 15 s in-app interval. Honest UI copy today; real background
-   execution needs `expo-background-task` and a device to verify on.
-   **Still open** — the only one of these five that is.
+3. **The scheduler only runs while the app runs.** 🟨 **Built, unverified.**
+   Scheduled sends, held mail and snoozes still fire from a 15 s in-app
+   interval, and now also from an `expo-background-task` pass the OS runs
+   every 15 minutes or more while the outbox is non-empty
+   ([`app/src/background/`](../app/src/background/)). It has not run on a
+   device — see [implementation-status.md §7.3](implementation-status.md) for
+   what that leaves open. The only one of these five not fully closed.
 4. ~~**No token-revocation handling.**~~ **Fixed.** A revoked grant returns the
    app to signed-out with a reason; transient failures deliberately do not.
 5. ~~**The README says "design documentation only. No code yet."**~~ **Fixed.**
@@ -948,7 +951,7 @@ crypto is finished:
 
 If the goal is *shippable to a real user*: encryption at rest, the verification
 ceremony, key recovery end to end and the onboarding drill are done, so the
-order is **background scheduler → conformance tests**.
+order is **verify the background scheduler on a device → conformance tests**.
 
 The wrapping is the sharp one and it needs a machine with cargo. Until it exists,
 a real key still has no backup path — the screen is built, but in a native build
