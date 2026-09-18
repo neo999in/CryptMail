@@ -152,6 +152,7 @@ twice, it belongs here instead.
 | `Badge` / `Banner` / `Callout` | encryption and trust state | `enc`→mint, `warn`→coral, `plain`→faint |
 | `Banner tone="note"` | something to know that is **not** a danger — a public listing, a missing capability | uncoloured inset, so coral keeps meaning "wrong" |
 | `StepHeading` | a numbered step inside a card (backup, restore) | numbered dot, a check once `done` — order by number, not colour |
+| `PinPad` (`ui/pinPad.tsx`) | entering a PIN — the lock screen and Settings → App lock | dots + a 3×4 keypad of its own, never the system keyboard; checks at a fixed length, or Continue for a new 4–8 digit PIN |
 | `RecoveryCodeGrid` / `RecoveryCodeField` (`ui/recoveryCode.tsx`) | showing and typing a recovery code | numbered groups; a field that groups as you type and counts to 32 |
 | `Avatar` | a sender or account | circle, tint derived deterministically from the address; `mode` (`photo`, `initials` or `provider`, the provider's logo) honours an account's "show as" choice |
 | `EmptyState` | "nothing here" / "nothing matched" | centred glyph, title, hint, optional action |

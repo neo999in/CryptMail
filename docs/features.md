@@ -54,6 +54,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
 | The provider's junk folder, fetched and filed under Spam ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Spam | 20 |
 | Configurable swipe actions ([swipe-actions.md](swipe-actions.md)) | [`swipe/swipe.ts`](../app/src/swipe/swipe.ts), [`store/mailPrefsStore.ts`](../app/src/store/mailPrefsStore.ts) | Mail rows, `Settings → Mail → Swipe options` | 56 |
+| App lock — PIN + fingerprint ([app-lock.md](app-lock.md)) | [`applock/appLock.ts`](../app/src/applock/appLock.ts), [`store/appLockStore.ts`](../app/src/store/appLockStore.ts), [`lib/biometrics.ts`](../app/src/lib/biometrics.ts) | `Settings → App lock`, the lock screen | 17 |
 
 1571 tests across 89 suites (2026-09-17). Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
@@ -800,6 +801,28 @@ dynamic type, RTL and localisation.
 
 **Done when.** The inbox and message screens are fully navigable by screen
 reader, every trust state has a text equivalent, and a light palette exists.
+
+### 0.20 App lock (PIN + fingerprint) · Impact M · Effort S — ✅ **Built**
+
+**What.** A PIN in front of the app, with an optional strong-biometric unlock
+and a timeout for how soon it asks again.
+
+**Why.** A mail client that shows decrypted mail to whoever picks up the
+unlocked phone gives away, at the last step, what the encryption kept from the
+provider.
+
+**Built.** Everything in [app-lock.md](app-lock.md): a PBKDF2 verifier in a
+sealed global store, a persisted escalating cooldown, fingerprint via
+`expo-local-authentication` (Class 3 only), a `Modal` lock screen over the
+still-mounted app, and exemptions for the pickers and sign-ins the app opens
+itself.
+
+**Not built.** The PIN does not wrap the storage key, so it is a UI gate, not
+encryption; recent-apps thumbnails are not hidden. Both stated in the doc and on
+the settings screen.
+
+**Done when.** ✓ Rule tests cover the verifier, cooldown and timeout decision;
+still to do: run it on a device ([app-lock.md](app-lock.md) §Not yet verified).
 
 ### 0.19 Snooze folder · Impact M · Effort M
 

@@ -60,6 +60,8 @@ export type RootStackParamList = {
   SwipeOptions: undefined;
   /** What new-mail notifications say, which mail they are for, and which mailboxes post them. */
   Notifications: undefined;
+  /** The PIN, the fingerprint in front of it, and how soon it asks again. */
+  AppLock: undefined;
   /** The active mailbox's local labels: make, rename, delete. Settings → Mail. */
   Labels: undefined;
   /** The active mailbox's filters & rules. Settings → Mail. */

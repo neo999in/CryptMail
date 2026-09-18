@@ -57,7 +57,9 @@ export type IconName =
   | 'underline'
   | 'text-size'
   | 'text-color'
-  | 'format';
+  | 'format'
+  | 'fingerprint'
+  | 'backspace';
 
 type Props = {
   name: IconName;
@@ -457,6 +459,25 @@ function glyph(name: IconName, p: object) {
     case 'text-color':
       // The letter only: the bar under it is drawn by the caller, in the colour.
       return <Path d="m6.5 16 5.5-13 5.5 13M8.6 11.5h6.8" {...p} />;
+    case 'fingerprint':
+      // Concentric open arcs: the unlock pad's biometric key and the App lock row.
+      return (
+        <>
+          <Path d="M6.5 5.2A9 9 0 0 1 20 10.5" {...p} />
+          <Path d="M3.8 9a9 9 0 0 1 1-2" {...p} />
+          <Path d="M4.5 16a14 14 0 0 0 .8-4.5 6.7 6.7 0 0 1 11.2-5" {...p} />
+          <Path d="M18.5 10.5c.3 2.6.1 5.2-.6 7.7" {...p} />
+          <Path d="M8 18.5a13 13 0 0 0 1-7 3 3 0 0 1 6 0c.2 3.4-.3 6.7-1.5 9.5" {...p} />
+          <Path d="M12 11.5c.2 3.6-.4 7-2 10" {...p} />
+        </>
+      );
+    case 'backspace':
+      return (
+        <>
+          <Path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" {...p} />
+          <Path d="m17 9-6 6M11 9l6 6" {...p} />
+        </>
+      );
     default:
       return <Ellipse cx={12} cy={12} rx={8} ry={8} {...p} />;
   }

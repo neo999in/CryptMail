@@ -80,6 +80,9 @@ The backend is designed so a breach doesn't break confidentiality:
 ## Client-side hardening
 
 - Private key material zeroized from memory on lock/quit; auto-lock timer.
+  *Prototype: an app lock (PIN, optional strong fingerprint, timeout) hides the
+  UI — see [app-lock.md](app-lock.md). It is a gate, not encryption: the PIN
+  does not wrap the storage key, and nothing is zeroized on lock.*
 - Optional "no plaintext cache" mode (store only ciphertext locally).
   *Prototype: there is no such mode yet, but the caches are split along that
   line. Fetched encrypted mail is cached as the provider's ciphertext

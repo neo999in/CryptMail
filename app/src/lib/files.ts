@@ -28,6 +28,7 @@ import {
   newAttachmentId,
 } from '../mail/attachment';
 import { decodeUtf8Base64 } from './base64';
+import { whileAway } from './lockExemption';
 
 /** A file the user chose, with its bytes still on disk. */
 export type PickedFile = { name: string; mimeType: string; size: number; uri: string };
@@ -40,12 +41,16 @@ export type PickResult = { attachment: Attachment } | { refused: string };
  * cancelling is not an error and must not put a banner on the screen.
  */
 export async function pickFiles(): Promise<PickedFile[]> {
-  const result = await DocumentPicker.getDocumentAsync({
-    multiple: true,
-    copyToCacheDirectory: true,
-    // Web returns the bytes inline as a `data:` URL; there is no path to read.
-    base64: true,
-  });
+  // `whileAway`: the picker is another activity, and coming back from it is
+  // not a reason for the app lock to ask for the PIN.
+  const result = await whileAway(() =>
+    DocumentPicker.getDocumentAsync({
+      multiple: true,
+      copyToCacheDirectory: true,
+      // Web returns the bytes inline as a `data:` URL; there is no path to read.
+      base64: true,
+    }),
+  );
   if (result.canceled) return [];
 
   return result.assets.map((asset) => ({
@@ -116,7 +121,7 @@ export async function saveAttachment(attachment: Attachment): Promise<void> {
   file.write(attachment.data, { encoding: 'base64' });
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(file.uri, { mimeType: attachment.mimeType, UTI: attachment.mimeType });
+    await whileAway(() => Sharing.shareAsync(file.uri, { mimeType: attachment.mimeType, UTI: attachment.mimeType }));
   }
 }
 
@@ -151,7 +156,7 @@ export async function saveTextFile(name: string, text: string, mimeType: string)
   file.write(text);
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType });
+    await whileAway(() => Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType }));
   }
 }
 
@@ -199,7 +204,7 @@ export function openTextFileWriter(name: string, mimeType: string): TextFileWrit
     append: (text) => file.write(text, { append: true }),
     finish: async () => {
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType });
+        await whileAway(() => Sharing.shareAsync(file.uri, { mimeType, UTI: mimeType }));
       }
     },
   };

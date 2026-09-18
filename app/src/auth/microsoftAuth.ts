@@ -44,6 +44,7 @@ import {
   photoDataUri,
   readRedirect,
 } from './microsoftToken';
+import { whileAway } from '../lib/lockExemption';
 import { describeError } from './revocation';
 import { AuthError, AuthProvider, Session } from './types';
 
@@ -256,16 +257,19 @@ export const microsoftAuth: AuthProvider = {
     const state = bytesToBase64Url(Crypto.getRandomBytes(16));
     const redirect = redirectUri();
 
-    const result = await WebBrowser.openAuthSessionAsync(
-      authorizeUrl({
-        authority: MS_AUTHORITY,
-        clientId: MS_CLIENT_ID,
-        redirectUri: redirect,
-        scopes: GRAPH_SCOPES,
-        challenge,
-        state,
-      }),
-      redirect,
+    // The browser is ours to open, so returning from it does not trip the app lock.
+    const result = await whileAway(() =>
+      WebBrowser.openAuthSessionAsync(
+        authorizeUrl({
+          authority: MS_AUTHORITY,
+          clientId: MS_CLIENT_ID,
+          redirectUri: redirect,
+          scopes: GRAPH_SCOPES,
+          challenge,
+          state,
+        }),
+        redirect,
+      ),
     );
     if (result.type !== 'success') throw new AuthError('Sign-in was cancelled.', 'cancelled');
 

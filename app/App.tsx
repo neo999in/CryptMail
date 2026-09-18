@@ -34,6 +34,7 @@ import { RecoveryScreen } from './src/screens/RecoveryScreen';
 import { AccountScreen } from './src/screens/AccountScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
+import { AppLockScreen } from './src/screens/AppLockScreen';
 import { MailScreen } from './src/screens/MailScreen';
 import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { SwipeGlyphDemoScreen } from './src/screens/SwipeGlyphDemoScreen';
@@ -45,6 +46,8 @@ import { drillOutstanding } from './src/store/recoveryStore';
 import { color, defaultAccent, font } from './src/theme';
 import { AppBackground } from './src/ui/AppBackground';
 import { AppearanceProvider, useAccent } from './src/ui/appearance';
+import { AppLockProvider } from './src/ui/appLock';
+import { AppLockGate } from './src/ui/appLockGate';
 import { CannedRepliesProvider } from './src/ui/cannedReplies';
 import { MailPrefsProvider } from './src/ui/mailPrefs';
 import { ChromeProvider } from './src/ui/chrome';
@@ -179,6 +182,9 @@ function FullStack() {
       <Stack.Screen name="SwipeOptions" component={SwipeOptionsScreen} options={{ headerShown: false }} />
       {/* Settings → Notifications. A push, drawing its own top bar. */}
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
+      {/* Settings → App lock. A push; the lock screen itself is not a route
+          but `AppLockGate`, over everything. */}
+      <Stack.Screen name="AppLock" component={AppLockScreen} options={{ headerShown: false }} />
       {/* Settings → Mail → Labels / Rules → one rule. Pushes, drawing their own
           top bar like the rest of Settings. */}
       <Stack.Screen name="Labels" component={LabelsScreen} options={{ headerShown: false }} />
@@ -289,6 +295,10 @@ export default function App() {
           {/* Sibling of `AppState`'s provider, like appearance's and for the
               same reason: a swipe preference is view state that is persisted,
               not one of the five subsystems. */}
+          {/* Another sibling of `AppState`'s: the lock decides whether the UI
+              may be seen, and touches none of the five subsystems. Outside
+              the rest so the gate can cover all of it. */}
+          <AppLockProvider>
           <MailPrefsProvider>
             {/* Another sibling for the same reason: saved snippets are the
                 writer's text on this device, not a subsystem. */}
@@ -300,6 +310,8 @@ export default function App() {
                     <>
                       <Root />
                       <DialogHost />
+                      {/* Last, so nothing mounted beside it draws over the lock. */}
+                      <AppLockGate />
                     </>
                   ) : (
                     <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
@@ -311,6 +323,7 @@ export default function App() {
             </AppProvider>
             </CannedRepliesProvider>
           </MailPrefsProvider>
+          </AppLockProvider>
         </AppearanceProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

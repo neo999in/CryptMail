@@ -42,6 +42,7 @@ import {
 } from '@react-native-google-signin/google-signin';
 
 import { GMAIL_SCOPES, GOOGLE_WEB_CLIENT_ID, hasGoogleClient } from '../config';
+import { whileAway } from '../lib/lockExemption';
 import { describeError, isPermanentAuthFailure } from './revocation';
 import { AuthError, AuthProvider, Session } from './types';
 
@@ -275,7 +276,8 @@ export const googleAuth: AuthProvider = {
       await GoogleSignin.signOut().catch(() => {});
       configuredAccount = null;
 
-      const response = await GoogleSignin.signIn();
+      // The account picker is Play services' screen, not a trip away from the app.
+      const response = await whileAway(() => GoogleSignin.signIn());
       if (!isSuccessResponse(response)) {
         throw new AuthError('Sign-in was cancelled.', 'cancelled');
       }

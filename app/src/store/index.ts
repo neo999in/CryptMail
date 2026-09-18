@@ -10,6 +10,7 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 import { ACCOUNTS_STORE_KEY } from './accountsStore';
+import { APP_LOCK_STORE_KEY } from './appLockStore';
 import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
 import { CANNED_REPLIES_STORE_KEY } from './cannedRepliesStore';
@@ -68,6 +69,7 @@ export const SEALED_STORE_KEYS = [
   MAIL_PREFS_STORE_KEY,
   NOTIFY_PREFS_STORE_KEY,
   CANNED_REPLIES_STORE_KEY,
+  APP_LOCK_STORE_KEY,
 ];
 
 /**

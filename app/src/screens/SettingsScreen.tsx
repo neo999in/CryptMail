@@ -16,7 +16,9 @@ import React, { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LOCK_TIMEOUT_LABEL } from '../applock/appLock';
 import { cryptoMode } from '../config';
+import { BIOMETRIC_NAME } from '../lib/biometrics';
 import { back, RootStackParamList } from '../navigation';
 import { NOTIFICATION_PREVIEW_LABEL } from '../notifications/policy';
 import { useApp } from '../state/AppState';
@@ -24,6 +26,7 @@ import { accountLabel } from '../store/accountScope';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { useAppearance } from '../ui/appearance';
+import { useAppLock } from '../ui/appLock';
 import { confirmDialog } from '../ui/dialog';
 import { IconName } from '../ui/Icon';
 import { useMailPrefs } from '../ui/mailPrefs';
@@ -44,6 +47,7 @@ export function SettingsScreen({ navigation }: Props) {
   const { session, accounts, activeAccount, unified, signOut, notificationPrefs } = useApp();
   const { auroraColors, density, theme } = useAppearance();
   const { swipeLeft, swipeRight } = useMailPrefs();
+  const appLock = useAppLock();
   const insets = useSafeAreaInsets();
 
   /** What to call the mailbox in front on the Accounts row. */
@@ -96,6 +100,22 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Notifications'),
           },
           {
+            icon: 'lock',
+            label: 'App lock',
+            // "Off" is said, not left blank: an unlocked mail app is a choice
+            // worth seeing on the way past.
+            value: appLock.enabled
+              ? [
+                  'PIN',
+                  appLock.biometrics ? BIOMETRIC_NAME[appLock.biometricKind] : null,
+                  LOCK_TIMEOUT_LABEL[appLock.timeout].toLowerCase(),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+              : 'Off',
+            onPress: () => navigation.navigate('AppLock'),
+          },
+          {
             icon: 'palette',
             label: 'Display & Appearance',
             // The reference's own idea, and a good one: the current state reads
@@ -119,6 +139,10 @@ export function SettingsScreen({ navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       accounts.length,
+      appLock.biometricKind,
+      appLock.biometrics,
+      appLock.enabled,
+      appLock.timeout,
       auroraColors.name,
       density,
       inFront,
