@@ -43,6 +43,7 @@ import {
   Sheet,
   Toggle,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RuleEdit'>;
 
@@ -90,7 +91,7 @@ export function RuleEditScreen({ navigation, route }: Props) {
       await saveRule(draft);
       back(navigation);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
+      setProblem(userMessage(e));
     } finally {
       setSaving(false);
     }

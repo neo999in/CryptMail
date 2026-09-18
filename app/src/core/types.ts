@@ -146,7 +146,12 @@ export interface CryptCore {
 }
 
 export class CoreError extends Error {
-  constructor(message: string, readonly code: 'no-key' | 'malformed' | 'decrypt-failed' | 'unavailable') {
+  constructor(
+    message: string,
+    readonly code: 'no-key' | 'malformed' | 'decrypt-failed' | 'unavailable',
+    /** The core's own wording, for logs. `message` is what a person reads. */
+    readonly detail?: string,
+  ) {
     super(message);
     this.name = 'CoreError';
   }

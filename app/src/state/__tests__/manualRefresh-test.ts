@@ -175,7 +175,7 @@ describe('the inbox', () => {
 
     expect(store.get().refreshingInbox).toBe(false);
     expect(store.get().loadingInbox).toBe(false);
-    expect(store.get().error).toBe('offline');
+    expect(store.get().error).toBe('Offline.');
   });
 });
 
@@ -211,7 +211,7 @@ describe('a secondary box', () => {
     await services.mailbox.loadBox('archive', { manual: true });
 
     expect(store.get().boxes.archive.refreshing).toBe(false);
-    expect(store.get().boxes.archive.error).toBe('offline');
+    expect(store.get().boxes.archive.error).toBe('Offline.');
   });
 
   /** One box's pull must not put a spinner on its siblings. */

@@ -34,6 +34,7 @@ import {
   Sheet,
   useFocus,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Labels'>;
 
@@ -59,7 +60,7 @@ export function LabelsScreen({ navigation }: Props) {
       setDraft('');
       setProblem(null);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
+      setProblem(userMessage(e));
     }
   };
 
@@ -75,7 +76,7 @@ export function LabelsScreen({ navigation }: Props) {
       await renameLabel(editing.id, rename);
       setEditing(null);
     } catch (e) {
-      setRenameProblem(e instanceof Error ? e.message : String(e));
+      setRenameProblem(userMessage(e));
     }
   };
 

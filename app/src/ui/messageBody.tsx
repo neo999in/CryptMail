@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { hostOf, linkify } from '../lib/links';
 import { color, defaultAccent, font, glass, radius, shadow, space, type } from '../theme';
 import { Banner, frost, PrimaryButton, SecondaryButton } from './primitives';
+import { userMessage } from '../lib/errors';
 
 /**
  * The message text, with http(s) URLs made tappable.
@@ -75,7 +76,7 @@ export function LinkSheet({ url, onClose }: { url: string | null; onClose: () =>
       await Linking.openURL(url);
       onClose();
     } catch (e) {
-      setFailure(`Could not open this link: ${e instanceof Error ? e.message : String(e)}`);
+      setFailure(`Could not open this link: ${userMessage(e)}`);
     }
   };
 

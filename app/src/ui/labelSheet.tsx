@@ -25,6 +25,7 @@ import { color, space, type } from '../theme';
 import { Icon } from './Icon';
 import { useAccent } from './appearance';
 import { Field, Input, PressableRow, SecondaryButton, Sheet, useFocus } from './primitives';
+import { userMessage } from '../lib/errors';
 
 export function LabelSheet({
   visible,
@@ -62,7 +63,7 @@ export function LabelSheet({
       setName('');
       setProblem(null);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
+      setProblem(userMessage(e));
     }
   };
 

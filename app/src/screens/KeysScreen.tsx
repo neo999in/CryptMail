@@ -28,6 +28,7 @@ import {
   SettingsRow,
   useFocus,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 /**
  * Keys — the prototype's replacement for the whole key directory: show mine,
@@ -73,7 +74,7 @@ export function KeysScreen({ navigation }: Props) {
     try {
       await publishOwnKey();
     } catch (e) {
-      setPublishError(e instanceof Error ? e.message : String(e));
+      setPublishError(userMessage(e));
     } finally {
       setPublishing(false);
     }
@@ -94,7 +95,7 @@ export function KeysScreen({ navigation }: Props) {
     try {
       await Linking.openURL(verifyLink);
     } catch (e) {
-      setPublishError(`Could not open the confirmation link: ${e instanceof Error ? e.message : String(e)}`);
+      setPublishError(`Could not open the confirmation link: ${userMessage(e)}`);
     }
   };
 
@@ -106,7 +107,7 @@ export function KeysScreen({ navigation }: Props) {
     try {
       setVerifying({ email: contact.email, number: await safetyNumberFor(contact.email) });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     }
   };
 
@@ -117,7 +118,7 @@ export function KeysScreen({ navigation }: Props) {
       await markVerified(contact.email, contact.fingerprint);
       setVerifying(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
       setVerifying(null);
     }
   };
@@ -145,7 +146,7 @@ export function KeysScreen({ navigation }: Props) {
     try {
       text = await Clipboard.getStringAsync();
     } catch (e) {
-      setError(`Could not read the clipboard: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Could not read the clipboard: ${userMessage(e)}`);
       return;
     }
 
@@ -165,7 +166,7 @@ export function KeysScreen({ navigation }: Props) {
       setPaste('');
       confirmDialog('Key imported', `${key.email}\n${groupFingerprint(key.fingerprint).join(' ')}`, [{ label: 'OK' }]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     }
   };
 

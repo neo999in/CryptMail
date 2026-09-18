@@ -40,6 +40,7 @@ import { SnoozeModal } from '../ui/SnoozeModal';
 import { LabelSheet } from '../ui/labelSheet';
 import { labelNamesFor } from '../labels/labels';
 import { useToast } from '../ui/ToastContext';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Conversation'>;
 
@@ -161,7 +162,7 @@ export function ConversationScreen({ route, navigation }: Props) {
           },
           (e) => {
             if (mounted.current) {
-              setLoaded((prev) => ({ ...prev, [m.id]: { failure: e instanceof Error ? e.message : String(e) } }));
+              setLoaded((prev) => ({ ...prev, [m.id]: { failure: userMessage(e) } }));
             }
           },
         )
@@ -265,7 +266,7 @@ export function ConversationScreen({ route, navigation }: Props) {
       await saveAttachment(attachment);
     } catch (e) {
       showToast({
-        message: `Couldn’t save ${attachment.name}: ${e instanceof Error ? e.message : String(e)}`,
+        message: `Couldn’t save ${attachment.name}: ${userMessage(e)}`,
         icon: 'alert',
         durationMs: 5000,
       });

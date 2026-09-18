@@ -13,6 +13,7 @@ import { ImapSetupSheet } from '../ui/imapSetupSheet';
 import { Banner, Callout, Group, PressableRow } from '../ui/primitives';
 import { useAccent } from '../ui/appearance';
 import { GoogleLogo, MicrosoftLogo } from '../ui/providerLogos';
+import { userMessage } from '../lib/errors';
 
 /** Onboarding: provider OAuth with least-privilege scopes, or IMAP/SMTP with a password. */
 export function ConnectScreen() {
@@ -31,7 +32,7 @@ export function ConnectScreen() {
       await signIn(provider);
     } catch (e) {
       if (!(e instanceof AuthError && e.code === 'cancelled')) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(userMessage(e));
       }
     } finally {
       setBusy(null);

@@ -12,6 +12,7 @@ import { Icon } from '../ui/Icon';
 import { useComposeScroll } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { BodyProps } from './HomeScreen';
+import { userMessage } from '../lib/errors';
 
 /**
  * The outbox: everything written but not yet delivered. Two kinds live here —
@@ -60,7 +61,7 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
         setOutcome({ id: item.id, tone: 'warn', text: describeCheck(result.pending, undiscoverable).text });
       }
     } catch (e) {
-      setOutcome({ id: item.id, tone: 'warn', text: e instanceof Error ? e.message : String(e) });
+      setOutcome({ id: item.id, tone: 'warn', text: userMessage(e) });
     } finally {
       setChecking(null);
     }

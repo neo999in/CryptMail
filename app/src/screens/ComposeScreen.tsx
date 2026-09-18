@@ -67,6 +67,7 @@ import {
   useFocus,
 } from '../ui/primitives';
 import { useToast } from '../ui/ToastContext';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Compose'>;
 
@@ -663,7 +664,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       }
       setError(refusal);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     } finally {
       setAttaching(false);
     }
@@ -776,7 +777,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       navigation.goBack();
     } catch (e) {
       closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     } finally {
       setSending(false);
     }
@@ -802,7 +803,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       navigation.goBack();
     } catch (e) {
       closingRef.current = false;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     } finally {
       setSending(false);
     }

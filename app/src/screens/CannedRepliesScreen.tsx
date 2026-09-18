@@ -37,6 +37,7 @@ import {
   Sheet,
   useFocus,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CannedReplies'>;
 
@@ -68,7 +69,7 @@ export function CannedRepliesScreen({ navigation }: Props) {
       });
       setEditing(null);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
+      setProblem(userMessage(e));
     }
   };
 

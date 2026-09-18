@@ -10,7 +10,7 @@
 import { demoCore } from '../demoCore';
 import { PLACEHOLDER_SUBJECT, parseRfc822 } from '../mime';
 import { getNativeCore, NATIVE_MODULE_NAME } from '../nativeCore';
-import { CryptCore } from '../types';
+import { CoreError, CryptCore } from '../types';
 
 /** Stand-in for Rust: records what it was asked to encrypt, returns fake armor. */
 function fakeBridge() {
@@ -155,6 +155,43 @@ describe('recovery through the native bridge', () => {
       'K7M2NQ8ZR4J5TWXB3HYPD6C9FGKM1N8Q',
     );
     expect(identity.fingerprint).toBe('AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555');
+  });
+
+  /**
+   * What Expo actually hands JavaScript when the Kotlin side throws
+   * `CodedException("decrypt-failed", …)`: a plain Error carrying the code, with
+   * the message wrapped. The screen switches on `instanceof CoreError`, so this
+   * is the difference between "that code does not unlock your backup" and the
+   * raw rejection text a device showed for a mistyped code.
+   */
+  it('turns a coded rejection from the module into a CoreError a person can read', async () => {
+    const { core, bridge } = withBridge();
+    const rejection = Object.assign(
+      new Error(
+        "Call to function 'CryptMailCore.importRecoveryBackup' has been rejected.\n" +
+          '→ Caused by: decrypt-failed: decrypt-failed: could not unlock the key: AEAD Decrypt { alg: Ocb }',
+      ),
+      { code: 'decrypt-failed' },
+    );
+    bridge.importRecoveryBackup.mockRejectedValueOnce(rejection);
+
+    const error = await core.importRecoveryBackup('BLOB', 'K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-2N8Q').catch((e) => e);
+
+    expect(error).toBeInstanceOf(CoreError);
+    expect(error).toMatchObject({
+      code: 'decrypt-failed',
+      message: expect.stringMatching(/recovery code doesn’t unlock this backup/),
+      // The core's own words are kept for logs, not shown.
+      detail: 'could not unlock the key: AEAD Decrypt { alg: Ocb }',
+    });
+  });
+
+  it('leaves an error with no core code alone', async () => {
+    const { core, bridge } = withBridge();
+    const odd = Object.assign(new Error('something else'), { code: 'ERR_UNEXPECTED' });
+    bridge.loadIdentity.mockRejectedValueOnce(odd);
+
+    await expect(core.loadIdentity('me@example.com')).rejects.toBe(odd);
   });
 });
 

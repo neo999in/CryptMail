@@ -36,6 +36,7 @@ import {
   Toggle,
   useFocus,
 } from './primitives';
+import { userMessage } from '../lib/errors';
 
 const SECURITY_OPTIONS: { key: Security; label: string }[] = [
   { key: 'tls', label: 'SSL/TLS' },
@@ -116,7 +117,7 @@ export function ImapSetupSheet({
       onClose();
     } catch (e) {
       if (e instanceof AuthError && e.code === 'cancelled') return;
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
       // Whatever went wrong, the servers are the thing the user can change.
       setShowServers(true);
     } finally {

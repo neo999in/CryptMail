@@ -45,6 +45,7 @@ import {
   Toggle,
   useFocus,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Account'>;
 
@@ -216,7 +217,7 @@ export function AccountScreen({ navigation, route }: Props) {
       showToast({
         durationMs: 5000,
         icon: 'alert',
-        message: e instanceof Error ? e.message : String(e),
+        message: userMessage(e),
       });
     } finally {
       setExporting(null);

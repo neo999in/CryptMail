@@ -125,15 +125,15 @@ export function getNativeCore(
   return {
     kind: 'native',
 
-    generateIdentity: async (email) => JSON.parse(await bridge.generateIdentity(email)) as Identity,
+    generateIdentity: async (email) => JSON.parse(await call(bridge.generateIdentity(email), WORDING.generateIdentity)) as Identity,
 
     loadIdentity: async (email) => {
-      const json = await bridge.loadIdentity(email);
+      const json = await call(bridge.loadIdentity(email), WORDING.loadIdentity);
       return json ? (JSON.parse(json) as Identity) : null;
     },
 
     importPublicKey: async (armored) =>
-      JSON.parse(await bridge.importPublicKey(armored)) as PublicKeyInfo,
+      JSON.parse(await call(bridge.importPublicKey(armored), WORDING.importPublicKey)) as PublicKeyInfo,
 
     /**
      * The code is generated here and shown to the user grouped, for writing
@@ -144,18 +144,21 @@ export function getNativeCore(
      */
     exportRecoveryBackup: async (email): Promise<RecoveryBackup> => {
       const code = generateRecoveryCode();
-      const blob = await required(bridge, 'exportRecoveryBackup', 'Backing up')(
-        email,
-        normaliseRecoveryCode(code),
+      const blob = await call(
+        required(bridge, 'exportRecoveryBackup', 'Backing up')(email, normaliseRecoveryCode(code)),
+        WORDING.exportRecoveryBackup,
       );
       return { code, blob };
     },
 
     importRecoveryBackup: async (blob, code) =>
       JSON.parse(
-        await required(bridge, 'importRecoveryBackup', 'Restoring from a backup')(
-          blob,
-          normaliseRecoveryCode(code),
+        await call(
+          required(bridge, 'importRecoveryBackup', 'Restoring from a backup')(
+            blob,
+            normaliseRecoveryCode(code),
+          ),
+          WORDING.importRecoveryBackup,
         ),
       ) as Identity,
 
@@ -177,10 +180,9 @@ export function getNativeCore(
         html: request.html,
         attachments: request.attachments,
       });
-      const armored = await bridge.encryptSign(
-        request.from,
-        inner,
-        JSON.stringify(request.recipientKeys),
+      const armored = await call(
+        bridge.encryptSign(request.from, inner, JSON.stringify(request.recipientKeys)),
+        WORDING.encryptSign,
       );
       return buildEncryptedEnvelope({
         from: request.from,
@@ -204,7 +206,10 @@ export function getNativeCore(
       const autocryptKey = autocryptKeyOf(parseRfc822(rfc822).headers['autocrypt']);
 
       const decrypted = JSON.parse(
-        await bridge.decryptVerify(block, JSON.stringify(autocryptKey ? [autocryptKey] : [])),
+        await call(
+          bridge.decryptVerify(block, JSON.stringify(autocryptKey ? [autocryptKey] : [])),
+          WORDING.decryptVerify,
+        ),
       ) as NativeDecrypted;
 
       const { subject, body, html, attachments } = parseProtectedInner(decrypted.plaintext);
@@ -249,6 +254,87 @@ function required<K extends 'exportRecoveryBackup' | 'importRecoveryBackup'>(
         'unavailable',
       ),
     )) as NonNullable<NativeBridge[K]>;
+}
+
+const CORE_CODES: readonly CoreError['code'][] = ['no-key', 'malformed', 'decrypt-failed', 'unavailable'];
+
+type Wording = Partial<Record<CoreError['code'], string>>;
+
+/**
+ * What each code means when nothing more specific is known. The core's own
+ * text ("could not unlock the key: AEAD Decrypt { alg: Ocb }") is accurate and
+ * says nothing to the person holding the phone, so it goes in `detail` instead.
+ */
+const DEFAULT_WORDING: Record<CoreError['code'], string> = {
+  'no-key': 'There is no key for this account on this device yet.',
+  malformed: 'That isn’t in a format CryptMail can read. It may be damaged or incomplete.',
+  'decrypt-failed': 'The key on this device can’t unlock that.',
+  unavailable: 'The encryption engine on this device couldn’t do that. Restart CryptMail and try again.',
+};
+
+/** What a failure means, call by call — the same code says different things. */
+const WORDING = {
+  generateIdentity: {
+    unavailable: 'Couldn’t create a key on this device. Restart CryptMail and try again.',
+  },
+  loadIdentity: {
+    unavailable: 'Couldn’t open this device’s key store. Restart CryptMail and try again.',
+  },
+  importPublicKey: {
+    malformed: 'That doesn’t look like a public key. Paste the whole block, from BEGIN to END.',
+  },
+  exportRecoveryBackup: {
+    'no-key': 'There is no key on this device to back up yet.',
+  },
+  importRecoveryBackup: {
+    'decrypt-failed':
+      'That recovery code doesn’t unlock this backup. Check each group against what you wrote down, in order.',
+    malformed:
+      'That isn’t a complete CryptMail backup. Load the backup file itself rather than pasting it, so nothing is cut off.',
+  },
+  encryptSign: {
+    'no-key': 'There is no key on this device to sign with. Set up your key first.',
+    malformed: 'A recipient’s key can’t be used for encryption. Check their key in Contacts.',
+  },
+  decryptVerify: {
+    'decrypt-failed':
+      'This message wasn’t encrypted to the key on this device, so it can’t be opened here. It may have been sent to an older key.',
+    malformed: 'This message is damaged or incomplete, so it can’t be decrypted.',
+    'no-key': 'There is no key on this device to open encrypted mail with.',
+  },
+} satisfies Record<string, Wording>;
+
+/** Await a bridge call, with its rejection translated by `toCoreError`. */
+function call<T>(pending: Promise<T>, wording: Wording = {}): Promise<T> {
+  return pending.catch((e: unknown) => {
+    throw toCoreError(e, wording);
+  });
+}
+
+/**
+ * Turn a rejection from the Kotlin module into the `CoreError` the rest of the
+ * app switches on.
+ *
+ * Kotlin throws `CodedException(code, message)` with one of the four codes, but
+ * what reaches JavaScript is Expo's own error: it carries that `code`, is not an
+ * instance of `CoreError`, and wraps the message as "Call to function
+ * 'CryptMailCore.x' has been rejected. → Caused by: decrypt-failed: …". Left
+ * untranslated, every `instanceof CoreError` check above this line is dead on a
+ * real device — a mistyped recovery code reached the user as that raw string
+ * instead of "that code does not unlock your backup".
+ */
+export function toCoreError(e: unknown, wording: Wording = {}): unknown {
+  if (e instanceof CoreError || !(e instanceof Error)) return e;
+  const raw = (e as { code?: unknown }).code;
+  const named = e.message.match(/Caused by: ([a-z-]+):/)?.[1];
+  const code = CORE_CODES.find((c) => c === raw) ?? CORE_CODES.find((c) => c === named);
+  if (!code) return e;
+
+  // Keep the core's own words for logs: drop Expo's wrapper, then the code
+  // prefix the Rust `Display` (and its FFI twin) put in front of them.
+  let detail = e.message.split('Caused by: ').pop() ?? e.message;
+  while (detail.startsWith(`${code}: `)) detail = detail.slice(code.length + 2);
+  return new CoreError(wording[code] ?? DEFAULT_WORDING[code], code, detail.trim());
 }
 
 /** Unflatten an `Autocrypt:` header's base64 `keydata` back into armor. */

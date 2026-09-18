@@ -24,6 +24,7 @@ import { ContactKey, Keyring } from '../store/keyring';
 import { PublishState } from '../store/publishStore';
 import { StorageUsage } from '../store/storageUsage';
 import { RecipientState } from './recipients';
+import { userMessage } from '../lib/errors';
 import { Store } from './store';
 import {
   ExportProgress,
@@ -342,7 +343,7 @@ export type Ctx = {
   services: Services;
 };
 
-/** Error text for a caught `unknown`, which is all a banner ever needs. */
+/** Error text for a caught `unknown`, in words a banner can show. See `lib/errors.ts`. */
 export function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  return userMessage(e);
 }

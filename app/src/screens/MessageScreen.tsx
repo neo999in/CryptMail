@@ -51,6 +51,7 @@ import { LabelSheet } from '../ui/labelSheet';
 import { labelNamesFor } from '../labels/labels';
 import { draftRuleFrom } from '../rules/rules';
 import { useToast } from '../ui/ToastContext';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
 
@@ -241,7 +242,7 @@ export function MessageScreen({ route, navigation }: Props) {
           if (summary.unread) void setUnread(summary.id, false);
         }
       } catch (e) {
-        if (!cancelled) setFailure(e instanceof Error ? e.message : String(e));
+        if (!cancelled) setFailure(userMessage(e));
       }
     })();
     return () => {
@@ -294,7 +295,7 @@ export function MessageScreen({ route, navigation }: Props) {
     try {
       await saveAttachment(attachment);
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
+      setSaveError(userMessage(e));
     } finally {
       setSaving(null);
     }
@@ -821,7 +822,7 @@ export function MessageScreen({ route, navigation }: Props) {
                 showToast({
                   durationMs: 5000,
                   icon: 'alert',
-                  message: e instanceof Error ? e.message : String(e),
+                  message: userMessage(e),
                 }),
               );
             }}

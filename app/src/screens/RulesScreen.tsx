@@ -22,6 +22,7 @@ import { accountLabel } from '../store/accountScope';
 import { color, space, type } from '../theme';
 import { useToast } from '../ui/ToastContext';
 import { EmptyState, Group, GroupHeading, IconButton, SettingsRow, Toggle } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Rules'>;
 
@@ -36,7 +37,7 @@ export function RulesScreen({ navigation }: Props) {
     void saveRule({ ...rule, enabled }).catch((e: unknown) =>
       // Only a rule that could never have been saved fails here, but the switch
       // must not pretend it moved.
-      showToast({ message: e instanceof Error ? e.message : String(e), icon: 'alert', durationMs: 5000 }),
+      showToast({ message: userMessage(e), icon: 'alert', durationMs: 5000 }),
     );
 
   return (
