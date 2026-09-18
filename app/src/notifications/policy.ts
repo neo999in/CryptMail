@@ -1,11 +1,11 @@
 /**
  * What a new-mail notification is allowed to say — features.md 0.10.
  *
- * Nothing posts notifications yet: there is no background sync and no push
- * relay (api.md). This module exists first so that neither can be built the
- * wrong way. Whatever eventually hands the OS a notification asks `planFor`
- * what to put in it, and a push message reaches the app only through
- * `parseRelayPayload`. Pure: no React, no platform APIs, no storage.
+ * Notifications are posted by `state/notify.ts` after a sync — in the app, or
+ * from the background pass — and it asks `planFor` what to put in each one.
+ * There is still no push relay (api.md); when there is, a push message reaches
+ * the app only through `parseRelayPayload`. Pure: no React, no platform APIs,
+ * no storage.
  *
  * ## The rules
  *

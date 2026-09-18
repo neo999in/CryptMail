@@ -8,18 +8,26 @@
  * which the OS wakes us, or the moment the app is opened, whichever is first.
  * That is the promise, and the UI must not make a sharper one.
  *
- * The task is registered only while the outbox holds something. With nothing
- * waiting there is no work, and a pass is not free — it unseals storage and
- * asks the provider for a token — so an empty outbox costs no wake-ups at all.
+ * The task is registered only while there is work: the outbox holds
+ * something, or new-mail notifications are on for a mailbox. A pass is not free
+ * — it unseals storage and asks the provider for a token — so an empty outbox
+ * with notifications off costs no wake-ups at all.
+ *
+ * The same 15-minute floor is the promise for notifications: new mail is
+ * noticed in the first window the OS gives us, not the moment it arrives.
+ * Instant delivery needs a push relay (api.md), which does not exist.
  *
  * Both libraries are required lazily, behind the platform check: the web build
  * has no background execution, and jest has no native binary.
  */
 import { Platform } from 'react-native';
 
-import { runBackgroundPass } from './pass';
+import { registerNotificationActionTask, tapFromResponse } from '../notifications/os';
+import { runBackgroundPass, runNotificationAction } from './pass';
 
 export const SCHEDULER_TASK = 'cryptmail.scheduler';
+/** Run by `expo-notifications` for a notification button pressed with the app closed (Android). */
+export const NOTIFICATION_ACTION_TASK = 'cryptmail.notification-action';
 
 /** Minutes. WorkManager's floor; asking for less is silently rounded up. */
 const INTERVAL_MINUTES = 15;
@@ -52,7 +60,7 @@ export function defineSchedulerTask() {
       // The app re-registers it the next time something is scheduled. Only
       // after a pass that actually *ran* — a boot that failed on a flaky
       // network also comes back without a session, with the outbox untouched.
-      if (result.status === 'ran' && result.waiting === 0) await setBackgroundSchedule(false);
+      if (result.status === 'ran' && result.waiting === 0 && !result.watching) await setBackgroundSchedule(false);
       return l.bg.BackgroundTaskResult.Success;
     } catch (e) {
       // A failed pass loses nothing: a send that threw was rescued to drafts
@@ -85,4 +93,33 @@ export async function setBackgroundSchedule(wanted: boolean): Promise<void> {
   } catch (e) {
     console.warn('Could not update the background scheduler', e);
   }
+}
+
+/**
+ * Define and register the task a notification button runs when CryptMail is
+ * in the background or not running — Mark read, which never opens the app.
+ * Like the scheduler task, it must be defined at module scope of the entry
+ * file; registering it again on every launch is harmless.
+ *
+ * `expo-notifications` also runs this task for *received* notifications; the
+ * app only ever posts local ones, and anything that is not one of our button
+ * presses is ignored.
+ */
+export function defineNotificationActionTask() {
+  const l = libs();
+  if (!l) return;
+  if (!l.tm.isTaskDefined(NOTIFICATION_ACTION_TASK)) {
+    l.tm.defineTask(NOTIFICATION_ACTION_TASK, async ({ data }) => {
+      const tap = tapFromResponse(data);
+      if (!tap || tap.action !== 'mark-read') return;
+      try {
+        await runNotificationAction(tap);
+      } catch (e) {
+        // The messages stay unread and the notification stays up, so the
+        // button can be pressed again.
+        console.warn('Notification action failed', e);
+      }
+    });
+  }
+  void registerNotificationActionTask(NOTIFICATION_ACTION_TASK);
 }

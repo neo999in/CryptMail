@@ -19,6 +19,7 @@ import { KEYRING_STORE_KEY } from './keyring';
 import { LABELS_STORE_KEY } from './labelsStore';
 import { MAIL_CACHE_STORE_KEY } from './mailCacheStore';
 import { MAIL_PREFS_STORE_KEY } from './mailPrefsStore';
+import { NOTIFY_PREFS_STORE_KEY, NOTIFY_STORE_KEY } from './notifyStore';
 import { OUTBOX_STORE_KEY } from './outboxStore';
 import { PREFS_STORE_KEY } from './prefsStore';
 import { PUBLISH_STORE_KEY } from './publishStore';
@@ -48,6 +49,7 @@ export const PER_ACCOUNT_STORE_KEYS = [
   MAIL_CACHE_STORE_KEY,
   LABELS_STORE_KEY,
   RULES_STORE_KEY,
+  NOTIFY_STORE_KEY,
 ];
 
 /**
@@ -64,6 +66,7 @@ export const SEALED_STORE_KEYS = [
   ACCOUNTS_STORE_KEY,
   PREFS_STORE_KEY,
   MAIL_PREFS_STORE_KEY,
+  NOTIFY_PREFS_STORE_KEY,
   CANNED_REPLIES_STORE_KEY,
 ];
 

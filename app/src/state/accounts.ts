@@ -246,6 +246,7 @@ export function createAccounts(ctx: Ctx): AccountsService {
       // Files, not an AsyncStorage key, so not in that list — but just as much
       // this account's, and re-adding the address must not find them.
       await clearRawCache(id);
+      await ctx.services.notify.forget(id);
       store.patch({ needsReauth: store.get().needsReauth.filter((flagged) => flagged !== id) });
 
       const saved = await persist(withoutAccount(await loadAccounts(), id));

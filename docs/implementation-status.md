@@ -469,7 +469,8 @@ minutes, and when the system chooses, not on the minute.
   pass that was mid-send when it opened (`backgroundIdle()`).
 - [`background/task.ts`](../app/src/background/task.ts) is the only file that
   touches the native modules. The task is registered only while the outbox is
-  non-empty, and unregisters itself when a pass empties it.
+  non-empty or notifications are on (§7.3a), and unregisters itself when a
+  pass leaves neither.
 - Nothing about *what* is sent changed: the pass goes through `deliver`, so rule
   1 holds as it does on screen.
 
@@ -494,6 +495,46 @@ a pass, and a failed boot never read as an empty outbox.
 
 Only the account in front has its outbox drained — the same limit the in-app
 interval has.
+
+### 7.3a New-mail notifications — 🟨 built, never run on a device
+
+Added 2026-09-18 on top of §7.3's task (features.md 0.10 has the behaviour).
+The background task is now registered while the outbox is non-empty **or** a
+mailbox has notifications on, and a pass does both jobs: `scheduler.run()`,
+then `notify.checkAll()` — the newest inbox page of every connected mailbox.
+Headless, it first restores the mailboxes boot skipped
+(`session.restoreOthers()`), so a pass now costs a token refresh per mailbox
+while notifications are on. A failed send no longer stops the mail check, and
+vice versa.
+
+**Tested under jest:** the ledger (`notifications/__tests__/newMail-test.ts`),
+the service against a fake OS, including Mark read
+(`state/__tests__/notify-test.ts`), reading button presses back
+(`notifications/__tests__/os-test.ts`), and the pass's new branches, including
+a headless Mark read that app boot waits for
+(`background/__tests__/pass-test.ts`).
+
+**Not verified, and each needs a device:**
+
+- everything §7.3 lists, since this rides the same task;
+- that the `cryptmail-device` module autolinks and `isDeviceLocked()` answers
+  from a headless launch (if not, every notification is generic — safe, but
+  `sender`/`full` would never show);
+- the two channels' lock-screen behaviour, including on a device with no
+  secure lock (where `SECRET` hides nothing — and nothing is protected anyway);
+- the Android 13+ permission prompt, and the notification icon
+  (`android-icon-monochrome.png` via the `expo-notifications` plugin);
+- a tap from a cold start reaching `NotificationRouter`;
+- that `expo-notifications` runs `cryptmail.notification-action` for **Mark
+  read** with the app killed (the library says it does on Android only), that
+  the buttons show on the lock screen, and that the notification is dismissed
+  afterwards; on iOS, where there is no such task, Mark read only takes effect
+  while the app's JS is alive;
+- that **Reply** from a cold start lands in Compose once the message has
+  opened.
+
+Timing is WorkManager's: every 15 minutes at best. Mail is not announced the
+moment it arrives — that needs the relay in [api.md](api.md).
 
 ### 7.4 ~~No token-revocation handling~~ — ✅ fixed
 

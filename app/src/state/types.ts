@@ -12,6 +12,7 @@ import { Draft, Drafts } from '../drafts/drafts';
 import { Label, LabelChange, LabelState } from '../labels/labels';
 import { Attachment } from '../mail/attachment';
 import { Mailbox, MailSummary } from '../mail/types';
+import type { NotificationTap, PermissionStatus } from '../notifications/os';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { Rule, RulesState } from '../rules/rules';
 import { SearchIndex } from '../search/search';
@@ -20,6 +21,7 @@ import type { LinkPair } from '../spam/spam';
 import { AccountId, AccountRef, AccountSettings } from '../store/accountScope';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
+import { NotificationPrefs } from '../store/notifyStore';
 import { PublishState, PublishStatus } from '../store/publishStore';
 import { RecoveryState } from '../store/recoveryStore';
 import { SpamState } from '../store/spamModelStore';
@@ -268,6 +270,13 @@ export type State = {
    * none. These are the active account's, even when the inbox is merged.
    */
   boxes: Record<SecondaryBox, BoxState>;
+  /** What new-mail notifications may say, and which mail they are for. Device-wide. */
+  notificationPrefs: NotificationPrefs;
+  /**
+   * A notification the user tapped, waiting for the navigator to open it.
+   * Cleared by `consumeNotificationTap` once it has.
+   */
+  notificationTap: NotificationTap | null;
   error: string | null;
 };
 
@@ -512,6 +521,14 @@ export type Actions = {
    */
   saveRule(rule: RuleDraft): Promise<Rule>;
   deleteRule(id: string): Promise<void>;
+  /** Change what notifications say, or which mail they announce. */
+  setNotificationPrefs(patch: Partial<NotificationPrefs>): Promise<void>;
+  /** Whether the OS lets CryptMail post, as it stands. */
+  notificationPermission(): Promise<PermissionStatus>;
+  /** Ask the OS — or, where it will not ask again, open the app's system settings. */
+  requestNotificationPermission(): Promise<PermissionStatus>;
+  /** The tapped notification has been opened; forget it. */
+  consumeNotificationTap(): void;
 };
 
 /** A rule as an editor hands it over: no id yet when it is new. */

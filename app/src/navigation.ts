@@ -33,6 +33,8 @@ export type RootStackParamList = {
      *  message may leave unpainted so its own header stands on the aurora
      *  rather than on the ground. Absent wherever `topInset` is. */
     bandInset?: number;
+    /** Go straight on to a reply once the message is readable — a notification's Reply button. */
+    reply?: boolean;
   };
   /** A thread opens the way a message does — out of its row — so it carries
    *  the same three optional params, meaning the same things. */
@@ -56,6 +58,8 @@ export type RootStackParamList = {
   Mail: undefined;
   /** What each swipe direction does, and a live preview of both. */
   SwipeOptions: undefined;
+  /** What new-mail notifications say, which mail they are for, and which mailboxes post them. */
+  Notifications: undefined;
   /** The active mailbox's local labels: make, rename, delete. Settings → Mail. */
   Labels: undefined;
   /** The active mailbox's filters & rules. Settings → Mail. */

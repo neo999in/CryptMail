@@ -82,6 +82,15 @@ export type AccountSettings = {
    * what they type — see `signature/signature.ts`.
    */
   signature: string;
+  /**
+   * Whether new mail in this mailbox posts a notification.
+   *
+   * Per mailbox, as in Gmail and Outlook — a work address can stay quiet in the
+   * evening while a personal one does not. What a notification may *say* is
+   * the device-wide preference in `store/notifyStore.ts`, not this. A paused
+   * mailbox posts nothing whatever this says, because nothing syncs it.
+   */
+  notify: boolean;
 };
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
@@ -91,6 +100,7 @@ export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
   syncWindow: 'all',
   paused: false,
   signature: '',
+  notify: true,
 };
 
 /** An account the app knows about locally. Tokens live with the auth provider. */

@@ -134,6 +134,9 @@ function settingsFrom(ref: Pick<AccountRef, 'settings'>): AccountSettings {
     avatar,
     blockRemoteImages: stored.blockRemoteImages === true,
     paused: stored.paused === true,
+    // On unless it was switched off: a ref written before the setting existed
+    // keeps notifying, which is what a fresh install does.
+    notify: stored.notify !== false,
     signature: typeof stored.signature === 'string' ? stored.signature.slice(0, MAX_SIGNATURE_LENGTH) : '',
     syncWindow:
       stored.syncWindow && SYNC_WINDOWS.includes(stored.syncWindow)

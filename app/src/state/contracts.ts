@@ -16,11 +16,13 @@ import { ImapAccount } from '../mail/imap';
 import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { Label, LabelChange } from '../labels/labels';
+import { NotificationTap } from '../notifications/os';
 import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { Held } from '../outbox/outbox';
 import { Rule } from '../rules/rules';
 import { AccountId, AccountSettings } from '../store/accountScope';
 import { ContactKey, Keyring } from '../store/keyring';
+import { NotificationPrefs } from '../store/notifyStore';
 import { PublishState } from '../store/publishStore';
 import { StorageUsage } from '../store/storageUsage';
 import { RecipientState } from './recipients';
@@ -29,6 +31,7 @@ import { Store } from './store';
 import {
   ExportProgress,
   ExportResult,
+  InboxItem,
   OpenedMessage,
   PlainSendInput,
   RefreshOptions,
@@ -62,6 +65,8 @@ export type SessionService = {
    * background scheduler pass wants, since the outbox it drains is that one's.
    */
   boot(isCancelled: () => boolean, opts?: { restoreOthers?: boolean }): Promise<void>;
+  /** Restore the syncing mailboxes such a boot skipped, and wait for them. */
+  restoreOthers(): Promise<void>;
   /**
    * Connect a mailbox. The first one signs in; a later one adds an account.
    * With no provider, the first one this build can reach. `imap` also needs
@@ -322,6 +327,35 @@ export type RulesService = {
   runRules(rows?: MailSummary[]): Promise<void>;
 };
 
+export type NotifyService = {
+  /** Read the device's notification preferences into state. Boot calls it. */
+  loadPrefs(): Promise<void>;
+  setPrefs(patch: Partial<NotificationPrefs>): Promise<void>;
+  /**
+   * Fold what a sync just listed into each mailbox's ledger, and post if
+   * something is news and nobody is looking. Never throws.
+   */
+  observe(rows: InboxItem[]): Promise<void>;
+  /** The background pass's own look at every connected mailbox's newest mail. */
+  checkAll(): Promise<void>;
+  /** The user is looking: clear these mailboxes' counts (default: every connected one). */
+  clear(accounts?: AccountId[]): Promise<void>;
+  /** Drop what is held in memory for a removed mailbox, and its notification. */
+  forget(account: AccountId): Promise<void>;
+  /** Whether anything should wake the app to look for mail. */
+  wanted(): boolean;
+  /**
+   * A notification's Mark read button: mark these messages read at the
+   * provider, drop them from the count, and clear the notification once every
+   * one has gone through. Works headless — it restores the mailbox if the
+   * boot did not.
+   */
+  markRead(account: AccountId, ids: string[]): Promise<void>;
+  /** A notification was tapped; the navigator picks it up from state. */
+  tapped(tap: NotificationTap): void;
+  consumeTap(): void;
+};
+
 export type Services = {
   session: SessionService;
   accounts: AccountsService;
@@ -335,6 +369,7 @@ export type Services = {
   snooze: SnoozeService;
   labels: LabelsService;
   rules: RulesService;
+  notify: NotifyService;
 };
 
 export type Ctx = {

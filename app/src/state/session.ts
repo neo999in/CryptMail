@@ -284,6 +284,8 @@ export function createSession(ctx: Ctx): SessionService {
         // Before anything reads a store. Every local store is encrypted at rest
         // and none of them can be decrypted until the device key is loaded.
         await initStorage();
+        // Local and quick, and wanted before the first sync can notice new mail.
+        await ctx.services.notify.loadPrefs().catch(() => undefined);
 
         // Which mailboxes this device has, and which was in front. Read first
         // now, not last: the provider cannot enumerate the grants it holds, so
@@ -353,6 +355,20 @@ export function createSession(ctx: Ctx): SessionService {
         store.patch({ addingAccount: false });
       }
       await ctx.services.mailbox.refreshInbox();
+    },
+
+    /**
+     * Bring back every syncing mailbox a `restoreOthers: false` boot left out.
+     *
+     * The background pass calls it when notifications want every mailbox
+     * looked at, not only the one whose outbox it drains. Resolves once each
+     * has been tried; one that will not restore is flagged, as at boot.
+     */
+    async restoreOthers() {
+      const missing = store
+        .get()
+        .accounts.filter((ref) => !settingsOf(ref).paused && !mail.clients.has(ref.id));
+      if (missing.length > 0) await restoreRest(missing, () => false);
     },
 
     /** Disconnect every account. Removing just one is `accounts.removeAccount`. */

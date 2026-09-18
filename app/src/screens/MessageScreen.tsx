@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -16,6 +16,7 @@ import { categorizeMessage, providerFiledAsJunk, verdictFor } from '../categoriz
 import { displayName, fullTimestamp, initials, shortFingerprint } from '../lib/format';
 import { saveAttachment } from '../lib/files';
 import { Attachment } from '../mail/attachment';
+import { MailSummary } from '../mail/types';
 import { buildReplyDraft, replyAllRecipients, replyRecipients, ReplyKind, ReplySource } from '../mail/reply';
 import { RootStackParamList } from '../navigation';
 import { reasons, isUnwanted, SpamVerdict } from '../spam/spam';
@@ -54,6 +55,37 @@ import { useToast } from '../ui/ToastContext';
 import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Message'>;
+
+/**
+ * What a reply or forward is built from: the decrypted message held in memory
+ * (`opened`), never a re-fetch. Null until it is readable.
+ */
+function replySourceOf(summary: MailSummary, opened: OpenedMessage | null): ReplySource | null {
+  if (!opened || opened.error) return null;
+  return {
+    from: summary.from,
+    to: summary.to,
+    date: summary.date,
+    subject: opened.subject,
+    body: opened.body,
+    messageId: summary.messageId,
+    references: summary.references,
+    attachments: opened.attachments,
+  };
+}
+
+/** The Compose route for one reply kind — the Reply buttons and a notification's Reply alike. */
+function replyParams(kind: ReplyKind, source: ReplySource, self: string): RootStackParamList['Compose'] {
+  const d = buildReplyDraft(kind, source, self);
+  return {
+    to: d.to,
+    subject: d.subject,
+    quotedBody: d.quotedBody,
+    inReplyTo: d.inReplyTo,
+    references: d.references,
+    attachments: d.attachments,
+  };
+}
 
 /** Reading — restored subject, trust chip, and the provider's view on demand. */
 export function MessageScreen({ route, navigation }: Props) {
@@ -252,6 +284,17 @@ export function MessageScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.params.id]);
 
+  // Opened by a notification's Reply button: once the message is readable here
+  // — decrypted, if it was encrypted — go on to the reply the Reply button
+  // below would have started. Once; backing out of Compose lands on the mail.
+  const replyOnOpen = useRef(!!route.params.reply);
+  useEffect(() => {
+    if (!replyOnOpen.current || !summary || !opened) return;
+    replyOnOpen.current = false;
+    const source = replySourceOf(summary, opened);
+    if (source) navigation.navigate('Compose', replyParams('reply', source, identity?.email ?? session?.email ?? ''));
+  }, [identity?.email, navigation, opened, session?.email, summary]);
+
 
   if (!summary) {
     return (
@@ -321,34 +364,14 @@ export function MessageScreen({ route, navigation }: Props) {
   // message — encrypted or plain; a plain reply simply has no key yet, which the
   // send path holds and invites, and is never a plaintext downgrade.
   const self = identity?.email ?? session?.email ?? '';
-  const replySource: ReplySource | null =
-    opened && !opened.error
-      ? {
-          from: summary.from,
-          to: summary.to,
-          date: summary.date,
-          subject: opened.subject,
-          body: opened.body,
-          messageId: summary.messageId,
-          references: summary.references,
-          attachments: opened.attachments,
-        }
-      : null;
+  const replySource = replySourceOf(summary, opened);
   // Reply-All only earns its own button when it would reach anyone Reply wouldn't.
   const showReplyAll =
     !!replySource && replyAllRecipients(replySource, self).length > replyRecipients(replySource, self).length;
 
   const composeReply = (kind: ReplyKind) => {
     if (!replySource) return;
-    const d = buildReplyDraft(kind, replySource, self);
-    navigation.navigate('Compose', {
-      to: d.to,
-      subject: d.subject,
-      quotedBody: d.quotedBody,
-      inReplyTo: d.inReplyTo,
-      references: d.references,
-      attachments: d.attachments,
-    });
+    navigation.navigate('Compose', replyParams(kind, replySource, self));
   };
 
   const handleSnooze = (until: string) => {

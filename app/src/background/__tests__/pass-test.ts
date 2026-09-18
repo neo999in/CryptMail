@@ -12,7 +12,7 @@
 import { Session } from '../../auth';
 import { Services } from '../../state/contracts';
 import { createStore, initialState } from '../../state/store';
-import { attachForeground, backgroundIdle, runBackgroundPass, SchedulerHost } from '../pass';
+import { attachForeground, backgroundIdle, runBackgroundPass, runNotificationAction, SchedulerHost } from '../pass';
 
 // The real graph pulls in every provider and a native sign-in module; these
 // tests never build it.
@@ -32,24 +32,70 @@ const SESSION: Session = {
 
 const queued = { id: 'sch-1' } as never;
 
-function host(opts: { session?: Session | null; bootsTo?: Session | null; bootGate?: Promise<void> } = {}) {
+function host(
+  opts: { session?: Session | null; bootsTo?: Session | null; bootGate?: Promise<void>; watching?: boolean } = {},
+) {
   const store = createStore({ ...initialState(), session: opts.session ?? null }, () => {});
   const run = jest.fn(async () => {});
   const boot = jest.fn(async () => {
     await opts.bootGate;
     if (opts.bootsTo !== undefined) store.patch({ session: opts.bootsTo, scheduled: { 'sch-1': queued } });
   });
-  const services = { scheduler: { run }, session: { boot } } as unknown as Services;
-  return { host: { store, services } as SchedulerHost, run, boot };
+  const restoreOthers = jest.fn(async () => {});
+  const checkAll = jest.fn(async () => {});
+  const wanted = jest.fn(() => opts.watching ?? false);
+  const markRead = jest.fn(async () => {});
+  const services = {
+    scheduler: { run },
+    session: { boot, restoreOthers },
+    notify: { wanted, checkAll, markRead },
+  } as unknown as Services;
+  return { host: { store, services } as SchedulerHost, run, boot, restoreOthers, checkAll, markRead };
 }
 
 describe('runBackgroundPass', () => {
+  it('looks for new mail in every mailbox when headless and notifications are on', async () => {
+    const bg = host({ bootsTo: SESSION, watching: true });
+
+    await expect(runBackgroundPass(() => bg.host)).resolves.toEqual({ status: 'ran', waiting: 1, watching: true });
+    expect(bg.restoreOthers).toHaveBeenCalledTimes(1);
+    expect(bg.checkAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore other mailboxes on an app that is alive, which has its own', async () => {
+    const fg = host({ session: SESSION, watching: true });
+    const detach = attachForeground(fg.host);
+
+    await runBackgroundPass(jest.fn());
+    expect(fg.restoreOthers).not.toHaveBeenCalled();
+    expect(fg.checkAll).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
+  it('neither restores nor looks when notifications are off', async () => {
+    const bg = host({ bootsTo: SESSION });
+
+    await runBackgroundPass(() => bg.host);
+    expect(bg.restoreOthers).not.toHaveBeenCalled();
+    expect(bg.checkAll).not.toHaveBeenCalled();
+  });
+
+  it('still looks for new mail when the outbox pass fails, then reports the failure', async () => {
+    const fg = host({ session: SESSION, watching: true });
+    fg.run.mockRejectedValueOnce(new Error('send failed'));
+    const detach = attachForeground(fg.host);
+
+    await expect(runBackgroundPass(jest.fn())).rejects.toThrow('send failed');
+    expect(fg.checkAll).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
   it('runs on the foreground services when the app is alive, and builds nothing', async () => {
     const fg = host({ session: SESSION });
     const detach = attachForeground(fg.host);
     const build = jest.fn();
 
-    await expect(runBackgroundPass(build)).resolves.toEqual({ status: 'ran', waiting: 0 });
+    await expect(runBackgroundPass(build)).resolves.toEqual({ status: 'ran', waiting: 0, watching: false });
     expect(fg.run).toHaveBeenCalledTimes(1);
     expect(build).not.toHaveBeenCalled();
     detach();
@@ -67,7 +113,7 @@ describe('runBackgroundPass', () => {
   it('boots only the mailbox in front when headless, and reports what is still waiting', async () => {
     const bg = host({ bootsTo: SESSION });
 
-    await expect(runBackgroundPass(() => bg.host)).resolves.toEqual({ status: 'ran', waiting: 1 });
+    await expect(runBackgroundPass(() => bg.host)).resolves.toEqual({ status: 'ran', waiting: 1, watching: false });
     expect(bg.boot).toHaveBeenCalledWith(expect.any(Function), { restoreOthers: false });
     expect(bg.run).toHaveBeenCalledTimes(1);
   });
@@ -147,5 +193,47 @@ describe('backgroundIdle', () => {
 
     await expect(backgroundIdle()).resolves.toBeUndefined();
     await expect(pass).rejects.toThrow('offline');
+  });
+});
+
+describe('runNotificationAction', () => {
+  const MARK = { account: 'gmail:me@example.com', messageIds: ['m1', 'm2'], action: 'mark-read' as const };
+
+  it('marks read on the services of an app that is alive', async () => {
+    const fg = host({ session: SESSION });
+    const detach = attachForeground(fg.host);
+    const build = jest.fn();
+
+    await runNotificationAction(MARK, build);
+    expect(fg.markRead).toHaveBeenCalledWith(MARK.account, ['m1', 'm2']);
+    expect(build).not.toHaveBeenCalled();
+    detach();
+  });
+
+  it('boots a headless graph when it is not, and app boot waits for it', async () => {
+    let open!: () => void;
+    const bg = host({ bootsTo: SESSION, bootGate: new Promise<void>((r) => (open = r)) });
+    const action = runNotificationAction(MARK, () => bg.host);
+
+    let idle = false;
+    const waiting = backgroundIdle().then(() => (idle = true));
+    await Promise.resolve();
+    expect(idle).toBe(false);
+
+    open();
+    await action;
+    await waiting;
+    expect(bg.boot).toHaveBeenCalledWith(expect.any(Function), { restoreOthers: false });
+    expect(bg.markRead).toHaveBeenCalledWith(MARK.account, ['m1', 'm2']);
+  });
+
+  it('does nothing headless when no mailbox restores, or for anything but Mark read', async () => {
+    const signedOut = host({ bootsTo: null });
+    await runNotificationAction(MARK, () => signedOut.host);
+    expect(signedOut.markRead).not.toHaveBeenCalled();
+
+    const build = jest.fn();
+    await runNotificationAction({ account: MARK.account, messageId: 'm1', action: 'reply' }, build);
+    expect(build).not.toHaveBeenCalled();
   });
 });

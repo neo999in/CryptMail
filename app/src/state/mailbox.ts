@@ -374,6 +374,9 @@ export function createMailbox(ctx: Ctx): MailboxService {
         // The user's own filters, over what just arrived. Once per message, so
         // a sync never re-applies a rule the user has since undone by hand.
         await ctx.services.rules.runRules();
+        // After the rules, so a message a rule archived is not announced — the
+        // same as a Gmail filter that skips the inbox. Never throws.
+        await ctx.services.notify.observe(store.get().messages);
         await harvestFrom(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message

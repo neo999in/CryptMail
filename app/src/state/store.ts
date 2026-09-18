@@ -18,6 +18,7 @@
 import { directory } from '../keys';
 import { emptyLabelState } from '../labels/labels';
 import { emptyRulesState } from '../rules/rules';
+import { DEFAULT_NOTIFICATION_PREFS } from '../store/notifyStore';
 import { emptySpamState } from '../store/spamModelStore';
 import { BoxState, State } from './types';
 
@@ -74,6 +75,8 @@ export function initialState(): State {
       archive: emptyBox(),
       trash: emptyBox(),
     },
+    notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
+    notificationTap: null,
     error: null,
   };
 }

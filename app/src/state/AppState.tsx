@@ -20,15 +20,18 @@
  *   drafts.ts     unsent compose drafts
  *   labels.ts     local labels on messages — never sent to the provider
  *   rules.ts      the user's filters & rules, run on this device
+ *   notify.ts     noticing new mail, and posting what the policy allows
  *
  * Everything they expose is assembled below into exactly the object `useApp()`
  * has always returned.
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState as OsAppState } from 'react-native';
 
 import { attachForeground, backgroundIdle } from '../background/pass';
 import { setBackgroundSchedule } from '../background/task';
 import { MailSummary } from '../mail/types';
+import { notificationPermission, onNotificationTap, requestNotificationPermission } from '../notifications/os';
 import { publishStatusFor, PublishStatus } from '../store/publishStore';
 import { MailHolder, Services } from './contracts';
 import { encryptionFor as deriveEncryptionFor } from './derive';
@@ -103,14 +106,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(handle);
   }, [services, state.session]);
 
-  // Background delivery: the OS wakes a pass while the outbox holds anything,
-  // and not otherwise (`background/task.ts`). Left alone while booting, when
-  // the outbox has not been read yet and would look empty.
+  // Background passes: the OS wakes one while the outbox holds anything, or
+  // while a mailbox wants new-mail notifications, and not otherwise
+  // (`background/task.ts`). Left alone while booting, when the outbox has not
+  // been read yet and would look empty.
   const outboxWaiting = !!state.session && Object.keys(state.scheduled).length > 0;
+  // Read through the service, which reads the store `state` was just set from.
+  const notifying = !!state.session && services.notify.wanted();
   useEffect(() => {
     if (state.booting) return;
-    void setBackgroundSchedule(outboxWaiting);
-  }, [outboxWaiting, state.booting]);
+    void setBackgroundSchedule(outboxWaiting || notifying);
+  }, [notifying, outboxWaiting, state.booting]);
+
+  // Back in front: whatever the shade was counting for the mailboxes on screen
+  // is about to be in view, so it is cleared rather than left to go stale.
+  useEffect(() => {
+    const subscription = OsAppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      const { unified, activeAccount } = wiring.current!.store.get();
+      if (unified) void services.notify.clear();
+      else if (activeAccount) void services.notify.clear([activeAccount]);
+    });
+    return () => subscription.remove();
+  }, [services]);
+
+  // A tapped notification — including the one that launched the app — is put
+  // in state; `ui/notificationRouter.tsx` opens it once a navigator exists.
+  // Mark read opens nothing: it is done here, on these services. With the app
+  // backgrounded, Android runs the notification task too, which lands on the
+  // same services (`background/pass.ts`) — marking read twice is harmless.
+  useEffect(
+    () =>
+      onNotificationTap((tap) => {
+        if (tap.action !== 'mark-read') return services.notify.tapped(tap);
+        const ids = tap.messageIds?.length ? tap.messageIds : tap.messageId ? [tap.messageId] : [];
+        void services.notify.markRead(tap.account, ids);
+      }),
+    [services],
+  );
 
   const value = useMemo(
     (): State & Actions => ({
@@ -174,6 +207,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setLabels: services.labels.setLabels,
       saveRule: services.rules.saveRule,
       deleteRule: services.rules.deleteRule,
+      setNotificationPrefs: services.notify.setPrefs,
+      notificationPermission,
+      requestNotificationPermission,
+      consumeNotificationTap: services.notify.consumeTap,
     }),
     [state, services, encryptionFor, resolveRecipients, publishStatus],
   );

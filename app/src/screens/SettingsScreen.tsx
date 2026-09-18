@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
 import { back, RootStackParamList } from '../navigation';
+import { NOTIFICATION_PREVIEW_LABEL } from '../notifications/policy';
 import { useApp } from '../state/AppState';
 import { accountLabel } from '../store/accountScope';
 import { SWIPE_ACTION_LABEL } from '../swipe/swipe';
@@ -40,7 +41,7 @@ type Row = {
 };
 
 export function SettingsScreen({ navigation }: Props) {
-  const { session, accounts, activeAccount, unified, signOut } = useApp();
+  const { session, accounts, activeAccount, unified, signOut, notificationPrefs } = useApp();
   const { auroraColors, density, theme } = useAppearance();
   const { swipeLeft, swipeRight } = useMailPrefs();
   const insets = useSafeAreaInsets();
@@ -88,6 +89,13 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Mail'),
           },
           {
+            icon: 'bell',
+            label: 'Notifications',
+            // The level's own title — "Private", "Sender and subject", "Off".
+            value: NOTIFICATION_PREVIEW_LABEL[notificationPrefs.preview].title,
+            onPress: () => navigation.navigate('Notifications'),
+          },
+          {
             icon: 'palette',
             label: 'Display & Appearance',
             // The reference's own idea, and a good one: the current state reads
@@ -109,7 +117,18 @@ export function SettingsScreen({ navigation }: Props) {
     // `confirmSignOut` closes over `signOut` only, which is stable for the life
     // of the app — see the note on the actions `useApp()` exposes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts.length, auroraColors.name, density, inFront, navigation, swipeLeft, swipeRight, theme, unified],
+    [
+      accounts.length,
+      auroraColors.name,
+      density,
+      inFront,
+      navigation,
+      notificationPrefs.preview,
+      swipeLeft,
+      swipeRight,
+      theme,
+      unified,
+    ],
   );
 
   return (

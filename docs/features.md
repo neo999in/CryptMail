@@ -438,7 +438,7 @@ sees content.
 **Done when.** Policy tests cover every setting, and the payload contract is
 written down before the relay exists.
 
-**Status: ✅ policy and contract built; nothing posts notifications yet.**
+**Status: ✅ built — local notifications post; the push relay is still not built.**
 [`notifications/policy.ts`](../app/src/notifications/policy.ts) is pure.
 `planFor(mail, preview, device)` decides a batch's notification under four
 settings — `off`, `private` (the default: "New message", nothing else, ever),
@@ -451,10 +451,44 @@ senders but never subjects. `parseRelayPayload` enforces the push contract now
 written in [api.md](api.md): `{ v, t: "sync", a: <random account token> }` and
 not one field more. Covered by `notifications/__tests__/policy-test.ts`.
 
-The settings UI is deliberately not built: a preference for notifications the
-app cannot post would be a control that does nothing. The labels it will use
-are in the module (`NOTIFICATION_PREVIEW_LABEL`) so they are settled with the
-rules.
+**Posting (2026-09-18).** Notifications now post, without a relay, from the
+background pass ([implementation-status.md](implementation-status.md) §7.3a):
+
+- [`notifications/newMail.ts`](../app/src/notifications/newMail.ts) (pure)
+  decides what is *new* against a per-mailbox ledger — unseen, unread, in the
+  inbox, not from the mailbox's own address, recent — and primes silently on a
+  mailbox's first sync. The `primary` scope (the default, as in Gmail) leaves
+  out the provider's Promotions/Social/Updates/Forums tabs for plaintext mail;
+  encrypted mail is always Primary. Mail that arrives before the last
+  notification was looked at is counted into it ("2 new messages").
+- [`state/notify.ts`](../app/src/state/notify.ts) folds every inbox sync, and
+  the background pass's own look at each connected mailbox, into those ledgers
+  and posts through [`notifications/os.ts`](../app/src/notifications/os.ts), the
+  only file that touches `expo-notifications`. Nothing is posted for mail on
+  screen; coming back to the app clears the count.
+- Detail is posted only while the device is unlocked, which a small local
+  module reports (`app/modules/cryptmail-device`, `KeyguardManager`); without
+  it the app assumes locked. `expo-notifications` cannot set a `publicVersion`,
+  so detailed notifications go to a `SECRET` channel that a secure lock screen
+  never shows, and generic ones to a `PUBLIC` one.
+- Tapping one puts its mailbox in front and opens the message (or the inbox,
+  for several). Settings → Notifications holds the level, the scope, a toggle
+  per mailbox (`AccountSettings.notify`) and the OS permission.
+
+**Buttons.** A notification for one message has **Mark read** and **Reply**;
+one for several has **Mark all read**. Mark read never opens the app — on
+Android a notification task runs it headless (`background/task.ts` →
+`runNotificationAction` → `notify.markRead`), so it works from the lock screen
+like Gmail's. It reveals nothing and changes only the unread flag, and the
+notification stays up if the provider refused, so it can be pressed again.
+Reply opens the app (the OS asks for the unlock), opens the message — which is
+where encrypted mail is decrypted — and goes straight on to the same reply the
+message screen's Reply button builds (`Message` route, `reply: true`).
+
+What is **not** built: an Archive button, inline reply from the shade (a reply
+has to be built from the decrypted message and go through the send path, so it
+opens Compose instead), and decrypting new encrypted mail in the background so
+it can be named — it is announced generically until opened here.
 
 ### 0.11 Multiple accounts + unified inbox · Impact M · Effort M–L — **built**
 

@@ -1,0 +1,18 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.cryptmail'
+version = '0.1.0'
+
+android {
+  namespace "app.cryptmail.device"
+
+  defaultConfig {
+    // `expo-module-gradle-plugin` fails configuration without both — see the
+    // note in ../cryptmail-core/android/build.gradle.
+    versionCode 1
+    versionName '0.1.0'
+  }
+}

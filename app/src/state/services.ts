@@ -13,6 +13,7 @@ import { createDrafts } from './drafts';
 import { createIdentityService } from './identity';
 import { createLabels } from './labels';
 import { createMailbox } from './mailbox';
+import { createNotify } from './notify';
 import { createPublish } from './publish';
 import { createRules } from './rules';
 import { createScheduler } from './scheduler';
@@ -20,6 +21,7 @@ import { createSend } from './send';
 import { createSession } from './session';
 import { createSnooze } from './snooze';
 import { Store } from './store';
+import { osNotifier } from '../notifications/os';
 
 export function createServices(store: Store): { services: Services; mail: MailHolder } {
   const mail: MailHolder = { current: null, clients: new Map() };
@@ -38,6 +40,7 @@ export function createServices(store: Store): { services: Services; mail: MailHo
   services.snooze = createSnooze(ctx);
   services.labels = createLabels(ctx);
   services.rules = createRules(ctx);
+  services.notify = createNotify(ctx, osNotifier);
 
   return { services, mail };
 }

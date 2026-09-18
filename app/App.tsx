@@ -1,5 +1,5 @@
 import { createDrawerNavigator } from '@react-navigation/drawer';
-import { DarkTheme, NavigationContainer } from '@react-navigation/native';
+import { createNavigationContainerRef, DarkTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useFonts } from 'expo-font';
 import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
@@ -35,6 +35,7 @@ import { AccountScreen } from './src/screens/AccountScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
 import { MailScreen } from './src/screens/MailScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
 import { SwipeGlyphDemoScreen } from './src/screens/SwipeGlyphDemoScreen';
 import { SwipeOptionsScreen } from './src/screens/SwipeOptionsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -49,10 +50,13 @@ import { MailPrefsProvider } from './src/ui/mailPrefs';
 import { ChromeProvider } from './src/ui/chrome';
 import { DialogHost } from './src/ui/dialog';
 import { DestinationProvider } from './src/ui/destination';
+import { NotificationRouter } from './src/ui/notificationRouter';
 import { ToastProvider } from './src/ui/ToastContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator<InboxDrawerParamList>();
+/** For the one thing that navigates from outside a screen: a tapped notification. */
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 // On web, Microsoft sign-in redirects its popup back to this app; this hands
 // the redirect to the window that opened it and closes the popup. A no-op on
@@ -173,6 +177,8 @@ function FullStack() {
       {/* Settings → Mail → Swipe options. Both are pushes, like Accounts. */}
       <Stack.Screen name="Mail" component={MailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="SwipeOptions" component={SwipeOptionsScreen} options={{ headerShown: false }} />
+      {/* Settings → Notifications. A push, drawing its own top bar. */}
+      <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
       {/* Settings → Mail → Labels / Rules → one rule. Pushes, drawing their own
           top bar like the rest of Settings. */}
       <Stack.Screen name="Labels" component={LabelsScreen} options={{ headerShown: false }} />
@@ -197,6 +203,7 @@ function Root() {
   // half way through and would unmount the screen before it has asked about
   // publishing.
   const [setupOpen, setSetupOpen] = useState(false);
+  const [navReady, setNavReady] = useState(false);
   // A key setup made whose recovery code has not been typed back yet. Read
   // from the store, not the flag above, so closing the app between the key and
   // the drill reopens setup at the drill rather than landing in the inbox.
@@ -222,9 +229,10 @@ function Root() {
           are two different screens, and one has to be able to tell the other
           it is still on show. */}
       <ChromeProvider>
-        <NavigationContainer theme={navTheme}>
+        <NavigationContainer onReady={() => setNavReady(true)} ref={navigationRef} theme={navTheme}>
           <FullStack />
         </NavigationContainer>
+        <NotificationRouter navigation={navigationRef} ready={navReady} />
       </ChromeProvider>
       {/* Over the navigator rather than instead of it, so a mailbox that
           already has a key lands back where the add was started. First sign-in
