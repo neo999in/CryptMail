@@ -51,6 +51,11 @@ android {
 
 dependencies {
   // UniFFI's generated Kotlin binds through JNA.
-  implementation 'net.java.dev.jna:jna:5.14.0@aar'
+  //
+  // 5.17.0 is the floor: earlier AARs ship libjnidispatch.so with 4 KB LOAD
+  // segments, which Android 15+ flags as not 16 KB page-size compatible (and a
+  // 16 KB device refuses to load). Check with `llvm-readelf -lW` — every LOAD
+  // line's Align column must read 0x4000.
+  implementation 'net.java.dev.jna:jna:5.19.1@aar'
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 }

@@ -82,8 +82,9 @@ None of this has been exercised, and these are the parts most likely to need
 adjustment:
 
 - **JNA.** UniFFI's Kotlin needs `net.java.dev.jna:jna:…@aar` (the `@aar`
-  matters — the plain jar has no Android natives). The version pinned in
-  `build.gradle` is a guess at a compatible one.
+  matters — the plain jar has no Android natives). It must be **5.17.0 or
+  later**: older AARs ship a `libjnidispatch.so` with 4 KB LOAD segments, which
+  Android 15+ reports as not 16 KB page-size compatible.
 - **`jniLibs.srcDirs`** points into `app/android/`, which only exists after
   prebuild. If the relative path is wrong the build succeeds and fails at the
   first call with `UnsatisfiedLinkError`.
