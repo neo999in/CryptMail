@@ -26,25 +26,40 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CoreError, RecoveryBackup } from '../core';
-import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
+import { isValidRecoveryCode } from '../core/recoveryCode';
+import { userMessage } from '../lib/errors';
 import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
 import { useApp } from '../state/AppState';
 import { drillOutstanding } from '../store/recoveryStore';
-import { color, font, glass, radius, space, type } from '../theme';
+import { color, font, radius, space, type } from '../theme';
+import { Icon, IconName } from '../ui/Icon';
 import {
   Banner,
   Callout,
-  Card,
   Field,
+  Group,
   Input,
+  Label,
   Muted,
   PrimaryButton,
   SecondaryButton,
+  StepHeading,
   Title,
   useFocus,
 } from '../ui/primitives';
+import { RecoveryCodeField, RecoveryCodeGrid } from '../ui/recoveryCode';
 
 type Step = 'choose' | 'restore' | 'backup' | 'drill' | 'publish';
+
+/** Where each step sits in the four the header counts. Restoring skips 2 and 3. */
+const PROGRESS: Record<Step, { n: number; label: string }> = {
+  choose: { n: 1, label: 'Your key' },
+  restore: { n: 1, label: 'Restore your key' },
+  backup: { n: 2, label: 'Recovery code' },
+  drill: { n: 3, label: 'Check the code' },
+  publish: { n: 4, label: 'Let people write to you' },
+};
+const STEPS = 4;
 
 export function SetupScreen({ onDone }: { onDone: () => void }) {
   const {
@@ -72,15 +87,21 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
   const [blobInput, setBlobInput] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const blobFocus = useFocus();
-  const codeFocus = useFocus();
 
   /** This run's backup. Screen memory only — the code must not outlive it. */
   const [backup, setBackup] = useState<RecoveryBackup | null>(null);
   /** The core cannot make backups at all, so the drill cannot run. */
   const [backupUnavailable, setBackupUnavailable] = useState(false);
   const [blobCopied, setBlobCopied] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  /** The backup text went somewhere — a file or the clipboard. Marks step 2 done. */
+  const [blobKept, setBlobKept] = useState(false);
   const [drillInput, setDrillInput] = useState('');
-  const drillFocus = useFocus();
+
+  const go = (next: Step) => {
+    setError(null);
+    setStep(next);
+  };
 
   const makeBackup = async () => {
     setBusy(true);
@@ -89,7 +110,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
       setBackup(await exportRecovery());
     } catch (e) {
       if (e instanceof CoreError && e.code === 'unavailable') setBackupUnavailable(true);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     } finally {
       setBusy(false);
     }
@@ -99,13 +120,21 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
     setError(null);
     try {
       await saveTextFile(backupFileName(identity?.email ?? 'key'), value.blob, 'text/plain');
+      setBlobKept(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`Couldn’t save the backup file. ${userMessage(e)}`);
     }
+  };
+
+  const copyCode = async (value: RecoveryBackup) => {
+    await Clipboard.setStringAsync(value.code);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 1800);
   };
 
   const copyBlob = async (value: RecoveryBackup) => {
     await Clipboard.setStringAsync(value.blob);
+    setBlobKept(true);
     setBlobCopied(true);
     setTimeout(() => setBlobCopied(false), 1800);
   };
@@ -130,7 +159,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
       }
       setBlobInput(result.text.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`Couldn’t open that file. ${userMessage(e)}`);
     }
   };
 
@@ -142,94 +171,99 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
       if (next) setStep(next);
       else onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(userMessage(e));
     } finally {
       setBusy(false);
     }
   };
 
+  /** The failure, next to the action that failed — not below the card. */
+  const problem = error ? <Callout>{error}</Callout> : null;
+  const progress = PROGRESS[step];
+
   return (
     <ScrollView
       style={s.screen}
-      contentContainerStyle={{ padding: 16, paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 }}
+      contentContainerStyle={{
+        paddingHorizontal: space.lg,
+        paddingTop: insets.top + space.xl,
+        paddingBottom: insets.bottom + space.xl,
+      }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={s.heading}>Set up your key</Text>
+      <Text style={s.heading} accessibilityRole="header">
+        Set up your key
+      </Text>
+      <View
+        style={s.progress}
+        accessibilityLabel={`Step ${progress.n} of ${STEPS}: ${progress.label}`}
+        accessibilityRole="progressbar"
+      >
+        <View style={s.bars}>
+          {Array.from({ length: STEPS }, (_, i) => (
+            <View key={i} style={[s.bar, i < progress.n && s.barOn]} />
+          ))}
+        </View>
+        <Text style={s.progressText}>
+          Step {progress.n} of {STEPS} · {progress.label}
+        </Text>
+      </View>
 
       {step === 'choose' ? (
-        <>
-          <Card>
-            <Title>Used CryptMail before?</Title>
-            <Muted>
-              Restore from your recovery code and this device gets the same key back — same
-              fingerprint, so everyone who writes to you carries on as if nothing happened, and
-              every message ever sent to you stays readable.
-            </Muted>
-            <View style={{ marginTop: 14 }}>
-              <PrimaryButton title="Restore from a recovery code" icon="key" onPress={() => setStep('restore')} />
-            </View>
-          </Card>
+        <View style={s.stack}>
+          <Choice
+            icon="key"
+            title="I’ve used CryptMail before"
+            body="Restore your key from its backup and recovery code. Your fingerprint stays the same, so the people who write to you notice nothing, and all your old encrypted mail stays readable."
+          >
+            <PrimaryButton title="Restore my key" icon="key" onPress={() => go('restore')} />
+          </Choice>
 
-          <Card style={{ marginTop: 14 }}>
-            <Title>Starting fresh</Title>
-            <Muted>
-              Generates a new key on this device. Do this only if you have no backup: a new key
-              cannot open anything that was sent to an old one, and your contacts will see the
-              fingerprint change.
-            </Muted>
-            <View style={{ marginTop: 14 }}>
-              <SecondaryButton
-                title="Create a new key"
-                icon="plus"
-                onPress={() => void run(createIdentity, 'backup')}
-              />
-            </View>
-          </Card>
-        </>
+          <Choice
+            icon="plus"
+            title="I’m new here"
+            body="Create a new key on this phone. Only do this if you have no backup: a new key can’t open mail sent to an old one, and your contacts will see your fingerprint change."
+          >
+            <SecondaryButton
+              title="Create a new key"
+              icon="plus"
+              onPress={() => void run(createIdentity, 'backup')}
+            />
+          </Choice>
+          {problem}
+        </View>
       ) : null}
 
       {step === 'restore' ? (
-        <Card>
-          <Title>Restore from a backup</Title>
-          <Muted>
-            Load the backup file or paste its text, then type the recovery code. Neither one
-            restores anything alone.
-          </Muted>
-          <View style={{ marginTop: 12, marginBottom: 4 }}>
-            <SecondaryButton title="Load from a file" icon="file" onPress={() => void loadBackupFile()} />
+        <Panel>
+          <Title>Restore your key</Title>
+          <Muted>You need both halves: the backup text and the recovery code. Neither one works alone.</Muted>
+
+          <StepHeading n={1} title="Load the backup text" done={blobInput.trim().length > 0} />
+          <SecondaryButton title="Choose the backup file" icon="file" onPress={() => void loadBackupFile()} />
+          <View>
+            <Label>Or paste it here</Label>
+            <Field focused={blobFocus.focused} style={s.flush}>
+              <Input
+                accessibilityLabel="Backup text"
+                autoCapitalize="none"
+                autoCorrect={false}
+                big
+                multiline
+                onChangeText={setBlobInput}
+                placeholder="-----BEGIN …-----"
+                style={s.blobInput}
+                value={blobInput}
+                {...blobFocus.bind}
+              />
+            </Field>
           </View>
 
-          <Field label="Backup text" focused={blobFocus.focused}>
-            <Input
-              autoCapitalize="none"
-              autoCorrect={false}
-              big
-              multiline
-              onChangeText={setBlobInput}
-              placeholder="-----BEGIN …-----"
-              style={s.blobInput}
-              value={blobInput}
-              {...blobFocus.bind}
-            />
-          </Field>
+          <StepHeading n={2} title="Type the recovery code" done={isValidRecoveryCode(codeInput)} />
+          <RecoveryCodeField value={codeInput} onChange={setCodeInput} />
 
-          <Field label="Recovery code" focused={codeFocus.focused}>
-            <Input
-              autoCapitalize="characters"
-              autoCorrect={false}
-              onChangeText={setCodeInput}
-              onBlur={() => {
-                codeFocus.bind.onBlur();
-                if (codeInput.trim()) setCodeInput(formatRecoveryCode(codeInput));
-              }}
-              onFocus={codeFocus.bind.onFocus}
-              placeholder="K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-2N8Q"
-              style={s.codeInput}
-              value={codeInput}
-            />
-          </Field>
-
+          {problem}
           <PrimaryButton
             title="Restore my key"
             icon="key"
@@ -237,23 +271,25 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             disabled={blobInput.trim().length === 0 || !isValidRecoveryCode(codeInput)}
             onPress={() => void run(() => restoreFromRecovery(blobInput.trim(), codeInput), 'publish')}
           />
-          <View style={{ marginTop: 10 }}>
-            <SecondaryButton title="Back" icon="chevron" onPress={() => setStep('choose')} />
-          </View>
-        </Card>
+          <SecondaryButton title="Back" icon="back" onPress={() => go('choose')} />
+        </Panel>
       ) : null}
 
       {step === 'backup' ? (
-        <Card>
-          <Title>Your recovery code</Title>
+        <Panel>
+          <Title>Save your way back in</Title>
           <Muted>
-            This key lives only on this device. If you lose the device and this code, every message
-            ever sent to this key is unreadable — permanently, by anyone, and there is no one who can
-            reset it for you.
+            Your key lives only on this phone. The recovery code and the backup text, together, are the only
+            way to get it back.
           </Muted>
+          <Banner tone="warn" icon="alert">
+            Lose this phone without them and every encrypted message sent to you is gone for good. No one —
+            not CryptMail, not your mail provider — can reset it.
+          </Banner>
 
           {!backup ? (
-            <View style={{ marginTop: 14 }}>
+            <>
+              {problem}
               <PrimaryButton
                 title="Create my recovery code"
                 icon="shield"
@@ -262,43 +298,41 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
                 onPress={() => void makeBackup()}
               />
               {backupUnavailable ? (
-                <View style={{ marginTop: 12 }}>
-                  <Banner tone="warn" icon="alert">
-                    The crypto core on this device cannot make backups, so this key has no way back if
-                    the device is lost. Keys will keep saying so until a backup exists.
+                <>
+                  <Banner tone="note" icon="shield">
+                    The encryption engine on this phone can’t make backups yet, so this key has no way back if
+                    the phone is lost. Settings will keep reminding you until it has one.
                   </Banner>
-                  <View style={{ marginTop: 10 }}>
-                    <SecondaryButton
-                      title="Continue without a backup"
-                      icon="chevron"
-                      onPress={() => void run(waiveRecoveryDrill, 'publish')}
-                    />
-                  </View>
-                </View>
+                  <SecondaryButton
+                    title="Continue without a backup"
+                    icon="chevron"
+                    onPress={() => void run(waiveRecoveryDrill, 'publish')}
+                  />
+                </>
               ) : null}
-            </View>
+            </>
           ) : (
-            <View style={{ marginTop: 16 }}>
-              <Text style={s.eyebrow}>Recovery code — write this down now</Text>
-              <View style={s.codeBox}>
-                {backup.code.split('-').map((group, i) => (
-                  <Text key={`${group}-${i}`} style={s.codeCell}>
-                    {group}
-                  </Text>
-                ))}
-              </View>
-              {/* No copy button for the code, on purpose: the next step asks for
-                  it back, and a clipboard round trip would pass that check
-                  without the code ever being anywhere but this phone. */}
+            <>
+              <StepHeading n={1} title="Write down the recovery code" />
+              <RecoveryCodeGrid code={backup.code} />
               <Text style={s.note}>
-                Shown once and never stored on this device. Letters are unambiguous: there is no O, I,
-                L or U. Next you will type it back, so write it somewhere that is not this phone.
+                Groups 1 to 8, in order. Letters are unambiguous — there is no O, I, L or U. The code is shown
+                once and never stored on this phone.
               </Text>
+              <View style={s.row}>
+                <SecondaryButton
+                  title={codeCopied ? 'Copied' : 'Copy code'}
+                  icon={codeCopied ? 'check' : 'copy'}
+                  onPress={() => void copyCode(backup)}
+                />
+              </View>
 
-              <Text style={[s.eyebrow, { marginTop: 18 }]}>Backup text</Text>
+              <View style={s.divider} />
+
+              <StepHeading n={2} title="Save the backup text" done={blobKept} />
               <Text style={s.note}>
-                The other half. Save it somewhere you can reach from a device you do not own yet — the
-                file holds the backup text only, never the code.
+                Put it somewhere you can reach from a phone you don’t own yet — a drive or a password manager.
+                The file holds the backup text only, never the code.
               </Text>
               <View style={s.row}>
                 <SecondaryButton title="Save to a file" icon="download" onPress={() => void saveBackup(backup)} />
@@ -309,54 +343,32 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
                 />
               </View>
 
-              <View style={{ marginTop: 16 }}>
-                <PrimaryButton
-                  title="I have written the code down"
-                  icon="check"
-                  onPress={() => {
-                    setError(null);
-                    setDrillInput('');
-                    setStep('drill');
-                  }}
-                />
-              </View>
-            </View>
+              {problem}
+              <PrimaryButton
+                title="I’ve kept both — continue"
+                icon="chevron"
+                onPress={() => {
+                  setDrillInput('');
+                  go('drill');
+                }}
+              />
+            </>
           )}
-        </Card>
+        </Panel>
       ) : null}
 
       {step === 'drill' ? (
-        <Card>
-          <Title>Type your recovery code</Title>
+        <Panel>
+          <Title>Check your recovery code</Title>
           <Muted>
-            From what you wrote down, not from memory. This unlocks the backup you just made, the same
-            way a new phone would — so you find out now, while it is easy to fix, if a character was
-            copied wrong.
+            Type it from where you wrote it down, groups 1 to 8 in order. This unlocks the backup you just
+            made, exactly as a new phone would — so a miscopied character shows up now, while it’s easy to
+            fix.
           </Muted>
 
-          <View style={{ marginTop: 12 }}>
-            <Field label="Recovery code" focused={drillFocus.focused}>
-              <Input
-                autoCapitalize="characters"
-                autoCorrect={false}
-                onChangeText={setDrillInput}
-                onBlur={() => {
-                  drillFocus.bind.onBlur();
-                  if (drillInput.trim()) setDrillInput(formatRecoveryCode(drillInput));
-                }}
-                onFocus={drillFocus.bind.onFocus}
-                placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-                style={s.codeInput}
-                value={drillInput}
-              />
-            </Field>
-          </View>
-          {drillInput.length > 0 && !isValidRecoveryCode(drillInput) ? (
-            <Text style={[s.note, { marginTop: 0, marginBottom: 10 }]}>
-              A recovery code is 32 characters — eight groups of four.
-            </Text>
-          ) : null}
+          <RecoveryCodeField value={drillInput} onChange={setDrillInput} autoFocus />
 
+          {problem}
           <PrimaryButton
             title="Check my code"
             icon="key"
@@ -364,52 +376,68 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
             disabled={!isValidRecoveryCode(drillInput)}
             onPress={() => void run(() => completeRecoveryDrill(drillInput), 'publish')}
           />
-          <View style={{ marginTop: 10 }}>
-            <SecondaryButton
-              title="Show the code again"
-              icon="back"
-              onPress={() => {
-                setError(null);
-                setStep('backup');
-              }}
-            />
-          </View>
-        </Card>
+          <SecondaryButton title="Show the code again" icon="back" onPress={() => go('backup')} />
+        </Panel>
       ) : null}
 
       {step === 'publish' ? (
-        <Card>
+        <Panel>
           <Title>Let people write to you</Title>
           <Muted>
-            Publishing your public key to {directoryName} is what lets someone send you encrypted
-            mail the first time they write, without asking you for anything.
+            Publishing your public key to {directoryName} lets anyone send you encrypted mail on their first
+            try, without having to ask you for anything.
           </Muted>
-          <View style={{ marginTop: 12 }}>
-            <Callout>
-              The listing is public. Anyone who tries your address can see that it has a key — the
-              address and the key, never your messages. You can skip this and exchange keys by hand.
-            </Callout>
-          </View>
-          <View style={{ marginTop: 14 }}>
-            <PrimaryButton
-              title="Publish my public key"
-              icon="shield"
-              busy={busy}
-              onPress={() => void run(publishOwnKey, null)}
-            />
-            <View style={{ marginTop: 10 }}>
-              <SecondaryButton title="Not now" icon="close" onPress={() => void run(declinePublish, null)} />
-            </View>
-          </View>
-        </Card>
-      ) : null}
+          <Banner tone="note" icon="globe">
+            The listing is public: anyone who looks up your address can see it has a key. Only the address and
+            the key — never your messages. You can skip this and swap keys by hand instead.
+          </Banner>
 
-      {error ? (
-        <View style={{ marginTop: 14 }}>
-          <Callout>{error}</Callout>
-        </View>
+          {problem}
+          <PrimaryButton
+            title="Publish my public key"
+            icon="shield"
+            busy={busy}
+            onPress={() => void run(publishOwnKey, null)}
+          />
+          <SecondaryButton title="Not now" icon="close" onPress={() => void run(declinePublish, null)} />
+        </Panel>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** One card of the setup flow: a bordered `Group` with its contents evenly spaced. */
+function Panel({ children }: { children: React.ReactNode }) {
+  return (
+    <Group style={s.panelOuter}>
+      <View style={s.panel}>{children}</View>
+    </Group>
+  );
+}
+
+/** One of the two ways in on the first step. */
+function Choice({
+  icon,
+  title,
+  body,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  body: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Panel>
+      <View style={s.choiceHead}>
+        <View style={s.choiceIcon}>
+          <Icon name={icon} size={18} color={color.ink} />
+        </View>
+        <Title style={s.choiceTitle}>{title}</Title>
+      </View>
+      <Muted>{body}</Muted>
+      {children}
+    </Panel>
   );
 }
 
@@ -418,34 +446,34 @@ const s = StyleSheet.create({
   heading: {
     color: color.ink,
     fontFamily: font.displayBold,
-    fontSize: 24,
+    fontSize: 26,
     letterSpacing: -0.4,
-    marginBottom: space.lg,
   },
-  blobInput: { fontFamily: font.mono, fontSize: 11.5, minHeight: 96 },
-  codeInput: { fontFamily: font.mono, fontSize: 15, letterSpacing: 1.2 },
 
-  // The code box is RecoveryScreen's, so a code looks the same wherever it is shown.
-  eyebrow: { ...type.eyebrow, color: color.inkFaint, letterSpacing: 0.8, marginBottom: 8 },
-  codeBox: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: glass.hairline,
+  progress: { gap: space.sm, marginBottom: space.xl, marginTop: space.md },
+  bars: { flexDirection: 'row', gap: space.xs },
+  bar: { backgroundColor: color.border, borderRadius: radius.pill, flex: 1, height: 3 },
+  barOn: { backgroundColor: color.ink },
+  progressText: { ...type.small, color: color.inkDim },
+
+  stack: { gap: space.md },
+  panelOuter: { marginHorizontal: 0 },
+  panel: { gap: space.md, padding: space.lg },
+
+  choiceHead: { alignItems: 'center', flexDirection: 'row', gap: space.md },
+  choiceIcon: {
+    alignItems: 'center',
+    backgroundColor: color.surfaceRaised,
     borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 8,
-    paddingVertical: 14,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
   },
-  codeCell: {
-    color: color.ink,
-    fontFamily: font.mono,
-    fontSize: 16,
-    letterSpacing: 2,
-    paddingVertical: 5,
-    textAlign: 'center',
-    width: '25%',
-  },
-  note: { ...type.small, color: color.inkFaint, lineHeight: 18, marginTop: 10 },
-  row: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
+  choiceTitle: { flex: 1 },
+
+  flush: { marginBottom: 0 },
+  blobInput: { fontFamily: font.mono, fontSize: 11.5, minHeight: 96 },
+  note: { ...type.small, color: color.inkFaint },
+  row: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  divider: { backgroundColor: color.border, height: 1, marginVertical: space.xs },
 });

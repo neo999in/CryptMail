@@ -215,15 +215,36 @@ export function Banner({
   icon,
   children,
 }: {
-  tone: 'ok' | 'warn';
+  /**
+   * `ok` and `warn` are trust colours. `note` is for information that is
+   * neither — a consequence to know about, not a danger — and is deliberately
+   * uncoloured, so coral keeps meaning "something is wrong".
+   */
+  tone: 'ok' | 'warn' | 'note';
   icon: IconName;
   children: React.ReactNode;
 }) {
-  const ok = tone === 'ok';
+  const tint = tone === 'ok' ? color.mint : tone === 'warn' ? color.coral : color.inkDim;
+  const ink = tone === 'ok' ? color.mintInk : tone === 'warn' ? color.coralInk : color.inkDim;
   return (
-    <View style={[s.banner, ok ? s.bannerOk : s.bannerWarn]}>
-      <Icon name={icon} size={17} color={ok ? color.mint : color.coral} />
-      <Text style={[s.bannerText, { color: ok ? color.mintInk : color.coralInk }]}>{children}</Text>
+    <View style={[s.banner, tone === 'ok' ? s.bannerOk : tone === 'warn' ? s.bannerWarn : s.bannerNote]}>
+      <Icon name={icon} size={17} color={tint} />
+      <Text style={[s.bannerText, { color: ink }]}>{children}</Text>
+    </View>
+  );
+}
+
+/**
+ * A numbered step inside a card. Numbered, not coloured: in a ceremony like the
+ * key backup the order is the point, and a number says so without the accent.
+ */
+export function StepHeading({ n, title, done }: { n: number; title: string; done?: boolean }) {
+  return (
+    <View accessibilityRole="header" accessibilityLabel={`Step ${n}: ${title}${done ? ', done' : ''}`} style={s.step}>
+      <View style={[s.stepDot, done && s.stepDotDone]}>
+        {done ? <Icon name="check" size={13} color={color.ground} /> : <Text style={s.stepNum}>{n}</Text>}
+      </View>
+      <Text style={s.stepTitle}>{title}</Text>
     </View>
   );
 }
@@ -1053,7 +1074,21 @@ const s = StyleSheet.create({
   },
   bannerOk: { backgroundColor: color.mintBg, borderColor: color.mintLine },
   bannerWarn: { backgroundColor: color.coralBg, borderColor: color.coralLine },
+  bannerNote: { backgroundColor: color.ground2, borderColor: color.border },
   bannerText: { flex: 1, fontFamily: font.sans, fontSize: 13.5, lineHeight: 19 },
+
+  step: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
+  stepDot: {
+    alignItems: 'center',
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.pill,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  stepDotDone: { backgroundColor: color.ink },
+  stepNum: { ...type.strong, color: color.ink, fontSize: 12.5 },
+  stepTitle: { ...type.strong, color: color.ink, flex: 1 },
 
   callout: {
     backgroundColor: color.coralBg,

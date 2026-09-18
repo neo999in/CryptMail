@@ -715,8 +715,12 @@ to the original key still decrypts after restoring on a fresh device.
 [`screens/SetupScreen.tsx`](../app/src/screens/SetupScreen.tsx) now goes
 *backup → drill → publish*. The backup step shows the code once, with the
 backup text to save or copy, and says what is lost if both are lost. The code
-itself has no copy button, since a clipboard round trip would pass the drill
-without the code ever leaving the phone. The drill step asks for the code back
+is shown numbered 1–8, since unnumbered two rows of four were copied down the
+columns, and it can be copied too — which does mean a clipboard round trip
+passes the drill without the code ever leaving the phone; the drill then proves
+the code and backup match, not that the code was written down. Code fields
+group what is typed or pasted as it arrives, so a multi-line paste lands as one
+line. The drill step asks for the code back
 and `completeRecoveryDrill` in
 [`state/identity.ts`](../app/src/state/identity.ts) runs a **real unlock**
 through the core, against the blob this run produced (never a pasted one), and

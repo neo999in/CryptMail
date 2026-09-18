@@ -39,6 +39,19 @@ export function formatRecoveryCode(code: string): string {
 }
 
 /**
+ * What a recovery-code field shows for whatever was typed or pasted into it:
+ * grouped as it goes, and never longer than one code.
+ *
+ * Run on every change, not on blur. A paste from notes or a photo's text
+ * usually carries line breaks and spaces, and Android sizes a single-line
+ * field by its text — so a raw paste showed as a box several lines tall with
+ * the code floating in the middle and the rest of it out of sight.
+ */
+export function typedRecoveryCode(input: string): string {
+  return formatRecoveryCode(normaliseRecoveryCode(input).slice(0, CODE_LENGTH));
+}
+
+/**
  * Strip everything a human might add and fold the confusable characters in.
  *
  * Tolerates any spacing, casing and separator, so a code read back off paper

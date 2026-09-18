@@ -5,7 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { cryptoMode } from '../config';
-import { formatRecoveryCode, isValidRecoveryCode } from '../core/recoveryCode';
+import { isValidRecoveryCode } from '../core/recoveryCode';
 import { RecoveryBackup } from '../core';
 import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
 import { back, RootStackParamList } from '../navigation';
@@ -14,6 +14,7 @@ import { useApp } from '../state/AppState';
 import { color, font, radius, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
 import { Icon, IconName } from '../ui/Icon';
+import { RecoveryCodeField, RecoveryCodeGrid } from '../ui/recoveryCode';
 import {
   Banner,
   Callout,
@@ -24,8 +25,10 @@ import {
   Input,
   PrimaryButton,
   SecondaryButton,
+  StepHeading,
   useFocus,
 } from '../ui/primitives';
+import { userMessage } from '../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Recovery'>;
 
@@ -48,13 +51,14 @@ export function RecoveryScreen({ navigation }: Props) {
 
   const [backup, setBackup] = useState<RecoveryBackup | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** Kept apart so a failure shows in the section it belongs to. */
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const [copied, setCopied] = useState<'code' | 'blob' | null>(null);
 
   const [blobInput, setBlobInput] = useState('');
   const [codeInput, setCodeInput] = useState('');
   const blobFocus = useFocus();
-  const codeFocus = useFocus();
 
   const unprotected = needsBackup(recovery, identity?.fingerprint ?? null);
 
@@ -75,11 +79,11 @@ export function RecoveryScreen({ navigation }: Props) {
 
   const doExport = async () => {
     setBusy(true);
-    setError(null);
+    setBackupError(null);
     try {
       setBackup(await exportRecovery());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setBackupError(userMessage(e));
     } finally {
       setBusy(false);
     }
@@ -97,40 +101,40 @@ export function RecoveryScreen({ navigation }: Props) {
    * put the lock and its key in the same place and make the pair pointless.
    */
   const saveBackupFile = async (value: RecoveryBackup) => {
-    setError(null);
+    setBackupError(null);
     try {
       await saveTextFile(backupFileName(identity?.email ?? 'key'), value.blob, 'text/plain');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setBackupError(`Couldn’t save the backup file. ${userMessage(e)}`);
     }
   };
 
   /** Fill the blob field from a file the user picks. Cancelling changes nothing. */
   const loadBackupFile = async () => {
-    setError(null);
+    setRestoreError(null);
     try {
       const result = await pickTextFile();
       if (!result) return;
       if ('refused' in result) {
-        setError(result.refused);
+        setRestoreError(result.refused);
         return;
       }
       setBlobInput(result.text.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setRestoreError(userMessage(e));
     }
   };
 
   const doRestore = async () => {
     setBusy(true);
-    setError(null);
+    setRestoreError(null);
     try {
       const restored = await restoreFromRecovery(blobInput.trim(), codeInput);
       setBlobInput('');
       setCodeInput('');
       confirmDialog('Identity restored', `This device now uses the key for ${restored.email}.`, [{ label: 'OK' }]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setRestoreError(userMessage(e));
     } finally {
       setBusy(false);
     }
@@ -153,7 +157,6 @@ export function RecoveryScreen({ navigation }: Props) {
     );
   };
 
-  const codeTyped = codeInput.length > 0;
   const codeValid = isValidRecoveryCode(codeInput);
 
   return (
@@ -204,6 +207,7 @@ export function RecoveryScreen({ navigation }: Props) {
               <Text style={s.hint}>No identity key on this device yet.</Text>
             ) : !backup ? (
               <>
+                {backupError ? <Callout>{backupError}</Callout> : null}
                 <PrimaryButton
                   title={recovery.backedUpAt ? 'Create a new backup' : 'Create a backup'}
                   icon="shield"
@@ -218,19 +222,11 @@ export function RecoveryScreen({ navigation }: Props) {
               </>
             ) : (
               <>
-                <Step n={1} title="Write the recovery code down now" />
-                <View style={s.inset}>
-                  <View style={s.codeGrid}>
-                    {backup.code.split('-').map((group, i) => (
-                      <Text key={`${group}-${i}`} style={s.codeCell}>
-                        {group}
-                      </Text>
-                    ))}
-                  </View>
-                </View>
+                <StepHeading n={1} title="Write the recovery code down now" />
+                <RecoveryCodeGrid code={backup.code} />
                 <Text style={s.hint}>
-                  This is shown once and is not stored anywhere on this device — that is what makes it
-                  worth keeping. Letters are unambiguous: there is no O, I, L or U.
+                  Groups 1 to 8, in order. It is shown once and not stored anywhere on this device — that
+                  is what makes it worth keeping. Letters are unambiguous: there is no O, I, L or U.
                 </Text>
                 <View style={s.actions}>
                   <SecondaryButton
@@ -242,7 +238,7 @@ export function RecoveryScreen({ navigation }: Props) {
 
                 <View style={s.divider} />
 
-                <Step n={2} title="Store the backup text somewhere else" />
+                <StepHeading n={2} title="Store the backup text somewhere else" />
                 <View style={s.inset}>
                   <Text style={s.blob} selectable numberOfLines={5}>
                     {backup.blob}
@@ -267,6 +263,7 @@ export function RecoveryScreen({ navigation }: Props) {
 
                 <View style={s.divider} />
 
+                {backupError ? <Callout>{backupError}</Callout> : null}
                 <SecondaryButton title="Done" icon="check" onPress={() => setBackup(null)} />
               </>
             )}
@@ -301,34 +298,9 @@ export function RecoveryScreen({ navigation }: Props) {
               </Field>
             </View>
 
-            <View>
-              <Text style={[s.eyebrow, s.fieldLabel]}>Recovery code</Text>
-              <Field
-                focused={codeFocus.focused}
-                tone={codeTyped && !codeFocus.focused && !codeValid ? 'warn' : 'default'}
-                style={s.fieldFlush}
-              >
-                <Input
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  onChangeText={setCodeInput}
-                  // Reformatted as they type, so what is on screen matches the paper.
-                  onBlur={() => {
-                    codeFocus.bind.onBlur();
-                    if (codeInput.trim()) setCodeInput(formatRecoveryCode(codeInput));
-                  }}
-                  onFocus={codeFocus.bind.onFocus}
-                  placeholder="K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-2N8Q"
-                  style={s.codeInput}
-                  value={codeInput}
-                />
-              </Field>
-              {codeTyped && !codeValid ? (
-                <Text style={[s.hint, s.fieldNote]}>A recovery code is 32 characters — eight groups of four.</Text>
-              ) : null}
-            </View>
+            <RecoveryCodeField value={codeInput} onChange={setCodeInput} />
 
-            {error ? <Callout>{error}</Callout> : null}
+            {restoreError ? <Callout>{restoreError}</Callout> : null}
 
             <PrimaryButton
               title="Restore identity"
@@ -351,18 +323,6 @@ function Half({ icon, title, hint }: { icon: IconName; title: string; hint: stri
       <Icon name={icon} size={20} color={color.inkDim} />
       <Text style={s.halfTitle}>{title}</Text>
       <Text style={s.halfHint}>{hint}</Text>
-    </View>
-  );
-}
-
-/** A numbered step in the backup ceremony. Numbered, not coloured: order is the point. */
-function Step({ n, title }: { n: number; title: string }) {
-  return (
-    <View accessibilityRole="header" style={s.step}>
-      <View style={s.stepDot}>
-        <Text style={s.stepNum}>{n}</Text>
-      </View>
-      <Text style={s.stepTitle}>{title}</Text>
     </View>
   );
 }
@@ -400,18 +360,6 @@ const s = StyleSheet.create({
   halfTitle: { ...type.strong, color: color.ink, marginTop: space.xs },
   halfHint: { ...type.small, color: color.inkFaint },
 
-  step: { alignItems: 'center', flexDirection: 'row', gap: space.sm },
-  stepDot: {
-    alignItems: 'center',
-    backgroundColor: color.surfaceRaised,
-    borderRadius: radius.pill,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
-  },
-  stepNum: { ...type.strong, color: color.ink, fontSize: 12.5 },
-  stepTitle: { ...type.strong, color: color.ink, flex: 1 },
-
   inset: {
     backgroundColor: color.ground2,
     borderColor: color.border,
@@ -420,25 +368,12 @@ const s = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: space.md,
   },
-  codeGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  codeCell: {
-    color: color.ink,
-    fontFamily: font.mono,
-    fontSize: 16,
-    letterSpacing: 2,
-    paddingVertical: 5,
-    textAlign: 'center',
-    width: '25%',
-  },
   blob: { ...type.meta, color: color.inkDim, fontSize: 10.5, lineHeight: 15, paddingHorizontal: space.xs },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   divider: { backgroundColor: color.border, height: 1, marginVertical: space.xs },
 
   fieldHead: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: space.sm },
-  fieldLabel: { marginBottom: space.sm },
   fieldFlush: { marginBottom: 0 },
-  fieldNote: { marginTop: space.sm },
   blobInput: { fontFamily: font.mono, fontSize: 11.5, minHeight: 96 },
-  codeInput: { fontFamily: font.mono, fontSize: 15, letterSpacing: 1.2 },
 });

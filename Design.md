@@ -150,6 +150,9 @@ twice, it belongs here instead.
 | `Toggle` | a setting that is simply on or off | accent track, and the knob **moves** — never colour alone. Ours, not RN's `Switch`, which cannot follow `useAccent()` |
 | `Sheet` | a modal bottom sheet | scrim + blur + grip. **The only place blur is used.** |
 | `Badge` / `Banner` / `Callout` | encryption and trust state | `enc`→mint, `warn`→coral, `plain`→faint |
+| `Banner tone="note"` | something to know that is **not** a danger — a public listing, a missing capability | uncoloured inset, so coral keeps meaning "wrong" |
+| `StepHeading` | a numbered step inside a card (backup, restore) | numbered dot, a check once `done` — order by number, not colour |
+| `RecoveryCodeGrid` / `RecoveryCodeField` (`ui/recoveryCode.tsx`) | showing and typing a recovery code | numbered groups; a field that groups as you type and counts to 32 |
 | `Avatar` | a sender or account | circle, tint derived deterministically from the address; `mode` (`photo`, `initials` or `provider`, the provider's logo) honours an account's "show as" choice |
 | `EmptyState` | "nothing here" / "nothing matched" | centred glyph, title, hint, optional action |
 | `Skeleton` | loading | pulsing block — loading should have the shape of the result |
@@ -300,6 +303,27 @@ The two selection languages, and when each applies:
 - **Accent text + icon, no background** — a navigation destination (drawer row).
 - **`tint(accent, 0.12–0.18)` wash** — a selected *surface* (the rail's active
   account tile).
+
+### An error — never `e.message`
+
+A caught error reaches the screen through `userMessage(e)`
+([app/src/lib/errors.ts](app/src/lib/errors.ts)), never `e.message`. It passes a
+message someone wrote on purpose straight through, and rewrites what arrives
+from below the app — Expo's "Call to function … has been rejected", `fetch`'s
+"Network request failed", "Gmail 403: {json}", Google Sign-In's status codes,
+a JavaScript `TypeError` — into what happened and what to do. The state layer's
+`message()` delegates to it, so a banner fed from `useApp()` is covered too.
+
+Show it as a `Callout` **next to the action that failed**, inside its card,
+above that action's button — not in a strip at the bottom of the screen. When a
+screen has two independent actions (back up, restore), give each its own error.
+When you add context, lead with what failed and let `userMessage` say why:
+`` `Couldn’t save the backup file. ${userMessage(e)}` ``.
+
+An error class you add should carry a message a person can read at the point it
+is thrown — `userMessage` is the backstop, not the translator of first resort.
+The native core does this per call (`WORDING` in `core/nativeCore.ts`), keeping
+the Rust text in `CoreError.detail`.
 
 ### A dialog — never `Alert.alert`
 
@@ -644,6 +668,7 @@ shapes, and keep `react-native-worklets/plugin` **last** in
 - [ ] Elevation via `shadow.*`, never the deprecated `shadow*` props.
 - [ ] Built from primitives; any new repeated shape was promoted into one.
 - [ ] No `Alert.alert` — `confirmDialog` instead.
+- [ ] Errors shown through `userMessage(e)`, beside the action that failed.
 - [ ] No background wash, gradient or header image on the ground.
 - [ ] Anything animated passes all four gates.
 - [ ] `accessibilityRole` / `State` / `Label` present.

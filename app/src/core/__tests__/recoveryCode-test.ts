@@ -10,6 +10,7 @@ import {
   generateRecoveryCode,
   isValidRecoveryCode,
   normaliseRecoveryCode,
+  typedRecoveryCode,
 } from '../recoveryCode';
 
 describe('recovery code', () => {
@@ -87,6 +88,24 @@ describe('recovery code', () => {
     /** Length is all this can prove — it is a shape check, not authentication. */
     it('does not claim to know whether the code is correct', () => {
       expect(isValidRecoveryCode('0'.repeat(CODE_LENGTH))).toBe(true);
+    });
+  });
+
+  describe('as typed into a field', () => {
+    it('flattens a multi-line paste into one grouped line', () => {
+      expect(typedRecoveryCode('VYZ4  WBEJ Z66C 5H2P\n3WWE A9HH\r\nK7M2 NQ8Z\n')).toBe(
+        'VYZ4-WBEJ-Z66C-5H2P-3WWE-A9HH-K7M2-NQ8Z',
+      );
+    });
+
+    it('groups as it goes, without a dangling dash to delete past', () => {
+      expect(typedRecoveryCode('vyz4')).toBe('VYZ4');
+      expect(typedRecoveryCode('VYZ4-')).toBe('VYZ4');
+      expect(typedRecoveryCode('VYZ4W')).toBe('VYZ4-W');
+    });
+
+    it('stops at one code, so a stray tail cannot hide the real end', () => {
+      expect(normaliseRecoveryCode(typedRecoveryCode('0'.repeat(CODE_LENGTH + 5)))).toHaveLength(CODE_LENGTH);
     });
   });
 });
