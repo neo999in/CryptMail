@@ -14,7 +14,7 @@
  * accent swatches already taught this codebase.
  */
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import React from 'react';
+import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -25,6 +25,7 @@ import { back, RootStackParamList } from '../navigation';
 import { useApp } from '../state/AppState';
 import { accountLabel, settingsOf } from '../store/accountScope';
 import { color, space, type } from '../theme';
+import { ImapSetupSheet } from '../ui/imapSetupSheet';
 import { Avatar, Group, GroupHeading, IconButton, PressableRow, SettingsRow } from '../ui/primitives';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Accounts'>;
@@ -32,6 +33,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Accounts'>;
 export function AccountsScreen({ navigation }: Props) {
   const { accounts, activeAccount, needsReauth, unified, addAccount } = useApp();
   const insets = useSafeAreaInsets();
+  /** IMAP is the one provider whose sign-in is a form, not a picker. */
+  const [imapOpen, setImapOpen] = useState(false);
 
   return (
     <View style={s.screen}>
@@ -104,7 +107,7 @@ export function AccountsScreen({ navigation }: Props) {
               icon="plus"
               key={provider}
               label={signInProviders.length > 1 ? `Add ${providerName(provider)} account` : 'Add account'}
-              onPress={() => void addAccount(provider)}
+              onPress={() => (provider === 'imap' ? setImapOpen(true) : void addAccount(provider))}
             />
           ))}
         </Group>
@@ -114,6 +117,8 @@ export function AccountsScreen({ navigation }: Props) {
           them is the rail in the drawer.
         </Text>
       </ScrollView>
+
+      <ImapSetupSheet visible={imapOpen} onClose={() => setImapOpen(false)} />
     </View>
   );
 }

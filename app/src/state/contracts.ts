@@ -10,7 +10,9 @@
  * others. The provider used to do this with two late-bound refs
  * (`drainRef`, `refreshPublishRef`) assigned halfway down the file.
  */
-import { Provider, Session } from '../auth';
+import { ImapSignIn, Provider, Session } from '../auth';
+import { Discovered } from '../mail/autoconfig';
+import { ImapAccount } from '../mail/imap';
 import { Identity, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { Label, LabelChange } from '../labels/labels';
@@ -56,9 +58,10 @@ export type SessionService = {
   boot(isCancelled: () => boolean): Promise<void>;
   /**
    * Connect a mailbox. The first one signs in; a later one adds an account.
-   * With no provider, the first one this build can reach.
+   * With no provider, the first one this build can reach. `imap` also needs
+   * the details its setup sheet collected.
    */
-  signIn(provider?: Provider): Promise<void>;
+  signIn(provider?: Provider, imap?: ImapSignIn): Promise<void>;
   /** Disconnect everything and return to the sign-in screen. */
   signOut(): Promise<void>;
   /** Load everything one account owns on this device and put it in front. */
@@ -170,8 +173,17 @@ export type AccountsService = {
    * as two calls would sync the mailbox twice.
    */
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
-  addAccount(provider?: Provider): Promise<void>;
+  addAccount(provider?: Provider, imap?: ImapSignIn): Promise<void>;
   removeAccount(id: AccountId): Promise<void>;
+  /**
+   * Where an address's IMAP and SMTP servers probably are — the provider's own
+   * autoconfig, then Mozilla's ISPDB, then a guess (`mail/autoconfig.ts`).
+   * Never rejects: a guess is always an answer, and signing in tests it.
+   */
+  discoverImapSettings(email: string): Promise<Discovered>;
+  /** The servers saved for an IMAP mailbox, without its password, to prefill a re-sign-in. */
+  savedImapSettings(email: string): Promise<ImapAccount | null>;
+
   /**
    * Change what the user has decided about one mailbox — its name, its avatar,
    * whether its mail may fetch remote images, how far back it syncs.

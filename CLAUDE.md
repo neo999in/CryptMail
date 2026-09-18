@@ -64,8 +64,8 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 
 ```
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
-                                ──▶  mail/    (Gmail REST | Microsoft Graph)
-                                ──▶  auth/    (Google via Play services | Microsoft via PKCE in the browser)
+                                ──▶  mail/    (Gmail REST | Microsoft Graph | IMAP/SMTP)
+                                ──▶  auth/    (Google via Play services | Microsoft via PKCE in the browser | IMAP password in the keystore)
                                 ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
@@ -105,13 +105,14 @@ Two interfaces define the swappable edges:
 
 [app/src/core/index.ts](app/src/core/index.ts) picks the implementation once:
 `getNativeCore() ?? demoCore`. [app/src/config.ts](app/src/config.ts) derives
-`appMode` from whether an OAuth client id **and** a native core are both present,
+`appMode` from whether a way to reach a mailbox (an OAuth client id, or the socket
+module IMAP needs) **and** a native core are both present,
 and `degradedReason()` explains a downgrade to the user rather than hiding it.
 
 | | degraded | live |
 |---|---|---|
-| Trigger | no OAuth client **or** no native core | both present |
-| Mail | **none** — sign-in is disabled and says why | Gmail REST and/or Microsoft Graph, per client id set |
+| Trigger | no OAuth client and no socket module, **or** no native core | both present |
+| Mail | **none** — sign-in is disabled and says why | Gmail REST and/or Microsoft Graph, per client id set; IMAP/SMTP wherever the socket module is linked (a dev build) |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
 | Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
 

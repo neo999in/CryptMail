@@ -100,6 +100,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addAccount: services.accounts.addAccount,
       switchAccount: services.accounts.switchAccount,
       removeAccount: services.accounts.removeAccount,
+      discoverImapSettings: services.accounts.discoverImapSettings,
+      savedImapSettings: services.accounts.savedImapSettings,
       updateAccount: services.accounts.updateAccount,
       resetAccount: services.accounts.resetAccount,
       pauseAccount: services.accounts.pauseAccount,

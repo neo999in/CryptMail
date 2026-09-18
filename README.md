@@ -2,7 +2,7 @@
 
 **End-to-end encrypted email, in the mailbox you already have.**
 
-Sign in with Gmail or Outlook. Mail you send through CryptMail is encrypted on
+Sign in with Gmail, Outlook, or any IMAP mailbox. Mail you send through CryptMail is encrypted on
 your phone and decrypted only on the recipient's. It is still an ordinary email
 in an ordinary inbox, so Gmail and Outlook show a block of ciphertext while
 CryptMail shows the message.
@@ -92,6 +92,7 @@ for UI work only.
 | Interop with Sequoia-PGP | ✅ Verified both directions |
 | Real Gmail: read, send, sign-in with several mailboxes | ✅ Run against a real account |
 | Real Outlook (Microsoft Graph) | ✅ Run against a real mailbox · 🟨 encrypted mail over Graph unproven |
+| Any other mailbox (IMAP/SMTP) | 🟨 Built and tested against in-memory servers · never run against a real one |
 | Key recovery, safety-number verification, sealed local storage | ✅ Built and tested |
 | Background delivery of queued mail | ⛔ Only while the app is open |
 | Physical phone (StrongBox) | ⛔ Emulator only so far |
@@ -135,6 +136,7 @@ and it tells you why. There is deliberately no fake mailbox. To go further:
 |---|---|---|
 | Real Gmail | A Google Cloud OAuth **Web** client id in `app/.env` | [running-it.md §1](docs/running-it.md) |
 | Real Outlook | An Azure app registration client id in `app/.env` | [running-it.md §1c](docs/running-it.md) |
+| Any IMAP mailbox | A dev build (the socket is a native module), then an app-specific password | [running-it.md §1d](docs/running-it.md) |
 | Real encryption | The Rust core built into an Android dev build (Expo Go cannot load it) | [running-it.md §2](docs/running-it.md) |
 
 Use a throwaway mailbox for testing. Start from `app/.env.example`, and never
@@ -148,8 +150,8 @@ app/        Expo SDK 57 / React Native 0.86 / TypeScript client
     screens/  UI; talks only to state/ through useApp()
     state/    the one layer that reaches everything below
     core/     CryptCore interface, demo core, native bridge, PGP/MIME
-    mail/     MailClient: Gmail REST, Microsoft Graph
-    auth/     Google (Play services), Microsoft (PKCE)
+    mail/     MailClient: Gmail REST, Microsoft Graph, IMAP/SMTP
+    auth/     Google (Play services), Microsoft (PKCE), IMAP (password in keystore)
     keys/     Autocrypt, keys.openpgp.org, WKD
     store/    sealed, per-account local stores
     ui/       primitives, theme-aware components

@@ -841,7 +841,9 @@ export function MessageScreen({ route, navigation }: Props) {
             >
               <Icon name="search" size={18} color={color.inkDim} />
               <Text style={s.menuLabel}>
-                {showRaw ? 'Hide provider view' : `What ${session?.provider === 'outlook' ? 'Outlook' : 'Gmail'} sees`}
+                {showRaw
+                  ? 'Hide provider view'
+                  : `What ${session?.provider === 'outlook' ? 'Outlook' : session?.provider === 'imap' ? 'your mail server' : 'Gmail'} sees`}
               </Text>
             </PressableRow>
           ) : null}

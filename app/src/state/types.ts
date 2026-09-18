@@ -4,7 +4,9 @@
  * Split out of `AppState.tsx` so the service modules can describe what they
  * read and write without importing the provider — which imports them.
  */
-import { Provider, Session } from '../auth';
+import { ImapSignIn, Provider, Session } from '../auth';
+import { Discovered } from '../mail/autoconfig';
+import { ImapAccount } from '../mail/imap';
 import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
 import { Label, LabelChange, LabelState } from '../labels/labels';
@@ -340,16 +342,28 @@ export type BoxState = {
 };
 
 export type Actions = {
-  /** With no provider, the first one this build can reach. */
-  signIn(provider?: Provider): Promise<void>;
+  /**
+   * With no provider, the first one this build can reach. `imap` needs the
+   * address, password and servers from `ui/imapSetupSheet.tsx`.
+   */
+  signIn(provider?: Provider, imap?: ImapSignIn): Promise<void>;
   signOut(): Promise<void>;
   /** Connect another mailbox alongside the ones already here, and switch to it. */
-  addAccount(provider?: Provider): Promise<void>;
+  addAccount(provider?: Provider, imap?: ImapSignIn): Promise<void>;
   /** Put another connected mailbox in front, loading everything it owns. */
   /** Put a mailbox in front; `unified: false` also leaves the merged view. */
   switchAccount(id: AccountId, options?: { unified?: boolean }): Promise<void>;
   /** Disconnect one mailbox and erase every local store belonging to it. */
   removeAccount(id: AccountId): Promise<void>;
+  /**
+   * Where an address's IMAP and SMTP servers probably are — the provider's own
+   * autoconfig, then Mozilla's ISPDB, then a guess (`mail/autoconfig.ts`).
+   * Never rejects: a guess is always an answer, and signing in tests it.
+   */
+  discoverImapSettings(email: string): Promise<Discovered>;
+  /** The servers saved for an IMAP mailbox, without its password, to prefill a re-sign-in. */
+  savedImapSettings(email: string): Promise<ImapAccount | null>;
+
   /** Rename a mailbox, or change its avatar, image policy or sync window. */
   updateAccount(id: AccountId, patch: Partial<AccountSettings>): Promise<void>;
   /**

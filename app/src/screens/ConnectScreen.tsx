@@ -5,15 +5,16 @@ import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AuthError, Provider } from '../auth';
-import { canConnectGmail, canConnectOutlook, degradedReason } from '../config';
+import { canConnectGmail, canConnectImap, canConnectOutlook, degradedReason } from '../config';
 import { useApp } from '../state/AppState';
 import { color, font, motion, radius, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
+import { ImapSetupSheet } from '../ui/imapSetupSheet';
 import { Banner, Callout, Group, PressableRow } from '../ui/primitives';
 import { useAccent } from '../ui/appearance';
 import { GoogleLogo, MicrosoftLogo } from '../ui/providerLogos';
 
-/** Onboarding: provider OAuth, least-privilege scopes. */
+/** Onboarding: provider OAuth with least-privilege scopes, or IMAP/SMTP with a password. */
 export function ConnectScreen() {
   const { signIn } = useApp();
   const accent = useAccent();
@@ -21,6 +22,7 @@ export function ConnectScreen() {
   /** Which provider is mid-sign-in, so only its button spins. */
   const [busy, setBusy] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [imapOpen, setImapOpen] = useState(false);
 
   const connect = async (provider: Provider) => {
     setBusy(provider);
@@ -83,7 +85,13 @@ export function ConnectScreen() {
             disabled={!canConnectOutlook || (busy !== null && busy !== 'outlook')}
             note={canConnectOutlook ? undefined : 'Not configured'}
           />
-          <ProviderRow glyph="@" label="Other (IMAP / SMTP)" disabled note="Coming later" />
+          <ProviderRow
+            glyph="@"
+            label="Other (IMAP / SMTP)"
+            onPress={() => setImapOpen(true)}
+            disabled={!canConnectImap || busy !== null}
+            note={canConnectImap ? undefined : 'Needs a dev build'}
+          />
         </Group>
 
         {error ? (
@@ -98,8 +106,12 @@ export function ConnectScreen() {
         ) : null}
 
         <View style={s.stack}>
+          {/* Two sentences because there are two cases, and the second is the
+              one that must not be hidden: an IMAP mailbox *does* hand this app
+              a password. Where it goes is the promise that can be kept. */}
           <Banner tone="ok" icon="shield">
-            Sign-in uses OAuth — CryptMail never sees your password.
+            Gmail and Outlook sign in with OAuth — CryptMail never sees those passwords. An IMAP password stays in
+            this device's keystore and is only sent to your mail server, encrypted.
           </Banner>
         </View>
       </Reveal>
@@ -118,6 +130,8 @@ export function ConnectScreen() {
       <Reveal step={3}>
         <Text style={s.foot}>Prototype · Phase 0</Text>
       </Reveal>
+
+      <ImapSetupSheet visible={imapOpen} onClose={() => setImapOpen(false)} />
     </ScrollView>
   );
 }

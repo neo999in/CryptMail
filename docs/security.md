@@ -13,6 +13,12 @@ and the assumptions behind each guarantee.
 - **Authenticity:** messages are signed; recipients can verify the sender's key.
 - **Private keys at rest** are wrapped (Argon2id + AES-256-GCM) and held in the OS
   keychain; they never leave the device in usable form.
+- **An IMAP mailbox's password** is the one account credential CryptMail holds
+  itself. It sits in the OS keystore, and is sent only inside TLS, only to the
+  servers saved beside it, after checking that the certificate names that host
+  ([providers.md](providers.md#icloud-yahoo-fastmail-generic-imapsmtp)). Signing
+  out deletes it; revoking it is the provider's job, so the setup sheet asks for
+  an app-specific password.
 
 ## What we explicitly do NOT protect (in v1)
 

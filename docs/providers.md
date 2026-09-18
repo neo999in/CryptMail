@@ -78,14 +78,98 @@ Setup: [running-it.md](running-it.md) §1c.
 
 ## iCloud, Yahoo, Fastmail, generic IMAP/SMTP
 
-**Auth:** app-specific passwords or, where supported, OAuth.
+**Auth:** a password — ideally an app-specific one — kept in the OS keystore.
+OAuth (XOAUTH2) is not built for this path.
 
-- **IMAP** for reading (`IMAP IDLE` for push-ish updates), **SMTP** for sending.
-- iCloud/Yahoo require **app-specific passwords** (their 2FA blocks raw password
-  login). Guide the user through generating one.
-- Autodiscovery: try Mozilla ISPDB / Thunderbird autoconfig, then common
-  host/port guesses, then manual entry.
-- Always TLS: IMAPS (993), SMTPS (465) or STARTTLS (587). Reject plaintext ports.
+> **Status (2026-09-18): built, tested against in-memory servers, never run
+> against a real server or on a device.** See "Unproven" below.
+
+**Code:** [mail/imap.ts](../app/src/mail/imap.ts) (the `MailClient`),
+[mail/imapConnection.ts](../app/src/mail/imapConnection.ts) and
+[mail/imapWire.ts](../app/src/mail/imapWire.ts) (the protocol),
+[mail/smtp.ts](../app/src/mail/smtp.ts), [mail/autoconfig.ts](../app/src/mail/autoconfig.ts),
+[auth/imapAuth.ts](../app/src/auth/imapAuth.ts), and the one file that opens a
+socket, [mail/tcpSocket.ts](../app/src/mail/tcpSocket.ts) (over
+`react-native-tcp-socket`). The protocol code never sees that library; it is
+written against the `MailSocket` interface in [mail/socket.ts](../app/src/mail/socket.ts),
+which is what lets the tests drive it with scripted servers.
+
+**Availability.** This path needs no client id. It needs a native socket module,
+so it exists in a dev build and not on web or in Expo Go (`canConnectImap` in
+[config.ts](../app/src/config.ts)). The connect screen says "Needs a dev build"
+rather than hiding the row.
+
+**Sign-in** is a sheet ([ui/imapSetupSheet.tsx](../app/src/ui/imapSetupSheet.tsx)):
+the address and password, with the servers looked up and folded away.
+- **Discovery** tries three sources in parallel and takes them in this order.
+  First the domain's own autoconfig over HTTPS, which receives the full address.
+  Then Mozilla's ISPDB, which receives **the domain only**. Last, a guess of
+  `imap.<domain>:993` and `smtp.<domain>:465`. A plaintext entry is skipped, and
+  so is a server that only takes OAuth.
+- **Signing in is the test.** `imapAuth` logs in to the IMAP server and
+  authenticates to the SMTP server before anything is saved. A refused password
+  names app-specific passwords, since iCloud, Yahoo and others need one.
+
+**TLS, always.** There is no plaintext setting to choose, even by accident.
+- `tls` connects over TLS from the first byte.
+- `starttls` refuses a server that does not offer STARTTLS. Nothing is sent
+  before the upgrade except CAPABILITY and STARTTLS/EHLO.
+- Any bytes that arrive between the server's OK and the end of the handshake
+  drop the connection (the CVE-2011-0411 injection class).
+- Capabilities seen before TLS are asked for again inside it.
+
+**The certificate host check is ours.** `react-native-tcp-socket` 6.4.3 on
+Android validates the certificate *chain*, but it does not check that the
+certificate names the host, and it sends no SNI. `tcpSocket.ts` therefore
+compares the peer certificate's subject CN against the host (wildcards cover one
+label) before writing a byte. The library reports only the CN, not the
+subjectAltNames. So a server whose CN is a *different* one of its names is
+refused, and so is a shared host that serves its default certificate for lack of
+SNI. Both refusals are the safe way to be wrong, and the message names the
+certificate's CN.
+
+**Mapping onto `MailClient`:**
+- **Ids** are `<uidvalidity>:<uid>:<folder>`. That is stable for as long as the
+  folder's UIDVALIDITY is, which is what the raw cache needs.
+- **Folders** are found by SPECIAL-USE attribute (RFC 6154), then by the usual
+  names (`Sent Items`, `Junk`, `Deleted Messages`, …), including under an
+  `INBOX.` prefix. Archive, Trash and Junk are created on first use when missing,
+  as Thunderbird does. Listing a folder the server lacks gives an empty page.
+- **Paging** is a UID cursor over `UID SEARCH UNDELETED`. The sync window is
+  `SINCE`.
+- **Row headers** come from `BODY.PEEK[HEADER.FIELDS (…)]`, the same set Gmail's
+  metadata request asks for. RFC 2047 words are decoded
+  ([mail/headers.ts](../app/src/mail/headers.ts)).
+- **Snippets** are empty. There is no preview short of fetching the body.
+- **Threads** are the first id in `References`, else `In-Reply-To`, else the
+  message's own `Message-ID`. IMAP has no thread id.
+- **Reading a message** uses `BODY.PEEK[]`, so it does not mark it read.
+- **Moves** (archive, trash, junk) change the UID. The client uses `UID MOVE`, or
+  failing that `COPY`, `\Deleted` and `UID EXPUNGE` of that one UID. It never
+  runs a bare EXPUNGE, which would erase other clients' pending deletions. It
+  remembers the new UID from `COPYUID` (RFC 4315), so a swipe's undo still names
+  the message. A STORE or MOVE on a UID that no longer exists is an OK that did
+  nothing, so the client checks the untagged responses and fails loudly instead
+  of reporting a success.
+- **Sending** is SMTP submission: `Bcc` stripped from DATA, dot-stuffing, and an
+  EHLO of `[127.0.0.1]` rather than the device name. Then the same bytes, already
+  ciphertext for encrypted mail, are `APPEND`ed to Sent. That step is skipped for
+  hosts known to file their own copy (Gmail, Office 365/Outlook), and it is a
+  per-account setting. A failed APPEND does **not** fail the send: the message is
+  already delivered, and a throw would make the outbox deliver it twice.
+- **Sessions:** one connection per mailbox, whole operations serialised on it,
+  logged out after two idle minutes, and reconnected once if the server dropped
+  it. A refused password is `reauth-required`. A server that says it
+  cannot check the password right now ([UNAVAILABLE] and friends, RFC 5530) is an
+  ordinary error.
+
+**Unproven:**
+- Never run against a real IMAP or SMTP server.
+- Never run on a device. That includes the library under React Native 0.86's
+  new architecture (it is a legacy native module, reached through the interop
+  layer) and its STARTTLS upgrade.
+- No IDLE and no incremental sync (`CONDSTORE`). Mail is polled like Gmail's,
+  and each list runs one `UID SEARCH` over the folder.
 
 ## Token & credential storage
 
@@ -94,6 +178,12 @@ Setup: [running-it.md](running-it.md) §1c.
 - Access tokens kept in memory, refreshed as needed.
 - Revocation: signing out deletes tokens locally and (for OAuth) revokes at the
   provider where possible.
+- An IMAP password is stored once it has worked, in `expo-secure-store`, one entry
+  per mailbox (`cryptmail.imap.v1.<hex address>`). It is never put on `Session`
+  and never in the account registry. It is read at connect time and sent only
+  inside TLS, only to the hosts saved beside it. There is nothing to revoke at
+  the provider, so signing out deletes it, and the setup sheet recommends an
+  app-specific password, which the user can revoke without changing their own.
 
 ## Sync strategy
 

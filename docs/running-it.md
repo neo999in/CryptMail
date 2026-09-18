@@ -6,7 +6,7 @@ The app has **two independent capabilities** ([app/src/config.ts](../app/src/con
 
 | | Off (default) | On |
 |---|---|---|
-| `mailMode` | `unconfigured` — **no mailbox at all** | real Gmail and/or Outlook — needs an OAuth client id per provider (§1, §1c) |
+| `mailMode` | `unconfigured` — **no mailbox at all** | real Gmail and/or Outlook — needs an OAuth client id per provider (§1, §1c) — and/or any IMAP mailbox, which needs only a dev build (§1d) |
 | `cryptoMode` | `demoCore`, base64, **not encryption** | real post-quantum crypto — needs the native core |
 
 They are deliberately independent, so you can commission one without the other.
@@ -161,6 +161,39 @@ real outlook.com mailbox, alongside a Gmail one:
 of a received PGP/MIME message still decrypts once Exchange has stored it), and
 harvesting Autocrypt keys from `internetMessageHeaders`.
 
+### 1d. Any other mailbox — IMAP/SMTP (no setup, dev build only)
+
+The code is [mail/imap.ts](../app/src/mail/imap.ts) and
+[auth/imapAuth.ts](../app/src/auth/imapAuth.ts), and the design is in
+[providers.md](providers.md#icloud-yahoo-fastmail-generic-imapsmtp). It needs no
+client id. It does need `react-native-tcp-socket`, a native module, so it works
+in a dev build (`npm run android`) and not on web or in Expo Go. There the
+connect screen shows the row disabled, with "Needs a dev build".
+
+1. Rebuild the dev client after installing: `npm install`, then `npm run android`.
+   The native module is only there once the APK is rebuilt.
+2. On the connect screen choose **Other (IMAP / SMTP)**, or use Settings →
+   Accounts → **Add IMAP account**.
+3. Enter the address and an **app-specific password**. For iCloud, generate one
+   at account.apple.com → Sign-In and Security → App-Specific Passwords. For
+   Yahoo it is Account security → Generate app password. For Gmail over IMAP it
+   is myaccount.google.com → App passwords, which needs 2-Step Verification.
+4. **Connect** looks up the servers, then logs in to IMAP *and* SMTP before
+   saving anything. If either refuses, the server settings open for editing.
+
+**This has not been run.** Every line is covered by tests against in-memory IMAP
+and SMTP servers ([mail/__tests__/](../app/src/mail/__tests__/)). The first real
+run should check these, in order:
+
+- The socket library loads under the new architecture.
+- TLS on 993/465, and STARTTLS on 143/587, succeed against a public provider,
+  and the CN check does not refuse it.
+- Inbox, Sent, Archive, Junk and Trash list. Star and mark read survive a
+  re-fetch.
+- Archive, then swipe back, round-trips.
+- A sent message lands in Sent exactly once.
+- An encrypted message sent from here decrypts in Thunderbird.
+
 ---
 
 ## 2. Real post-quantum encryption
@@ -229,6 +262,8 @@ detailed, dated ledger.
   observed** (implementation-status §5.3).
 - **Encrypted mail over Microsoft Graph is unproven.** Outlook has been run
   against a real mailbox, but not with encrypted mail (§1c).
+- **IMAP/SMTP has never met a real server.** It is tested only against
+  in-memory ones (§1d).
 - **Web never encrypts.** The native core cannot load in a browser, so web stays
   on the demo core.
 

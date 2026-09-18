@@ -61,7 +61,9 @@ targets, or a shared TypeScript module).
 
 > **Prototype status.** Built: Gmail REST and Microsoft Graph, behind the
 > `MailClient` interface in [`mail/types.ts`](../app/src/mail/types.ts)
-> (`list` / `getRaw` / `send` / `updateFlags`). Generic IMAP/SMTP is not built.
+> (`list` / `getRaw` / `send` / `updateFlags`). Generic IMAP/SMTP is built too,
+> tested against in-memory servers but not yet run against a real one
+> ([providers.md](providers.md#icloud-yahoo-fastmail-generic-imapsmtp)).
 Abstraction over how mail is fetched/sent:
 - **Gmail** → OAuth 2.0 + Gmail REST API (or IMAP/SMTP with XOAUTH2).
 - **Outlook/Microsoft 365** → OAuth 2.0 + Microsoft Graph API (or IMAP/SMTP).

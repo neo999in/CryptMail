@@ -70,11 +70,13 @@ work in plain service modules).
 - Local storage is no longer plaintext — every store is sealed with
   XChaCha20-Poly1305 under a device key (⚫ Debt 1) — but **web has no keychain**,
   which `storageReason()` reports rather than hides.
-- Two real provider connectors, Gmail REST and Microsoft Graph (Outlook.com /
-  Microsoft 365), behind the `MailClient` interface: `list` / `getRaw` / `send` /
-  `updateFlags`. Each account carries its provider, and sign-in, restore, token
-  refresh and the client all dispatch on it. Outlook has been run against a real
-  mailbox; encrypted mail over Graph is still unproven ([running-it.md](running-it.md) §1c).
+- Three provider connectors, Gmail REST, Microsoft Graph (Outlook.com /
+  Microsoft 365) and generic IMAP/SMTP, behind the `MailClient` interface: `list` /
+  `getRaw` / `send` / `updateFlags`. Each account carries its provider, and
+  sign-in, restore, token refresh and the client all dispatch on it. Outlook has
+  been run against a real mailbox, but encrypted mail over Graph is still unproven
+  ([running-it.md](running-it.md) §1c). IMAP has only been run against in-memory
+  servers ([running-it.md](running-it.md) §1d).
 
 ---
 

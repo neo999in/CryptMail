@@ -221,7 +221,10 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
                 // A mailbox whose grant died can only be reached by signing in
                 // again, and that is the provider's picker — so it happens here,
                 // on a deliberate tap, and never as a side effect of a switch.
-                if (stale) void addAccount(account.provider);
+                // An IMAP mailbox signs in again with a form, which lives on
+                // its own screen — the rail has nowhere to put one.
+                if (stale && account.provider === 'imap') manage(account);
+                else if (stale) void addAccount(account.provider);
                 // "This mailbox, on its own" — leaving the merged view is part
                 // of picking one, and both land in a single sync.
                 else if (!active || unified) void switchAccount(account.id, { unified: false });
@@ -269,7 +272,8 @@ export function CategoryDrawer({ navigation }: DrawerContentComponentProps) {
             // With two providers the rail cannot know which one is meant, and a
             // guessed picker is worse than one extra tap: the Accounts screen
             // offers a row per provider.
-            if (signInProviders.length > 1) stack.navigate('Accounts');
+            // The same when the only provider is IMAP, whose sign-in is a form.
+            if (signInProviders.length > 1 || signInProviders[0] === 'imap') stack.navigate('Accounts');
             else void addAccount();
           }}
           style={({ pressed }) => [s.railAdd, pressed && { backgroundColor: color.segmentActive }]}

@@ -39,7 +39,9 @@ manual key steps, and a lost device can be recovered.
 
 ## Phase 2 — Reach & robustness
 
-- [ ] Generic IMAP/SMTP connector (iCloud, Yahoo, Fastmail, custom).
+- [x] Generic IMAP/SMTP connector (iCloud, Yahoo, Fastmail, custom) — built
+      2026-09-18 and tested against in-memory servers; never run against a real
+      server or on a device ([providers.md](providers.md)). No IDLE yet.
 - [ ] Mobile apps (iOS/Android) with Keychain/Keystore + push relay.
 - [ ] Multi-device sync + device approval.
 - [x] ~~Secure-link fallback for key-less recipients (web reader)~~ — **dropped.**

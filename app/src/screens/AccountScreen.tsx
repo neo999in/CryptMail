@@ -32,6 +32,7 @@ import { color, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
 import { useToast } from '../ui/ToastContext';
 import { Icon } from '../ui/Icon';
+import { ImapSetupSheet } from '../ui/imapSetupSheet';
 import {
   Avatar,
   Field,
@@ -110,6 +111,8 @@ export function AccountScreen({ navigation, route }: Props) {
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   /** Bumped after a clear or reset, so the byte counts are measured again. */
   const [usageTick, setUsageTick] = useState(0);
+  /** An IMAP mailbox signs in again with its password, in a sheet. */
+  const [reauthOpen, setReauthOpen] = useState(false);
 
   const accountId = account?.id;
   // Measured again whenever what it measures may have moved: a clear, or — for
@@ -312,8 +315,12 @@ export function AccountScreen({ navigation, route }: Props) {
             <SettingsRow
               icon="refresh"
               label="Sign in again"
-              onPress={() => void addAccount(account.provider)}
-              value={`This mailbox cannot sync until ${providerName(account.provider)} grants access again. Its keys and mail on this device are kept.`}
+              onPress={() => (account.provider === 'imap' ? setReauthOpen(true) : void addAccount(account.provider))}
+              value={
+                account.provider === 'imap'
+                  ? 'The server refused the saved password. Sign in with the current one to sync again. Its keys and mail on this device are kept.'
+                  : `This mailbox cannot sync until ${providerName(account.provider)} grants access again. Its keys and mail on this device are kept.`
+              }
             />
           </Group>
         ) : !active ? (
@@ -573,6 +580,10 @@ export function AccountScreen({ navigation, route }: Props) {
           />
         </Group>
       </ScrollView>
+
+      {account.provider === 'imap' ? (
+        <ImapSetupSheet email={account.email} visible={reauthOpen} onClose={() => setReauthOpen(false)} />
+      ) : null}
     </View>
   );
 }

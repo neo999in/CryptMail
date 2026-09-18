@@ -16,6 +16,8 @@
  * one.
  */
 import { auth, AuthError, Session } from '../auth';
+import { imapAuth } from '../auth/imapAuth';
+import { discoverSettings } from '../mail/autoconfig';
 import { AccountId, accountRefFor, settingsOf } from '../store/accountScope';
 import {
   loadAccounts,
@@ -214,9 +216,13 @@ export function createAccounts(ctx: Ctx): AccountsService {
     },
 
     /** Connect one more mailbox. `auth.signIn` adds a session rather than replacing one. */
-    async addAccount(provider) {
-      await ctx.services.session.signIn(provider);
+    async addAccount(provider, imap) {
+      await ctx.services.session.signIn(provider, imap);
     },
+
+    discoverImapSettings: (email) => discoverSettings(email),
+
+    savedImapSettings: (email) => imapAuth.savedAccount(email),
 
     /**
      * Disconnect a mailbox and erase everything it owns on this device.

@@ -34,6 +34,7 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 import { core } from './core';
+import { hasSocketModule } from './mail/tcpSocket';
 import { protectionLevel } from './store/localCrypto';
 
 /**
@@ -110,10 +111,18 @@ export const canConnectGmail = hasGoogleClient && hasSignInModule;
  */
 export const canConnectOutlook = hasMicrosoftClient;
 
+/**
+ * IMAP needs no client id at all — only a way to open a socket, which is a
+ * native module (`mail/tcpSocket.ts`). A dev build that links it can connect a
+ * mailbox with nothing in `.env`; the web build and Expo Go cannot.
+ */
+export const canConnectImap = hasSocketModule;
+
 /** The providers a new mailbox can come from on this build, in button order. */
-export const signInProviders: ('gmail' | 'outlook')[] = [
+export const signInProviders: ('gmail' | 'outlook' | 'imap')[] = [
   ...(canConnectGmail ? (['gmail'] as const) : []),
   ...(canConnectOutlook ? (['outlook'] as const) : []),
+  ...(canConnectImap ? (['imap'] as const) : []),
 ];
 
 export type MailMode = 'real' | 'unconfigured';
@@ -162,7 +171,7 @@ export function degradedReason(): string | null {
   if (appMode === 'live') return null;
 
   if (mailMode === 'unconfigured' && cryptoMode === 'demo') {
-    return 'No mailbox and no real encryption: this build has neither an OAuth client (M3) nor the Rust crypto core (M2).';
+    return 'No mailbox and no real encryption: this build has no OAuth client (M3), no socket module for IMAP, and no Rust crypto core (M2).';
   }
   // The dangerous one, and the reason this function exists: mail is real, so
   // everything on screen looks like the product, and the user has to be told
@@ -173,5 +182,5 @@ export function degradedReason(): string | null {
   if (hasGoogleClient && !hasSignInModule) {
     return 'No mailbox: Google sign-in needs Play services, which this platform does not have.';
   }
-  return 'No mailbox: set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID or EXPO_PUBLIC_MS_CLIENT_ID in app/.env to connect one.';
+  return 'No mailbox: set EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID or EXPO_PUBLIC_MS_CLIENT_ID in app/.env, or use a dev build (which can connect IMAP), to connect one.';
 }

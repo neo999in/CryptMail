@@ -5,8 +5,12 @@ import { auth, Session } from '../auth';
 import { needsReauth } from '../auth/types';
 import { core, Identity } from '../core';
 import { Drafts } from '../drafts/drafts';
+import { imapAuth } from '../auth/imapAuth';
 import { createGmailClient } from '../mail/gmail';
 import { createGraphClient } from '../mail/graph';
+import { createImapClient } from '../mail/imap';
+import { openTcpSocket } from '../mail/tcpSocket';
+import { MailClient } from '../mail/types';
 import { ScheduledOutbox } from '../outbox/outbox';
 import { SearchIndex } from '../search/search';
 import { initStorage } from '../store';
@@ -87,11 +91,26 @@ export function createSession(ctx: Ctx): SessionService {
     const existing = mail.clients.get(account);
     if (existing) return existing;
 
-    const token = () => auth.freshAccessToken(session.email, session.provider);
-    const client =
-      session.provider === 'outlook' ? createGraphClient(session.email, token) : createGmailClient(session.email, token);
+    const client = buildClient(session);
     mail.clients.set(account, client);
     return client;
+  }
+
+  function buildClient(session: Session): MailClient {
+    if (session.provider === 'imap') {
+      // No token: the connector reads its servers and password from the
+      // keystore each time it connects. `imapAuth` only restores a session on a
+      // build with a socket module, so the null here is unreachable in practice
+      // — and says why rather than crashing if it ever is reached.
+      const open =
+        openTcpSocket ??
+        (() => Promise.reject(new Error('This build cannot open a connection to a mail server.')));
+      return createImapClient(session.email, () => imapAuth.credentialFor(session.email), { open });
+    }
+    const token = () => auth.freshAccessToken(session.email, session.provider);
+    return session.provider === 'outlook'
+      ? createGraphClient(session.email, token)
+      : createGmailClient(session.email, token);
   }
 
   async function load(session: Session, account: AccountId): Promise<Attached> {
@@ -319,13 +338,13 @@ export function createSession(ctx: Ctx): SessionService {
      * "add account": the new mailbox becomes active and the previous one stays
      * connected behind it.
      */
-    async signIn(provider) {
+    async signIn(provider, imap) {
       // Held from the picker opening until the new mailbox is attached, so the
       // app shows a loader rather than the previous mailbox's inbox meanwhile —
       // and cleared either way, since a cancelled picker must not leave it up.
       store.patch({ error: null, addingAccount: true });
       try {
-        const session = await auth.signIn(provider);
+        const session = await auth.signIn(provider, imap);
         // The patch lands in the store synchronously, so the refresh below — and
         // the Autocrypt harvest it triggers — already knows whose mailbox this is.
         await service.attach(session);

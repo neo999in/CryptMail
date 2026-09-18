@@ -1,7 +1,7 @@
 /**
- * Provider connector contract (architecture.md §2). The prototype ships one
- * implementation, Gmail REST; everything above this line is
- * provider-agnostic, which is what keeps Outlook and IMAP additive.
+ * Provider connector contract (architecture.md §2). Three implementations:
+ * Gmail REST (`gmail.ts`), Microsoft Graph (`graph.ts`) and generic IMAP/SMTP
+ * (`imap.ts`). Everything above this line is provider-agnostic.
  */
 
 export type MailSummary = {
@@ -129,7 +129,7 @@ export type FlagPatch = {
 };
 
 export interface MailClient {
-  readonly kind: 'gmail' | 'outlook';
+  readonly kind: 'gmail' | 'outlook' | 'imap';
   readonly address: string;
   /**
    * One page of a mailbox, newest first. `pageToken` continues a previous page.
