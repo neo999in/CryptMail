@@ -10,6 +10,13 @@ harvest-now-decrypt-later: Gmail keeps every ciphertext indefinitely, and one
 long-term key opened all of it. This closes that for mail between CryptMail
 users. Mail with anyone else is unchanged.
 
+> **Branch `feat/per-email-keys-only`: per-email keys only.** On this branch
+> nothing the user writes is ever sealed to a long-term key. See
+> [§Per-email keys only](#per-email-keys-only) — it overrides decisions 1, 3 and
+> 4 below, and "the first message is not forward-secret" under *What this does
+> not do*. `feat/per-email-keys` keeps the default-on design with the
+> long-term-key fallback.
+
 ## Status
 
 | | |
@@ -184,6 +191,57 @@ false`): restored state rewinds and re-derives keys it already used.
   many recipient devices a message went to.
 - **Both people opening a session at once** leaves two sessions for that pair of
   devices. Both work; each message then carries one more entry than it needs.
+
+## Per-email keys only
+
+The `feat/per-email-keys-only` branch removes the long-term-key fallback.
+Every message the user writes is sealed with a per-email key or not sent.
+
+**The core.**
+- `seal` refuses (`no-key`, detail `no-session: …`) unless every recipient
+  other than the sender has a session or an offer. It never builds a
+  long-term-key message.
+- `handshake` builds the one long-term-key message that is left: a
+  contentless first-contact message carrying this device's signed offer.
+- `session_status` reports each recipient as `self`, `session`, `offer` or
+  `none`.
+- A handed-over phone refuses all three (`unavailable`, `handed-over: …`).
+- `open` still reads long-term-key mail. What other people send is not ours
+  to choose, and older mail must stay readable.
+
+**First contact.**
+1. Alice writes to Bob, who has a key but no session with her.
+   `deliver` holds the message (`awaiting-session`) and sends Bob a handshake:
+   the fixed text in `core/handshake.ts`, sealed to his long-term key, with
+   Alice's offer in the armor. The outer subject is `HANDSHAKE_SUBJECT`, so a
+   sync can find it from headers alone.
+2. Bob's sync (`state/handshake.ts`, after the Autocrypt harvest) opens it.
+   That files Alice's offer under the key that signed it. Bob's app then
+   answers with an acknowledgement sealed with a **per-email key**, which
+   opens a session. It answers only if the signature is valid, the signer is
+   the keyring key for the sender's address, and the status is `offer` (so
+   there is exactly one answer).
+3. Alice's sync opens the acknowledgement. `open` accepts the session and the
+   app archives it, since it opens once. The next drain sends the held
+   message, sealed with a per-email key.
+
+**Limits.**
+- Handshakes are rate-limited to one per address per day
+  (`store/handshakeStore.ts`).
+- A handshake says nothing the user wrote, and a test holds that promise
+  against the bytes on the wire (`state/__tests__/perEmailOnly-test.ts`).
+
+**Consequences.**
+- **Contacts who don't use CryptMail can't receive encrypted mail.** They get
+  a handshake, readable in any OpenPGP client, that explains why. The
+  message waits. The only other choice is the user's explicit, separate
+  "send unencrypted".
+- **Mail only to yourself can't be sent encrypted.** There is no session
+  with yourself. `deliver` says so.
+- **The first message is delayed** until the other side's app syncs and
+  answers. Nothing about it is weaker.
+- **The demo core** reports everyone as `session`: it has no sessions to
+  enforce, and it already says on every screen that it isn't crypto.
 
 ## Device transfer
 

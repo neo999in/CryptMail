@@ -6,9 +6,15 @@ check it, and what is next. The design itself — protocol, wire format, threat
 model — is in
 [superpowers/specs/2026-09-19-per-email-keys-design.md](superpowers/specs/2026-09-19-per-email-keys-design.md).
 
-⚠️ **Nothing is committed.** Everything below is in the working tree on `main`.
-See [§7](#7-committing-it) for a human to commit it. Claude does not run git
-write commands in this repo.
+**Branches** (created with the user's permission; not pushed, not merged):
+
+| Branch | What it is |
+|---|---|
+| `feat/per-email-keys` | Per-email keys on by default, with a long-term-key fallback for first contact and non-CryptMail recipients. Device transfer. Three commits on `main`. |
+| `feat/per-email-keys-only` | Cut from the branch above. **Per-email keys only**: `seal` never falls back, first contact goes through a contentless handshake, and messages wait (`awaiting-session`) until it is answered. See [§8](#8-per-email-keys-only-branch). |
+
+Claude runs git write commands in this repo only with the user's explicit
+permission, as given for these branches.
 
 ---
 
@@ -181,41 +187,44 @@ Limits worth knowing (from the design doc):
 - a device that has never written to a contact can't open that contact's
   forward-secret mail
 
-## 7. Committing it
+## 7. Git state
 
-For a human to run; Claude doesn't. Branch off `main` first, per CLAUDE.md.
-There are no Claude trailers on commits in this repo.
-
-These untracked files are **not part of this work**. Leave them out unless you
-mean to include them:
+Committed on the two branches listed at the top of this file; nothing is
+pushed. Still untracked and **not part of this work** — leave them out unless
+you mean to include them:
 - `assets/logo-transperant.png`
 - `docs/contributions.md`
 - `docs/contributions.docx`
 - `docs/contributions-summary.docx`
 
-```bash
-git switch -c feat/per-email-keys
-# core
-git add core/Cargo.toml core/Cargo.lock core/src core/tests
-# app
-git add app/App.tsx app/modules/cryptmail-core/android/src/main/java/app/cryptmail/core/CryptMailCoreModule.kt \
-        app/src/core app/src/lib/files.ts app/src/navigation.ts \
-        app/src/screens/MessageScreen.tsx app/src/screens/RecoveryScreen.tsx \
-        app/src/screens/SettingsScreen.tsx app/src/screens/SetupScreen.tsx app/src/screens/TransferScreen.tsx \
-        app/src/state app/src/store/archiveStore.ts app/src/store/__tests__/archiveStore-test.ts \
-        app/src/ui/recoveryCode.tsx app/src/ui/restoreFile.tsx
-# docs + interop spike
-git add CLAUDE.md app/modules/cryptmail-core/README.md docs/handoff.md docs/handoff-2026-09-19-per-email-keys.md docs/superpowers/specs/2026-09-19-per-email-keys-design.md \
-        docs/encryption.md docs/encryption-flow.md docs/key-management.md docs/message-format.md \
-        docs/post-quantum.md docs/security.md docs/implementation-status.md docs/features.md \
-        spike/interop-rpgp-sequoia
-git status   # check nothing unexpected is staged
-```
+To publish, a human runs `git push -u origin feat/per-email-keys-only` (or
+the other branch) and opens a PR. It touches **the send path**, so tick that
+box.
 
-Suggested split into commits, one concern each:
-- `feat(core): per-email keys — KEM ratchet, session store, seal/open`
-- `feat(app): archive forward-secret mail and send through seal/open`
-- `feat(transfer): move key, conversations and archive to a new phone`
-- `docs: per-email keys design, transfer, handoff`
+## 8. Per-email keys only (branch)
 
-This touches **the send path**, so tick that box in the PR.
+`feat/per-email-keys-only` overrides decisions 3, 4, 6 and 9 of §3 at the
+user's request ("per message key mode only"): no message the user writes is
+ever sealed to a long-term key. The protocol and its consequences are in the
+design doc, [§Per-email keys only](superpowers/specs/2026-09-19-per-email-keys-design.md#per-email-keys-only).
+
+| Piece | Where |
+|---|---|
+| Strict `seal`, `handshake`, `session_status`; handed-over phone refuses all three | `core/src/forward.rs`, `lib.rs`, `ffi.rs`, Kotlin module |
+| Handshake text (fixed, contentless) and the outer-subject marker | `app/src/core/handshake.ts`, `core/mime.ts` (`HANDSHAKE_SUBJECT`) |
+| `CryptCore.buildHandshake`, `sessionStatus`; `buildEncrypted` refuses without `seal`, no `encryptSign` fallback | `core/types.ts`, `nativeCore.ts`, `demoCore.ts` |
+| Hold `awaiting-session`, handshake, refuse self-only, refuse anything not sealed with a per-email key | `state/send.ts` (`deliver`) |
+| Send handshakes (rate-limited), answer them during sync | `state/handshake.ts`, `store/handshakeStore.ts`, `state/mailbox.ts` (`refreshInbox`) |
+| Release held messages when a session appears | `state/scheduler.ts` (`drainSessions`) |
+| UI wording | `ComposeScreen` (queued text), `ScheduledScreen` ("setting up keys", "Check again") |
+
+Verified:
+- `cargo test`: 82 pass, including 13 in `forward_secrecy.rs` rewritten for
+  strict mode.
+- interop: **14/14**. `seal` refuses a Sequoia recipient, and Sequoia reads
+  the handshake.
+- App suite: **1,783 tests, 105 suites**, including
+  `state/__tests__/perEmailOnly-test.ts` (11).
+
+Not verified: two installs completing a handshake over Gmail. That is the
+first thing to run on this branch (§6 step 1).

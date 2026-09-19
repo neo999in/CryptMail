@@ -74,6 +74,15 @@ wcBMA…
   has **no key packets**: no long-term key, the sender's included, can open it.
 
 A message carrying `CryptMail-Session` is otherwise the same PGP/MIME envelope.
+
+**Handshakes** (per-email keys only; `feat/per-email-keys-only`) use the same
+envelope with one difference: the outer subject is `[CryptMail] Setting up
+per-email keys` instead of the placeholder. That covers a first-contact
+handshake (sealed to the recipient's long-term key, `CryptMail-Offer` only,
+fixed text) and its answer (`CryptMail-Session`, fixed text). The subject lets a
+receiving CryptMail find handshakes from headers alone. It reveals nothing a
+reader of the raw armor could not already see, and a handshake has no content
+to reveal.
 Layout of both values:
 [per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md#on-the-wire).
 

@@ -6,9 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Work in progress — read first
 
-Per-email keys (forward secrecy) and device transfer are built but **uncommitted**
-on `main`. State, decisions already made, build steps, emulator traps and what
-is next: [docs/handoff-2026-09-19-per-email-keys.md](docs/handoff-2026-09-19-per-email-keys.md).
+Per-email keys (forward secrecy) and device transfer are committed on
+`feat/per-email-keys`, which keeps a long-term-key fallback. The branch
+`feat/per-email-keys-only`, cut from it, removes the fallback: nothing the user
+writes is sealed to a long-term key, and first contact goes through a
+contentless handshake (`state/handshake.ts`). Neither branch is merged into
+`main`. State, decisions, build steps, emulator traps and what is next:
+[docs/handoff-2026-09-19-per-email-keys.md](docs/handoff-2026-09-19-per-email-keys.md).
 
 ## What this is
 
