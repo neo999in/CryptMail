@@ -78,13 +78,16 @@ check "cryptmail-core decrypts a sequoia message" "$MESSAGE" "$(python3 -c "impo
 check "cryptmail-core verifies a sequoia signature" "valid" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['signature'])" <<< "$out")"
 
 echo
-echo "4. the app's own send path (seal/open) still interoperates"
-# seal() adds a signed CryptMail-Offer armor header to every message. A foreign
-# parser has to skip it, or every message the app sends breaks for everyone else.
-"$RPGP" seal "$work/alice" alice@example.com "$work/bob.asc" "$work/plaintext.txt"   > "$work/sealed-to-bob.asc"
-check "the sealed message carries an offer header" "yes" "$(grep -q '^CryptMail-Offer:' "$work/sealed-to-bob.asc" && echo yes || echo no)"
+echo "4. the app's own send path (per-email keys only) with a foreign client"
+# Per-email keys only: seal() must refuse a client that cannot hold a session
+# rather than fall back to its long-term key.
+check "seal refuses a client with no session" "refused" "$("$RPGP" seal "$work/alice" alice@example.com "$work/bob.asc" "$work/plaintext.txt" | cut -d: -f1)"
+# What such a client does get is the contentless handshake, which carries a
+# signed CryptMail-Offer armor header. A foreign parser has to skip it.
+"$RPGP" handshake "$work/alice" alice@example.com "$work/bob.asc" "$work/plaintext.txt"   > "$work/sealed-to-bob.asc"
+check "the handshake carries an offer header" "yes" "$(grep -q '^CryptMail-Offer:' "$work/sealed-to-bob.asc" && echo yes || echo no)"
 out="$("$SEQ" decrypt "$work/bob-secret.asc" "$work/alice.asc" "$work/sealed-to-bob.asc")"
-check "sequoia decrypts a sealed message" "$MESSAGE" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['plaintext'])" <<< "$out")"
+check "sequoia decrypts a handshake" "$MESSAGE" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['plaintext'])" <<< "$out")"
 check "sequoia verifies its signature" "valid" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['signature'])" <<< "$out")"
 out="$("$RPGP" open "$work/alice" alice@example.com "$work/bob.asc" "$work/to-alice.asc")"
 check "open() reads a sequoia message" "$MESSAGE" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['plaintext'])" <<< "$out")"

@@ -47,8 +47,8 @@ fn open(reader: &Phone, sender: &Phone, armored: &str) -> Value {
 fn conversation(tag: &str) -> (Phone, Phone) {
     let alice = phone(&format!("alice-{tag}"), "alice@example.com", PW);
     let bob = phone(&format!("bob-{tag}"), "bob@example.com", PW);
-    let (m, _) = seal(&alice, &bob, "hello");
-    open(&bob, &alice, &m);
+    let hello = alice.core.handshake(alice.email, PW, "Subject: handshake\n\n", &[bob.key.clone()]).unwrap();
+    open(&bob, &alice, &hello);
     let (m, fs) = seal(&bob, &alice, "hi");
     assert!(fs);
     open(&alice, &bob, &m);
@@ -98,15 +98,19 @@ fn the_conversation_carries_on_from_the_new_phone_in_both_directions() {
 }
 
 #[test]
-fn the_old_phone_stops_sending_by_session_but_still_reads() {
+fn the_old_phone_stops_sending_but_still_reads() {
     let (alice, bob) = conversation("old-phone");
     assert!(handed_over(&alice).is_null());
     let file = alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
     assert!(handed_over(&alice).is_i64());
 
-    let (m, fs) = seal(&alice, &bob, "from the old phone");
-    assert!(!fs, "a handed-over phone kept writing into the conversation");
-    assert_eq!(open(&bob, &alice, &m)["plaintext"], "from the old phone");
+    // Per-email keys are the only kind, so a handed-over phone sends nothing
+    // sealed at all — not a message, not a handshake.
+    let refused = alice.core.seal(alice.email, PW, "from the old phone", &[bob.key.clone()]).unwrap_err();
+    assert_eq!(refused.code(), "unavailable");
+    assert!(refused.to_string().contains("handed-over"), "{refused}");
+    assert!(alice.core.handshake(alice.email, PW, "x", &[bob.key.clone()]).is_err());
+    assert!(alice.core.session_status(alice.email, PW, &[bob.key.clone()]).is_err());
 
     // Bob writes; both phones read it, and arrive at the same state.
     let mut new = new_phone("old-phone");
@@ -179,7 +183,7 @@ fn nothing_in_the_file_is_readable_without_the_code() {
 fn a_transfer_never_used_can_be_taken_back() {
     let (alice, bob) = conversation("resume");
     alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
-    assert!(!seal(&alice, &bob, "handed over").1);
+    assert!(alice.core.seal(alice.email, PW, "handed over", &[bob.key.clone()]).is_err());
 
     alice.core.resume_sessions(PW).unwrap();
     assert!(handed_over(&alice).is_null());

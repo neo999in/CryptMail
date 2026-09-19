@@ -1,7 +1,16 @@
-//! Choosing, per message, between per-email keys and long-term keys.
+//! Per-email keys **only**: every message this core seals for someone gets its
+//! own key, or it is not sealed at all.
 //!
-//! `seal` and `open` sit where `encrypt_sign` and `decrypt_verify` do, and fall
-//! back to exactly those when a session is not possible.
+//! `seal` refuses whenever a recipient has no session and no offer to open one
+//! with — there is no fallback to long-term keys. What bridges first contact is
+//! `handshake`: a contentless message that carries this device's signed offer
+//! and nothing the user wrote. The contact's CryptMail answers it with a
+//! per-email-keyed acknowledgement, and from then on both directions have a
+//! session. `session_status` tells the caller which of those states each
+//! recipient is in, so a message can be held rather than refused.
+//!
+//! `open` still reads long-term-key mail: what other people send is not ours to
+//! choose, and mail from before this mode must stay readable.
 //!
 //! # On the wire
 //!
@@ -18,15 +27,15 @@
 //!   device, each carrying a step and the content key wrapped under that step's
 //!   message key. There are no key packets, so no long-term key opens it.
 //!
-//! Other OpenPGP clients ignore armor headers, so a normal message is exactly as
-//! readable to them as before.
+//! Other OpenPGP clients ignore armor headers, so a handshake is readable to
+//! them as any OpenPGP message is — which is all it ever says.
 //!
 //! # The all-or-nothing rule
 //!
 //! One message has one content key. A single long-term-key packet on it would
-//! let that key open it for everyone, so a message is forward-secret only when
-//! **every** recipient can take it through a session; otherwise the whole
-//! message goes the old way, and the result says so.
+//! let that key open it for everyone, so a message is sealed only when
+//! **every** recipient can take it through a session; otherwise `seal` refuses,
+//! and the caller holds the message while handshakes go out.
 //!
 //! The sender gets no entry. Encrypting to our own long-term key would reopen
 //! every forward-secret message we ever sent — the app keeps its own sealed
@@ -73,12 +82,7 @@ pub fn seal(
     recipient_keys: &[String],
     now: i64,
 ) -> Result<Sealed> {
-    // A phone that handed its conversations to another sends the old way, and
-    // offers nothing: its conversations carry on from the other phone.
-    if store.handed_over()?.is_some() {
-        let armored = message::build(secret, passphrase, plaintext, KeyTransport::ToKeys(recipient_keys), &Headers::new())?;
-        return Ok(Sealed { armored, forward_secret: false });
-    }
+    refuse_if_handed_over(store)?;
 
     let mut rng = thread_rng();
     let our_fp = message::fingerprint(secret);
@@ -89,7 +93,7 @@ pub fn seal(
 
     // Everyone but ourselves, each with every device we can reach by session.
     let mut plans: Vec<Vec<Session>> = Vec::new();
-    let mut all_reachable = true;
+    let mut unreachable = Vec::new();
     for armored in recipient_keys {
         let fp = message::public_fingerprint(armored)?;
         if fp == our_fp {
@@ -101,13 +105,22 @@ pub fn seal(
                 sessions.push(Session::initiate(&mut rng, &our_fp, &fp, &offer.device, &offer.bundle));
             }
         }
-        all_reachable &= !sessions.is_empty();
+        if sessions.is_empty() {
+            unreachable.push(fp);
+        }
         plans.push(sessions);
     }
 
-    if !all_reachable || plans.is_empty() {
-        let armored = message::build(secret, passphrase, plaintext, KeyTransport::ToKeys(recipient_keys), &headers)?;
-        return Ok(Sealed { armored, forward_secret: false });
+    if plans.is_empty() {
+        return Err(CoreError::NoKey(
+            "no-session: per-email keys need a recipient other than yourself".into(),
+        ));
+    }
+    if !unreachable.is_empty() {
+        return Err(CoreError::NoKey(format!(
+            "no-session: no per-email keys yet with {} — send a handshake first",
+            unreachable.join(", ")
+        )));
     }
 
     let mut content_key = zeroize::Zeroizing::new([0u8; KEY_LEN]);
@@ -131,6 +144,68 @@ pub fn seal(
         store.save_session(session)?;
     }
     Ok(Sealed { armored, forward_secret: true })
+}
+
+/// A contentless first-contact message: this device's signed offer, sealed to
+/// the recipients' long-term keys around a `plaintext` the caller fixes.
+///
+/// The one thing this core still seals to long-term keys, and the reason it is
+/// safe to: the caller (`app/src/state/handshake.ts`) never puts anything the
+/// user wrote in it. The offer rides in an armor header, the same as on every
+/// sealed message, so the contact's CryptMail can open a session back.
+pub fn handshake(
+    store: &SessionStore,
+    secret: &SignedSecretKey,
+    passphrase: &str,
+    plaintext: &str,
+    recipient_keys: &[String],
+    now: i64,
+) -> Result<String> {
+    refuse_if_handed_over(store)?;
+    if recipient_keys.is_empty() {
+        return Err(CoreError::NoKey("no recipient keys supplied".into()));
+    }
+    let device = store.device(&mut thread_rng(), now)?;
+    let mut headers = Headers::new();
+    put(&mut headers, OFFER_HEADER, &signed_offer(secret, passphrase, &device)?);
+    message::build(secret, passphrase, plaintext, KeyTransport::ToKeys(recipient_keys), &headers)
+}
+
+/// Where each recipient stands, in the order given: `"self"`, `"session"` (a
+/// conversation exists), `"offer"` (we hold their offer and can open one), or
+/// `"none"` (a handshake is needed first).
+pub fn session_status(
+    store: &SessionStore,
+    secret: &SignedSecretKey,
+    recipient_keys: &[String],
+) -> Result<Vec<&'static str>> {
+    refuse_if_handed_over(store)?;
+    let our_fp = message::fingerprint(secret);
+    let mut out = Vec::with_capacity(recipient_keys.len());
+    for armored in recipient_keys {
+        let fp = message::public_fingerprint(armored)?;
+        out.push(if fp == our_fp {
+            "self"
+        } else if !store.sessions_with(&fp)?.is_empty() {
+            "session"
+        } else if !store.peer_offers(&fp)?.is_empty() {
+            "offer"
+        } else {
+            "none"
+        });
+    }
+    Ok(out)
+}
+
+/// A handed-over phone sends nothing sealed: its conversations belong to the
+/// phone it handed them to, and per-email keys are the only kind there is.
+fn refuse_if_handed_over(store: &SessionStore) -> Result<()> {
+    if store.handed_over()?.is_some() {
+        return Err(CoreError::Unavailable(
+            "handed-over: this phone handed its conversations to another phone".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn open(

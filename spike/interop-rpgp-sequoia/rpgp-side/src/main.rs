@@ -15,7 +15,7 @@ const PW: &str = "interop-harness-passphrase";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: rpgp-side <gen|encrypt|decrypt|seal|open> ...";
+    let usage = "usage: rpgp-side <gen|encrypt|decrypt|seal|handshake|open> ...";
 
     let result = match args.get(1).map(String::as_str) {
         // gen <dir> <email>  → armored public cert on stdout
@@ -29,6 +29,7 @@ fn main() {
         // produce an ordinary message — plus armor headers a foreign parser has
         // to tolerate.
         Some("seal") => seal(&args[2], &args[3], &args[4], &args[5]),
+        Some("handshake") => handshake(&args[2], &args[3], &args[4], &args[5]),
         Some("open") => open(&args[2], &args[3], &args[4], &args[5]),
         _ => {
             eprintln!("{usage}");
@@ -73,14 +74,22 @@ fn decrypt(dir: &str, email: &str, sender_cert: &str, message: &str) -> Result<S
         .map_err(|e| e.to_string())
 }
 
+/// Per-email keys only: sealing to a client that cannot hold a session must be
+/// refused, never quietly sent to its long-term key. Succeeds (prints the
+/// refusal) only when the core refused.
 fn seal(dir: &str, email: &str, recipient_cert: &str, plaintext: &str) -> Result<String, String> {
     let core = Core::new(dir);
-    let json = core.seal(email, PW, &read(plaintext)?, &[read(recipient_cert)?]).map_err(|e| e.to_string())?;
-    let value: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    if value["forwardSecret"] != false {
-        return Err("claimed forward secrecy with a client that cannot hold a session".into());
+    match core.seal(email, PW, &read(plaintext)?, &[read(recipient_cert)?]) {
+        Ok(_) => Err("seal went ahead with a client that cannot hold a session".into()),
+        Err(e) => Ok(format!("refused: {e}")),
     }
-    value["armored"].as_str().map(str::to_string).ok_or_else(|| "seal returned no armored message".into())
+}
+
+/// The one long-term-key message the core still makes: contentless, carrying
+/// this device's offer. The only thing a foreign client ever receives.
+fn handshake(dir: &str, email: &str, recipient_cert: &str, plaintext: &str) -> Result<String, String> {
+    let core = Core::new(dir);
+    core.handshake(email, PW, &read(plaintext)?, &[read(recipient_cert)?]).map_err(|e| e.to_string())
 }
 
 fn open(dir: &str, email: &str, sender_cert: &str, message: &str) -> Result<String, String> {

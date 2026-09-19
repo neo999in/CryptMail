@@ -148,11 +148,24 @@ impl CryptMailCore {
         Ok(self.core.decrypt_verify(&email, &self.passphrase, &armored, &keys)?)
     }
 
-    /// → `{ armored, forwardSecret }`. A new, destroyable key per email when
-    /// every recipient can take one, otherwise exactly `encrypt_sign`.
+    /// → `{ armored, forwardSecret }`. A new, destroyable key per email, or a
+    /// `no-key` refusal (`no-session:`) — never long-term keys.
     pub fn seal(&self, email: String, plaintext: String, recipient_keys_json: String) -> FfiResult<String> {
         let keys = parse_keys(&recipient_keys_json)?;
         Ok(self.core.seal(&email, &self.passphrase, &plaintext, &keys)?)
+    }
+
+    /// → the armored handshake: this device's offer around a caller-fixed,
+    /// contentless `plaintext`, sealed to long-term keys.
+    pub fn handshake(&self, email: String, plaintext: String, recipient_keys_json: String) -> FfiResult<String> {
+        let keys = parse_keys(&recipient_keys_json)?;
+        Ok(self.core.handshake(&email, &self.passphrase, &plaintext, &keys)?)
+    }
+
+    /// → JSON array of `"self" | "session" | "offer" | "none"`, in key order.
+    pub fn session_status(&self, email: String, recipient_keys_json: String) -> FfiResult<String> {
+        let keys = parse_keys(&recipient_keys_json)?;
+        Ok(self.core.session_status(&email, &self.passphrase, &keys)?)
     }
 
     /// → the `decrypt_verify` document plus `forwardSecret`. A forward-secret

@@ -139,9 +139,10 @@ impl Core {
         json(&message::decrypt_verify(&secret, passphrase, armored, sender_keys)?)
     }
 
-    /// Sign and encrypt with a new, destroyable key per email when every
-    /// recipient can take one — otherwise exactly as `encrypt_sign`, and the
-    /// result says which happened. Returns `{ armored, forwardSecret }`.
+    /// Sign and encrypt with a new, destroyable key per email. Refuses
+    /// (`no-key`, message starting `no-session:`) unless every recipient can
+    /// take one — there is no long-term-key fallback. Returns
+    /// `{ armored, forwardSecret }`, where `forwardSecret` is always true.
     ///
     /// Unlike `encrypt_sign`, the caller should **not** include the sender's own
     /// key: a forward-secret message must not be openable by any long-term key,
@@ -159,6 +160,23 @@ impl Core {
         let secret = identity::load_secret(&self.dir, email)?;
         let store = session_store::SessionStore::open(&self.dir, passphrase)?;
         json(&forward::seal(&store, &secret, passphrase, plaintext, recipient_keys, now())?)
+    }
+
+    /// A contentless first-contact message carrying this device's offer, sealed
+    /// to long-term keys. `plaintext` is fixed by the caller and must hold
+    /// nothing the user wrote. Returns the armored message.
+    pub fn handshake(&self, email: &str, passphrase: &str, plaintext: &str, recipient_keys: &[String]) -> Result<String> {
+        let secret = identity::load_secret(&self.dir, email)?;
+        let store = session_store::SessionStore::open(&self.dir, passphrase)?;
+        forward::handshake(&store, &secret, passphrase, plaintext, recipient_keys, now())
+    }
+
+    /// JSON array, one entry per key in order: `"self"`, `"session"`, `"offer"`
+    /// or `"none"`.
+    pub fn session_status(&self, email: &str, passphrase: &str, recipient_keys: &[String]) -> Result<String> {
+        let secret = identity::load_secret(&self.dir, email)?;
+        let store = session_store::SessionStore::open(&self.dir, passphrase)?;
+        json(&forward::session_status(&store, &secret, recipient_keys)?)
     }
 
     /// Open a message sealed either way. Returns the `decrypt_verify` document
