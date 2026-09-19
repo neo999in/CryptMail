@@ -2,6 +2,8 @@
  * This device's own key: minting it, backing it up, restoring it.
  */
 import { core, CoreError, Identity, RecoveryBackup } from '../core';
+import { isTransferFile } from '../core/transferFile';
+import { exportArchive, importArchive } from '../store/archiveStore';
 import {
   clearBackupRecord,
   drillOutstanding,
@@ -11,6 +13,7 @@ import {
   waiveDrill,
 } from '../store/recoveryStore';
 import { Ctx, IdentityService } from './contracts';
+import { TransferMade } from './types';
 
 export function createIdentityService(ctx: Ctx): IdentityService {
   const { store } = ctx;
@@ -150,6 +153,10 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      * restoring *was* a successful code entry.
      */
     async restoreFromRecovery(blob: string, code: string): Promise<Identity> {
+      // A transfer file is restored the same way, with more in it: the
+      // conversations and the archive come along with the key.
+      if (isTransferFile(blob)) return receiveTransfer(blob, code);
+
       const identity = await core.importRecoveryBackup(blob, code);
 
       // A backup carries the address it was taken for, and the core files the
@@ -179,5 +186,55 @@ export function createIdentityService(ctx: Ctx): IdentityService {
 
       return identity;
     },
+
+    /**
+     * Seal this phone for a replacement: its key, its per-email-key
+     * conversations and its archive of forward-secret mail, under a code shown
+     * once. The core hands the conversations over as it does, so from here
+     * this phone sends with long-term keys — see `DeviceTransfer`.
+     */
+    async exportTransfer(): Promise<TransferMade> {
+      const { identity } = store.get();
+      if (!identity) throw new CoreError('This device has no identity key yet.', 'no-key');
+      const { archive, count, unreadable } = await exportArchive(ctx.services.accounts.requireActive());
+      const transfer = await core.exportTransfer(identity.email, archive);
+      return { ...transfer, archived: count, unreadable };
+    },
+
+    async transferStatus(): Promise<Date | null> {
+      return (await core.transferStatus()).handedOverAt;
+    },
+
+    async resumeSessions(): Promise<void> {
+      await core.resumeSessions();
+    },
   };
+
+  /**
+   * The new phone's side. The core refuses a transfer for another mailbox
+   * before it changes anything, which is the same guard a backup gets below —
+   * but here it has to come first, since adopting also replaces conversations.
+   */
+  async function receiveTransfer(blob: string, code: string): Promise<Identity> {
+    const { session } = store.get();
+    const { identity, archive } = await core.importTransfer(blob, code, session?.email ?? '');
+
+    lastBackup = null;
+    const account = ctx.services.accounts.requireActive();
+    store.patch({ identity, recovery: await clearBackupRecord(account), verifyLink: null });
+    await ctx.services.publish.reconcilePublish();
+
+    try {
+      await importArchive(account, archive);
+    } catch (e) {
+      // The key and conversations are here; only the archive is not. The file
+      // still holds it, and loading it again is safe until this phone sends.
+      throw new Error(
+        `Your key and conversations moved, but mail read with per-email keys couldn’t be saved on this phone (${
+          e instanceof Error ? e.message : String(e)
+        }). Load the transfer file again before sending anything.`,
+      );
+    }
+    return identity;
+  }
 }

@@ -7,7 +7,7 @@
 import { ImapSignIn, Provider, Session } from '../auth';
 import { Discovered } from '../mail/autoconfig';
 import { ImapAccount } from '../mail/imap';
-import { DecryptedMessage, Identity, RecoveryBackup } from '../core';
+import { DecryptedMessage, DeviceTransfer, Identity, RecoveryBackup } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
 import { Label, LabelChange, LabelState } from '../labels/labels';
 import { Attachment } from '../mail/attachment';
@@ -59,6 +59,9 @@ export type { RecipientState };
  */
 export type InboxItem = MailSummary & { account: AccountId };
 
+/** A transfer, with how much archived mail went into it and how much would not open. */
+export type TransferMade = DeviceTransfer & { archived: number; unreadable: number };
+
 export type OpenedMessage = {
   summary: MailSummary;
   encryption: EncryptionState;
@@ -97,7 +100,14 @@ export type OpenedMessage = {
    * text the reader sees.
    */
   links?: LinkPair[];
+  /** The message could not be read. Replaces the body. */
   error?: string;
+  /**
+   * The message **was** read, but something about it needs saying — shown above
+   * the body, never instead of it. Used when a forward-secret message decrypted
+   * and could not be saved: this is the last time it can be shown at all.
+   */
+  notice?: string;
 };
 
 /**
@@ -451,8 +461,20 @@ export type Actions = {
    * cannot make backups at all, which is the one case a drill cannot run.
    */
   waiveRecoveryDrill(): Promise<void>;
-  /** Adopt an identity from a backup, replacing whatever key this device holds. */
+  /**
+   * Adopt an identity from a backup or a device transfer, replacing whatever key
+   * this device holds. A transfer also brings the conversations and archive.
+   */
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
+  /**
+   * Seal this phone for a replacement and hand its conversations over: from
+   * then on it sends with long-term keys. The code is shown once, never stored.
+   */
+  exportTransfer(): Promise<TransferMade>;
+  /** When this phone handed its conversations to another, or null. */
+  transferStatus(): Promise<Date | null>;
+  /** Take the conversations back — only safe if the other phone never sent. */
+  resumeSessions(): Promise<void>;
   /**
    * Encrypt and send. Never sends anything unencrypted: a recipient with no key
    * yet gets an invite and the message waits — see `SendOutcome`.

@@ -109,6 +109,36 @@ class CryptMailCoreModule : Module() {
     AsyncFunction("decryptVerify") Coroutine { armored: String, senderKeysJson: String ->
       mapErrors { core.decryptVerify(armored, senderKeysJson) }
     }
+
+    // Per-email keys. `seal` → { armored, forwardSecret }; `open` → the
+    // decryptVerify document plus forwardSecret. A forward-secret message opens
+    // once, so the JavaScript side must keep what `open` returns.
+    AsyncFunction("seal") Coroutine { email: String, plaintext: String, recipientKeysJson: String ->
+      mapErrors { core.seal(email, plaintext, recipientKeysJson) }
+    }
+
+    AsyncFunction("open") Coroutine { armored: String, senderKeysJson: String ->
+      mapErrors { core.open(armored, senderKeysJson) }
+    }
+
+    // Device transfer. Exporting hands this phone's conversations over, so the
+    // old phone stops sending by session; `resumeSessions` takes them back.
+    // Both directions run Argon2id for the identity key, hence `Coroutine`.
+    AsyncFunction("exportTransfer") Coroutine { email: String, code: String, archive: String ->
+      mapErrors { core.exportTransfer(email, code, archive) }
+    }
+
+    AsyncFunction("importTransfer") Coroutine { armored: String, code: String, expectedEmail: String ->
+      mapErrors { core.importTransfer(armored, code, expectedEmail) }
+    }
+
+    AsyncFunction("transferStatus") Coroutine { ->
+      mapErrors { core.transferStatus() }
+    }
+
+    AsyncFunction("resumeSessions") Coroutine { ->
+      mapErrors { core.resumeSessions() }
+    }
   }
 
   /**

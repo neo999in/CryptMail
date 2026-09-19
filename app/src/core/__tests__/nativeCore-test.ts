@@ -369,3 +369,174 @@ describe('looksEncrypted', () => {
     expect(core.looksEncrypted('Subject: hi\n\nnot encrypted')).toBe(false);
   });
 });
+
+/**
+ * Per-email keys. The bridge gains `seal`/`open`, but a JS bundle can be newer
+ * than the installed `.so`, so both paths have to work: the new methods when
+ * present, the old ones exactly as before when not.
+ */
+describe('per-email keys', () => {
+  const request = {
+    from: 'alice@example.com',
+    to: ['bob@example.com'],
+    subject: 'subject',
+    body: 'body',
+    recipientKeys: ['bob-key', 'alice-key'],
+  };
+
+  function withSessions(forwardSecret: boolean) {
+    const bridge = fakeBridge();
+    let sealed = '';
+    const withSeal = {
+      ...bridge,
+      seal: jest.fn(async (_email: string, plaintext: string, _keys: string) => {
+        sealed = plaintext;
+        return JSON.stringify({
+          armored: `-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n\nZmFrZQ==\n-----END PGP MESSAGE-----`,
+          forwardSecret,
+        });
+      }),
+      open: jest.fn(async () =>
+        JSON.stringify({ plaintext: sealed, signature: 'valid', signerFingerprint: 'FFFF', forwardSecret }),
+      ),
+    };
+    const core = getNativeCore(withSeal);
+    if (!core) throw new Error('expected a native core');
+    return { core, bridge: withSeal };
+  }
+
+  it('seals through the new method when the native library has it', async () => {
+    const { core, bridge } = withSessions(true);
+    const rfc822 = await core.buildEncrypted(request);
+
+    expect(bridge.seal).toHaveBeenCalledTimes(1);
+    expect(bridge.encryptSign).not.toHaveBeenCalled();
+    // Every key is handed down, the sender's included: it is the core that
+    // decides whether a long-term copy may exist.
+    expect(JSON.parse(bridge.seal.mock.calls[0][2])).toEqual(['bob-key', 'alice-key']);
+    expect(rfc822).toContain('CryptMail-Session: AAAA');
+  });
+
+  it('opens through the new method and reports forward secrecy', async () => {
+    const { core, bridge } = withSessions(true);
+    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
+
+    expect(bridge.open).toHaveBeenCalledTimes(1);
+    expect(bridge.decryptVerify).not.toHaveBeenCalled();
+    expect(opened.body).toBe('body');
+    expect(opened.forwardSecret).toBe(true);
+  });
+
+  it('reports an ordinary message as not forward-secret', async () => {
+    const { core } = withSessions(false);
+    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
+    expect(opened.forwardSecret).toBe(false);
+  });
+
+  it('falls back to the old methods on a native library that predates them', async () => {
+    const { core, bridge } = withBridge();
+    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
+
+    expect(bridge.encryptSign).toHaveBeenCalledTimes(1);
+    expect(bridge.decryptVerify).toHaveBeenCalledTimes(1);
+    expect(opened.forwardSecret).toBe(false);
+  });
+
+  it('says what happened when a one-time key is already gone', async () => {
+    const { core, bridge } = withSessions(true);
+    // Shaped as Expo delivers a Kotlin CodedException: the code on the error.
+    bridge.open.mockRejectedValueOnce(
+      Object.assign(new Error('decrypt-failed: key no longer exists'), { code: 'decrypt-failed' }),
+    );
+    const rfc822 = await core.buildEncrypted(request);
+
+    await expect(core.parseEncrypted(rfc822)).rejects.toThrow(/one-time key/i);
+  });
+
+  // Found on the emulator: old mail sealed to a previous key was reported as
+  // "sealed with a one-time key", pointing the user at a device that does not exist.
+  it('explains an ordinary message’s failure the ordinary way, not as a one-time key', async () => {
+    const { core, bridge } = withSessions(false);
+    bridge.seal.mockResolvedValueOnce(
+      JSON.stringify({ armored: '-----BEGIN PGP MESSAGE-----\n\nZmFrZQ==\n-----END PGP MESSAGE-----', forwardSecret: false }),
+    );
+    bridge.open.mockRejectedValueOnce(
+      Object.assign(new Error('decrypt-failed: no matching key'), { code: 'decrypt-failed' }),
+    );
+    const rfc822 = await core.buildEncrypted(request);
+
+    const failure = core.parseEncrypted(rfc822);
+    await expect(failure).rejects.toThrow(/wasn’t encrypted to the key on this device/i);
+    await expect(core.parseEncrypted(rfc822)).resolves.toBeTruthy();
+  });
+});
+
+describe('device transfer through the native bridge', () => {
+  const IDENTITY = {
+    email: 'me@example.com',
+    fingerprint: 'AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555',
+    publicKeyArmored: '-----BEGIN PGP PUBLIC KEY BLOCK-----\nx\n-----END PGP PUBLIC KEY BLOCK-----',
+    createdAt: '2026-08-05T00:00:00.000Z',
+  };
+
+  function withTransfer() {
+    const bridge = {
+      ...fakeBridge(),
+      exportTransfer: jest.fn(async () => '-----BEGIN CRYPTMAIL TRANSFER-----\nx\n-----END CRYPTMAIL TRANSFER-----'),
+      importTransfer: jest.fn(async () => JSON.stringify({ identity: IDENTITY, archive: 'ARCHIVE' })),
+      transferStatus: jest.fn(async () => JSON.stringify({ handedOverAt: 1_790_000_000 })),
+      resumeSessions: jest.fn(async () => undefined),
+    };
+    return { core: getNativeCore(bridge)!, bridge };
+  }
+
+  it('generates the code, hands down the bare form, and passes the archive through untouched', async () => {
+    const { core, bridge } = withTransfer();
+    const made = await core.exportTransfer('me@example.com', 'ARCHIVE');
+    expect(made.code).toMatch(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){7}$/);
+    expect(bridge.exportTransfer).toHaveBeenCalledWith('me@example.com', made.code.replace(/-/g, ''), 'ARCHIVE');
+  });
+
+  it('normalises a typed code on the way in and passes the signed-in address', async () => {
+    const { core, bridge } = withTransfer();
+    const imported = await core.importTransfer('FILE', ' k7m2-nq8z-r4j5-twxb-3hyp-d6c9-fgkm-ln8q ', 'me@example.com');
+    expect(imported).toEqual({ identity: IDENTITY, archive: 'ARCHIVE' });
+    expect(bridge.importTransfer).toHaveBeenCalledWith('FILE', 'K7M2NQ8ZR4J5TWXB3HYPD6C9FGKM1N8Q', 'me@example.com');
+  });
+
+  it('turns seconds into a date', async () => {
+    expect(await withTransfer().core.transferStatus()).toEqual({ handedOverAt: new Date(1_790_000_000_000) });
+  });
+
+  it('explains a wrong code in terms of the code the old phone showed', async () => {
+    const { core, bridge } = withTransfer();
+    bridge.importTransfer.mockRejectedValueOnce(
+      Object.assign(new Error('decrypt-failed: the code does not open this transfer'), { code: 'decrypt-failed' }),
+    );
+    await expect(core.importTransfer('FILE', 'CODE', '')).rejects.toMatchObject({
+      code: 'decrypt-failed',
+      message: expect.stringMatching(/code your old phone showed/),
+    });
+  });
+
+  it('on an older core: never handed over, and moving says it needs an update', async () => {
+    const { core } = withBridge();
+    expect(await core.transferStatus()).toEqual({ handedOverAt: null });
+    await expect(core.exportTransfer('me@example.com', '')).rejects.toMatchObject({ code: 'unavailable' });
+    await expect(core.importTransfer('FILE', 'CODE', '')).rejects.toMatchObject({ code: 'unavailable' });
+  });
+});
+
+describe('device transfer in the demo core', () => {
+  it('round-trips the identity and the archive, and refuses another mailbox', async () => {
+    const me = await demoCore.generateIdentity('demo-transfer@example.com');
+    const made = await demoCore.exportTransfer(me.email, 'ARCHIVE');
+    expect(made.blob).toContain('-----BEGIN CRYPTMAIL TRANSFER-----');
+
+    await expect(demoCore.importTransfer(made.blob, made.code, 'someone@example.com')).rejects.toMatchObject({
+      code: 'malformed',
+    });
+    const back = await demoCore.importTransfer(made.blob, made.code, me.email);
+    expect(back).toEqual({ identity: me, archive: 'ARCHIVE' });
+  });
+});

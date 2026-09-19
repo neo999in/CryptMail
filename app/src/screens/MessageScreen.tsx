@@ -616,6 +616,11 @@ export function MessageScreen({ route, navigation }: Props) {
                 </View>
               ) : (
                 <>
+                  {opened.notice ? (
+                    <View style={{ marginBottom: 14 }}>
+                      <Banner tone="warn" icon="alert">{opened.notice}</Banner>
+                    </View>
+                  ) : null}
                   {/* Real mail is mostly HTML, and the plain-text alternative
                       a sender ships alongside it is usually a worse version of
                       the same message — a wall of bare URLs where the links

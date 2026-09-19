@@ -57,6 +57,16 @@ export function extractArmor(raw: string): string | null {
   return raw.slice(start, end + ARMOR_END.length);
 }
 
+/**
+ * Whether a built message was sealed with per-email keys — the core marks those
+ * with `CryptMail-Session` armor headers carrying each recipient's key, in place
+ * of any key packet a long-term key could open. Such a message opens once, so
+ * the sender has to keep its own copy (`store/archiveStore.ts`).
+ */
+export function isForwardSecret(raw: string): boolean {
+  return /^CryptMail-Session:/m.test(extractArmor(raw) ?? '');
+}
+
 /** Wrap ciphertext base64 in an OpenPGP ASCII-armor block, 64 cols wide. */
 export function armor(payloadBase64: string): string {
   const lines = payloadBase64.match(/.{1,64}/g) ?? [];

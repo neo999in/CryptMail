@@ -65,7 +65,7 @@ cargo ndk -t arm64-v8a -t x86_64 -o ../app/android/app/src/main/jniLibs build --
 #    is that the bindgen matches the uniffi that built it.
 cargo run --bin uniffi-bindgen -- generate \
   --library ../app/android/app/src/main/jniLibs/arm64-v8a/libcryptmail_core.so \
-  --language kotlin --out-dir ../app/android/app/src/main/java
+  --language kotlin --out-dir ../app/modules/cryptmail-core/android/src/main/java
 
 # 4. Build and run.
 cd ../app && npx expo run:android

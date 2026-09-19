@@ -28,7 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CoreError, RecoveryBackup } from '../core';
 import { isValidRecoveryCode } from '../core/recoveryCode';
 import { userMessage } from '../lib/errors';
-import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
+import { backupFileName, saveTextFile } from '../lib/files';
 import { useApp } from '../state/AppState';
 import { drillOutstanding } from '../store/recoveryStore';
 import { color, font, radius, space, type } from '../theme';
@@ -48,6 +48,7 @@ import {
   useFocus,
 } from '../ui/primitives';
 import { RecoveryCodeField, RecoveryCodeGrid } from '../ui/recoveryCode';
+import { LoadedTransfer, useRestoreFile } from '../ui/restoreFile';
 
 type Step = 'choose' | 'restore' | 'backup' | 'drill' | 'publish';
 
@@ -140,7 +141,9 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
   };
 
   /**
-   * Fill the blob field from a file the user picks. Cancelling changes nothing.
+   * Fill the blob field from a file the user picks — or, for a device
+   * transfer, hold it beside the field (`useRestoreFile`). Cancelling changes
+   * nothing.
    *
    * This is the step that decides whether restoring happens at all. The backup
    * text is an armored key thousands of characters long, and on the device it
@@ -148,20 +151,8 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
    * clipboard that never crossed over. Asking for it as a paste is asking most
    * people to give up and generate a new key instead.
    */
-  const loadBackupFile = async () => {
-    setError(null);
-    try {
-      const result = await pickTextFile();
-      if (!result) return;
-      if ('refused' in result) {
-        setError(result.refused);
-        return;
-      }
-      setBlobInput(result.text.trim());
-    } catch (e) {
-      setError(`Couldn’t open that file. ${userMessage(e)}`);
-    }
-  };
+  const restoreFile = useRestoreFile(setBlobInput, setError);
+  const restoreBlob = restoreFile.transfer ?? blobInput.trim();
 
   const run = async (work: () => Promise<unknown>, next: Step | null) => {
     setBusy(true);
@@ -215,7 +206,7 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
           <Choice
             icon="key"
             title="I’ve used CryptMail before"
-            body="Restore your key from its backup and recovery code. Your fingerprint stays the same, so the people who write to you notice nothing, and all your old encrypted mail stays readable."
+            body="Restore your key from its backup and recovery code, or from the transfer file your old phone made. Your fingerprint stays the same, so the people who write to you notice nothing, and all your old encrypted mail stays readable."
           >
             <PrimaryButton title="Restore my key" icon="key" onPress={() => go('restore')} />
           </Choice>
@@ -238,38 +229,53 @@ export function SetupScreen({ onDone }: { onDone: () => void }) {
       {step === 'restore' ? (
         <Panel>
           <Title>Restore your key</Title>
-          <Muted>You need both halves: the backup text and the recovery code. Neither one works alone.</Muted>
+          <Muted>
+            You need both halves: the file and its code — a backup with its recovery code, or a transfer
+            with the code your old phone showed. Neither one works alone.
+          </Muted>
 
-          <StepHeading n={1} title="Load the backup text" done={blobInput.trim().length > 0} />
-          <SecondaryButton title="Choose the backup file" icon="file" onPress={() => void loadBackupFile()} />
-          <View>
-            <Label>Or paste it here</Label>
-            <Field focused={blobFocus.focused} style={s.flush}>
-              <Input
-                accessibilityLabel="Backup text"
-                autoCapitalize="none"
-                autoCorrect={false}
-                big
-                multiline
-                onChangeText={setBlobInput}
-                placeholder="-----BEGIN …-----"
-                style={s.blobInput}
-                value={blobInput}
-                {...blobFocus.bind}
-              />
-            </Field>
-          </View>
+          <StepHeading n={1} title="Load the backup or transfer" done={restoreBlob.length > 0} />
+          <SecondaryButton title="Choose the file" icon="file" onPress={() => void restoreFile.load()} />
+          {restoreFile.transfer ? (
+            <LoadedTransfer text={restoreFile.transfer} onClear={restoreFile.clear} />
+          ) : (
+            <View>
+              <Label>Or paste it here</Label>
+              <Field focused={blobFocus.focused} style={s.flush}>
+                <Input
+                  accessibilityLabel="Backup text"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  big
+                  multiline
+                  onChangeText={setBlobInput}
+                  placeholder="-----BEGIN …-----"
+                  style={s.blobInput}
+                  value={blobInput}
+                  {...blobFocus.bind}
+                />
+              </Field>
+            </View>
+          )}
 
-          <StepHeading n={2} title="Type the recovery code" done={isValidRecoveryCode(codeInput)} />
-          <RecoveryCodeField value={codeInput} onChange={setCodeInput} />
+          <StepHeading
+            n={2}
+            title={restoreFile.transfer ? 'Type the transfer code' : 'Type the recovery code'}
+            done={isValidRecoveryCode(codeInput)}
+          />
+          <RecoveryCodeField
+            value={codeInput}
+            onChange={setCodeInput}
+            label={restoreFile.transfer ? 'Transfer code' : 'Recovery code'}
+          />
 
           {problem}
           <PrimaryButton
-            title="Restore my key"
+            title={restoreFile.transfer ? 'Move to this phone' : 'Restore my key'}
             icon="key"
             busy={busy}
-            disabled={blobInput.trim().length === 0 || !isValidRecoveryCode(codeInput)}
-            onPress={() => void run(() => restoreFromRecovery(blobInput.trim(), codeInput), 'publish')}
+            disabled={restoreBlob.length === 0 || !isValidRecoveryCode(codeInput)}
+            onPress={() => void run(() => restoreFromRecovery(restoreBlob, codeInput), 'publish')}
           />
           <SecondaryButton title="Back" icon="back" onPress={() => go('choose')} />
         </Panel>

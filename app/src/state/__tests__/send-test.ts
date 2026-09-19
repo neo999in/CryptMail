@@ -448,3 +448,88 @@ describe('rich text (feature 0.9)', () => {
     expect(wire[0]).not.toContain('multipart/encrypted');
   });
 });
+
+/**
+ * Per-email keys. A forward-secret message cannot be reopened from the provider
+ * by anyone, the sender included — so what was sent has to be kept before it
+ * leaves, and a failure to keep it must stop the send rather than follow it.
+ */
+describe('deliver — a forward-secret message', () => {
+  const { core } = jest.requireActual('../../core') as typeof import('../../core');
+  const archiveStore = jest.requireActual('../../store/archiveStore') as typeof import('../../store/archiveStore');
+  const localCrypto = jest.requireActual('../../store/localCrypto') as typeof import('../../store/localCrypto');
+
+  /** The demo build, with the header the Rust core adds when it seals per email. */
+  function sealPerEmail() {
+    const real = core.buildEncrypted.bind(core);
+    return jest.spyOn(core, 'buildEncrypted').mockImplementation(async (request) =>
+      (await real(request)).replace('-----BEGIN PGP MESSAGE-----\n', '-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n'),
+    );
+  }
+
+  function recordingArchive(events: string[]) {
+    const files = new Map<string, string>();
+    archiveStore.setArchiveBackendForTests({
+      read: async (_dir, name) => files.get(name) ?? null,
+      write: async (_dir, name, value) => {
+        events.push('archived');
+        files.set(name, value);
+      },
+      clear: async () => files.clear(),
+      list: async () => [...files.keys()],
+    });
+    return files;
+  }
+
+  beforeEach(async () => {
+    localCrypto.resetLocalCryptoForTests();
+    const secrets: Record<string, string> = {};
+    await localCrypto.initLocalCrypto(
+      { getItem: async (k) => secrets[k] ?? null, setItem: async (k, v) => void (secrets[k] = v) },
+      'keystore',
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    archiveStore.setArchiveBackendForTests(undefined);
+  });
+
+  it('keeps what was sent, before it goes on the wire', async () => {
+    sealPerEmail();
+    const events: string[] = [];
+    recordingArchive(events);
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+    const send = services.send;
+    const originalSend = wire.push.bind(wire);
+    wire.push = (...items: string[]) => {
+      events.push('sent');
+      return originalSend(...items);
+    };
+
+    expect(await send.sendEncrypted(MESSAGE)).toEqual({ status: 'sent' });
+    expect(events).toEqual(['archived', 'sent']);
+
+    const kept = await archiveStore.readArchived(ACCOUNT, wire[0]);
+    expect(kept).toMatchObject({ subject: MESSAGE.subject, body: MESSAGE.body, forwardSecret: true });
+  });
+
+  it('sends nothing when what was sent could not be kept', async () => {
+    sealPerEmail();
+    archiveStore.setArchiveBackendForTests(null);
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await expect(services.send.sendEncrypted(MESSAGE)).rejects.toThrow();
+    expect(wire).toHaveLength(0);
+  });
+
+  it('archives nothing for an ordinary encrypted message', async () => {
+    const events: string[] = [];
+    recordingArchive(events);
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await services.send.sendEncrypted(MESSAGE);
+    expect(wire).toHaveLength(1);
+    expect(events).toEqual([]);
+  });
+});

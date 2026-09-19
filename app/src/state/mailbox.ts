@@ -14,6 +14,7 @@ import type { SpamMark } from '../spam/spam';
 import { AccountId, settingsOf } from '../store/accountScope';
 import { findKey } from '../store/keyring';
 import { cacheable, cacheableBox, saveMailCache } from '../store/mailCacheStore';
+import { archive, readArchived } from '../store/archiveStore';
 import { readCachedRaw, writeCachedRaw } from '../store/rawCache';
 import { saveSearchIndex } from '../store/searchIndex';
 import { saveSpamState, setMark } from '../store/spamModelStore';
@@ -537,7 +538,21 @@ export function createMailbox(ctx: Ctx): MailboxService {
       }
 
       try {
-        const decrypted = await core.parseEncrypted(raw);
+        // A forward-secret message opens once: its key is destroyed as it is
+        // used, so every later open reads the copy kept the first time.
+        const archived = await readArchived(account, raw);
+        const decrypted = archived ?? (await core.parseEncrypted(raw));
+        let notice: string | undefined;
+        if (!archived && decrypted.forwardSecret) {
+          // Awaited, and before anything else can fail: past this point there
+          // is no other copy of what this message said.
+          try {
+            await archive(account, raw, decrypted);
+          } catch {
+            notice =
+              'This message could not be saved on this device. It was sealed with a one-time key, so once you leave it, it can’t be opened again — copy anything you need now.';
+          }
+        }
 
         // Autocrypt: cache the sender's key so replies encrypt without a paste
         // step. Same helper the inbox sync uses, and it swallows a malformed
@@ -579,6 +594,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
             decrypted,
             attachments: decrypted.attachments,
             raw,
+            notice,
           };
         }
 
@@ -594,6 +610,7 @@ export function createMailbox(ctx: Ctx): MailboxService {
           decrypted,
           attachments: decrypted.attachments,
           raw,
+          notice,
         };
       } catch (e) {
         return {

@@ -32,6 +32,7 @@ import { SEARCH_STORE_KEY } from '../store/searchIndex';
 import { SNOOZE_STORE_KEY } from '../store/snoozeStore';
 import { emptySpamState, SPAM_STORE_KEY } from '../store/spamModelStore';
 import { removeScoped } from '../store/secureJson';
+import { clearArchive } from '../store/archiveStore';
 import { clearRawCache, RAW_CACHE_STORE_KEY, rawCacheBytes } from '../store/rawCache';
 import { measureAccountStorage } from '../store/storageUsage';
 import { openTextFileWriter, saveTextFile } from '../lib/files';
@@ -246,6 +247,10 @@ export function createAccounts(ctx: Ctx): AccountsService {
       // Files, not an AsyncStorage key, so not in that list — but just as much
       // this account's, and re-adding the address must not find them.
       await clearRawCache(id);
+      // Forward-secret mail this account opened or sent. Removing the account
+      // is the one place it goes: resetting cached content below must never
+      // touch it, because for those messages it is the only copy left.
+      await clearArchive(id);
       await ctx.services.notify.forget(id);
       store.patch({ needsReauth: store.get().needsReauth.filter((flagged) => flagged !== id) });
 

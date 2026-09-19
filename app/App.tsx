@@ -31,6 +31,7 @@ import { RuleEditScreen } from './src/screens/RuleEditScreen';
 import { RulesScreen } from './src/screens/RulesScreen';
 import { MessageScreen } from './src/screens/MessageScreen';
 import { RecoveryScreen } from './src/screens/RecoveryScreen';
+import { TransferScreen } from './src/screens/TransferScreen';
 import { AccountScreen } from './src/screens/AccountScreen';
 import { AccountsScreen } from './src/screens/AccountsScreen';
 import { AppearanceScreen } from './src/screens/AppearanceScreen';
@@ -173,6 +174,7 @@ function FullStack() {
           a native header is OS chrome that answers to none of the tokens. */}
       <Stack.Screen name="Keys" component={KeysScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Recovery" component={RecoveryScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Transfer" component={TransferScreen} options={{ headerShown: false }} />
       {/* Draws its own top bar, like Settings — it opens with a search field
           and a filter, and a native header above those is one bar too many. */}
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />

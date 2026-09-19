@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cryptoMode } from '../config';
 import { isValidRecoveryCode } from '../core/recoveryCode';
 import { RecoveryBackup } from '../core';
-import { backupFileName, pickTextFile, saveTextFile } from '../lib/files';
+import { backupFileName, saveTextFile } from '../lib/files';
 import { back, RootStackParamList } from '../navigation';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
@@ -15,6 +15,7 @@ import { color, font, radius, space, type } from '../theme';
 import { confirmDialog } from '../ui/dialog';
 import { Icon, IconName } from '../ui/Icon';
 import { RecoveryCodeField, RecoveryCodeGrid } from '../ui/recoveryCode';
+import { LoadedTransfer, useRestoreFile } from '../ui/restoreFile';
 import {
   Banner,
   Callout,
@@ -109,30 +110,26 @@ export function RecoveryScreen({ navigation }: Props) {
     }
   };
 
-  /** Fill the blob field from a file the user picks. Cancelling changes nothing. */
-  const loadBackupFile = async () => {
-    setRestoreError(null);
-    try {
-      const result = await pickTextFile();
-      if (!result) return;
-      if ('refused' in result) {
-        setRestoreError(result.refused);
-        return;
-      }
-      setBlobInput(result.text.trim());
-    } catch (e) {
-      setRestoreError(userMessage(e));
-    }
-  };
+  /** Fill the blob field from a file, or hold a transfer beside it. Cancelling changes nothing. */
+  const restoreFile = useRestoreFile(setBlobInput, setRestoreError);
+  const restoreBlob = restoreFile.transfer ?? blobInput.trim();
 
   const doRestore = async () => {
     setBusy(true);
     setRestoreError(null);
     try {
-      const restored = await restoreFromRecovery(blobInput.trim(), codeInput);
+      const moved = restoreFile.transfer !== null;
+      const restored = await restoreFromRecovery(restoreBlob, codeInput);
       setBlobInput('');
       setCodeInput('');
-      confirmDialog('Identity restored', `This device now uses the key for ${restored.email}.`, [{ label: 'OK' }]);
+      restoreFile.clear();
+      confirmDialog(
+        moved ? 'Moved to this phone' : 'Identity restored',
+        moved
+          ? `This phone now holds the key and conversations for ${restored.email}.`
+          : `This device now uses the key for ${restored.email}.`,
+        [{ label: 'OK' }],
+      );
     } catch (e) {
       setRestoreError(userMessage(e));
     } finally {
@@ -191,6 +188,14 @@ export function RecoveryScreen({ navigation }: Props) {
         <View style={s.halves}>
           <Half icon="edit" title="Recovery code" hint="On paper, kept at home" />
           <Half icon="file" title="Backup text" hint="In a drive or password manager" />
+        </View>
+
+        <View style={s.gutter}>
+          <SecondaryButton
+            title="Moving to a new phone?"
+            icon="forward"
+            onPress={() => navigation.navigate('Transfer')}
+          />
         </View>
 
         <GroupHeading>Back up this key</GroupHeading>
@@ -275,39 +280,48 @@ export function RecoveryScreen({ navigation }: Props) {
           <View style={s.pad}>
             <Text style={s.body}>
               Load the backup file or paste its text, then type the recovery code. The same key comes
-              back, with the same fingerprint — nobody who writes to you has to change anything.
+              back, with the same fingerprint — nobody who writes to you has to change anything. A
+              transfer file from your old phone loads here too, with the code that phone showed.
             </Text>
 
             <View>
               <View style={s.fieldHead}>
-                <Text style={s.eyebrow}>Backup text</Text>
-                <SecondaryButton title="Load file" icon="file" onPress={() => void loadBackupFile()} />
+                <Text style={s.eyebrow}>{restoreFile.transfer ? 'Transfer' : 'Backup text'}</Text>
+                <SecondaryButton title="Load file" icon="file" onPress={() => void restoreFile.load()} />
               </View>
-              <Field focused={blobFocus.focused} style={s.fieldFlush}>
-                <Input
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  big
-                  multiline
-                  onChangeText={setBlobInput}
-                  placeholder={blobPlaceholder}
-                  style={s.blobInput}
-                  value={blobInput}
-                  {...blobFocus.bind}
-                />
-              </Field>
+              {restoreFile.transfer ? (
+                <LoadedTransfer text={restoreFile.transfer} onClear={restoreFile.clear} />
+              ) : (
+                <Field focused={blobFocus.focused} style={s.fieldFlush}>
+                  <Input
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    big
+                    multiline
+                    onChangeText={setBlobInput}
+                    placeholder={blobPlaceholder}
+                    style={s.blobInput}
+                    value={blobInput}
+                    {...blobFocus.bind}
+                  />
+                </Field>
+              )}
             </View>
 
-            <RecoveryCodeField value={codeInput} onChange={setCodeInput} />
+            <RecoveryCodeField
+              value={codeInput}
+              onChange={setCodeInput}
+              label={restoreFile.transfer ? 'Transfer code' : 'Recovery code'}
+            />
 
             {restoreError ? <Callout>{restoreError}</Callout> : null}
 
             <PrimaryButton
-              title="Restore identity"
+              title={restoreFile.transfer ? 'Move to this phone' : 'Restore identity'}
               icon="key"
               onPress={confirmRestore}
               busy={busy}
-              disabled={blobInput.trim().length === 0 || !codeValid}
+              disabled={restoreBlob.length === 0 || !codeValid}
             />
           </View>
         </Group>

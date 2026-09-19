@@ -56,6 +56,29 @@ export type RecoveryBackup = {
   blob: string;
 };
 
+/**
+ * A device transfer: this phone's identity, its per-email-key conversations and
+ * its archive of forward-secret mail, sealed for a replacement phone.
+ *
+ * The same two halves as a recovery backup — a code shown once and a file —
+ * and the same rule: the code is never stored. Unlike a backup, making one
+ * **hands this phone's conversations over**: from then on it sends with
+ * long-term keys, because two phones writing into one conversation would break
+ * it for the contact.
+ */
+export type DeviceTransfer = {
+  /** Shown once, as a recovery code is. Never persisted. */
+  code: string;
+  /** The sealed file. Opaque; useless without the code. */
+  blob: string;
+};
+
+/** What arrives on the new phone. `archive` is whatever `exportTransfer` was given. */
+export type ImportedTransfer = {
+  identity: Identity;
+  archive: string;
+};
+
 export type BuildRequest = {
   from: string;
   to: string[];
@@ -104,6 +127,12 @@ export type DecryptedMessage = {
   autocryptKey?: string;
   /** Files found in the decrypted tree. Empty for a message that carried none. */
   attachments: Attachment[];
+  /**
+   * True when the message was sealed with a per-email key that is now
+   * destroyed. It opens **once**: the caller must archive what was decrypted
+   * (`store/archiveStore.ts`), because no key anywhere can open it again.
+   */
+  forwardSecret?: boolean;
 };
 
 export interface CryptCore {
@@ -134,6 +163,29 @@ export interface CryptCore {
    * which of the two things they got wrong.
    */
   importRecoveryBackup(blob: string, code: string): Promise<Identity>;
+
+  /**
+   * Seal this phone's identity, conversations and `archive` for a new phone,
+   * and hand the conversations over. `archive` is opaque to the core.
+   */
+  exportTransfer(email: string, archive: string): Promise<DeviceTransfer>;
+
+  /**
+   * Adopt a transfer, replacing this phone's identity and conversations.
+   * `expectedEmail` is the mailbox signed in here; a transfer for any other
+   * address is refused (`malformed`) before anything changes. A wrong code is
+   * `decrypt-failed`.
+   */
+  importTransfer(blob: string, code: string, expectedEmail: string): Promise<ImportedTransfer>;
+
+  /** When this phone handed its conversations to another, or null. */
+  transferStatus(): Promise<{ handedOverAt: Date | null }>;
+
+  /**
+   * Take the conversations back. Only safe if the other phone never sent a
+   * message with per-email keys — the caller must say so before calling.
+   */
+  resumeSessions(): Promise<void>;
 
   /** M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message. */
   buildEncrypted(request: BuildRequest): Promise<string>;

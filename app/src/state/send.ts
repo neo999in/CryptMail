@@ -7,7 +7,9 @@
  * path is allowed to call.
  */
 import { buildPlaintext, core, CoreError } from '../core';
+import { isForwardSecret } from '../core/mime';
 import { cryptoMode } from '../config';
+import { archive } from '../store/archiveStore';
 import { recordInvite, saveInvites, shouldInvite } from '../store/inviteStore';
 import { Ctx, SendService } from './contracts';
 import { newOutboxId } from './scheduler';
@@ -140,13 +142,30 @@ export function createSend(ctx: Ctx): SendService {
         // Encrypt to the sender too, so the message is readable in Sent. A
         // self-addressed message already resolved to this same key, hence the
         // dedupe — encrypting to one key twice would emit two PKESK packets for
-        // it.
+        // it. A forward-secret build drops this key itself (a copy under our
+        // long-term key would reopen it); that case is archived below instead.
         recipientKeys: [...new Set([...recipients.map((r) => r.key!.armored), identity.publicKeyArmored])],
         autocryptKey: identity.publicKeyArmored,
         inReplyTo,
         references,
         attachments,
       });
+
+      // Sealed with per-email keys, it cannot be reopened from the provider by
+      // anyone — us included. Keep what was sent *before* it leaves: an archive
+      // that fails stops the send, where the other order would leave a message
+      // in Sent that nobody can ever read again.
+      if (isForwardSecret(rfc822)) {
+        await archive(ctx.services.accounts.requireActive(), rfc822, {
+          subject,
+          body,
+          html,
+          attachments: attachments ?? [],
+          signature: 'valid',
+          signerFingerprint: identity.fingerprint,
+          forwardSecret: true,
+        });
+      }
 
       await mail.current.send(rfc822);
       return { status: 'sent' };

@@ -52,6 +52,8 @@ export type RootStackParamList = {
   Keys: undefined;
   /** The address book and per-contact trust dashboard (`contacts/contacts.ts`). */
   Recovery: undefined;
+  /** Moving this phone's key, conversations and archive to a replacement. */
+  Transfer: undefined;
   Settings: undefined;
   Appearance: undefined;
   /** How mail behaves, as against how it looks. Swipe gestures live under it. */

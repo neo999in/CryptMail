@@ -39,6 +39,7 @@ import {
   SecondaryBox,
   SendInput,
   SendOutcome,
+  TransferMade,
 } from './types';
 
 /**
@@ -141,7 +142,12 @@ export type IdentityService = {
   completeRecoveryDrill(code: string): Promise<void>;
   /** Release the setup gate only when the core itself cannot make backups. */
   waiveRecoveryDrill(): Promise<void>;
+  /** Takes a recovery backup or a device transfer — it tells them apart. */
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
+  exportTransfer(): Promise<TransferMade>;
+  /** When this phone handed its conversations to another, or null. */
+  transferStatus(): Promise<Date | null>;
+  resumeSessions(): Promise<void>;
 };
 
 export type PublishService = {

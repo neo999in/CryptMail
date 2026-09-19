@@ -234,6 +234,14 @@ export type TextReadResult = { text: string } | { refused: string };
 const TEXT_FILE_CAP = 256 * 1024;
 
 /**
+ * The cap for a restore field that also takes a device transfer. A transfer
+ * carries every message read with per-email keys, attachments included, so it
+ * can be far larger than a backup — but it is still one string across the
+ * bridge, and this is where "a video picked by mistake" is still refused.
+ */
+export const TRANSFER_FILE_CAP = 64 * 1024 * 1024;
+
+/**
  * Read a picked file as text — today, a recovery backup.
  *
  * Separate from `readPickedFile` because that one produces an `Attachment`:
@@ -246,9 +254,10 @@ const TEXT_FILE_CAP = 256 * 1024;
  * Refusals are returned, not thrown, exactly as `readPickedFile` does: picking
  * the wrong file is a mistake to explain, not a failure to report.
  */
-export async function readTextFile(picked: PickedFile): Promise<TextReadResult> {
-  if (picked.size > TEXT_FILE_CAP) {
-    return { refused: `${picked.name} is too large to be a recovery backup.` };
+export async function readTextFile(picked: PickedFile, cap: number = TEXT_FILE_CAP): Promise<TextReadResult> {
+  const tooLarge = `${picked.name} is too large to be a ${cap > TEXT_FILE_CAP ? 'backup or transfer' : 'recovery backup'}.`;
+  if (picked.size > cap) {
+    return { refused: tooLarge };
   }
 
   const inline = /^data:[^;,]*;base64,(.*)$/s.exec(picked.uri);
@@ -256,8 +265,8 @@ export async function readTextFile(picked: PickedFile): Promise<TextReadResult> 
 
   // Some Android providers do not report a size, so the bytes actually read are
   // the authority — a provider that under-reported must not get a free pass.
-  if (text.length > TEXT_FILE_CAP) {
-    return { refused: `${picked.name} is too large to be a recovery backup.` };
+  if (text.length > cap) {
+    return { refused: tooLarge };
   }
   return { text };
 }
@@ -269,10 +278,10 @@ export async function readTextFile(picked: PickedFile): Promise<TextReadResult> 
  * "the backup, or the reason it isn't", and cancelling is neither — it is the
  * user changing their mind, which must leave the screen exactly as it was.
  */
-export async function pickTextFile(): Promise<TextReadResult | null> {
+export async function pickTextFile(cap?: number): Promise<TextReadResult | null> {
   const [picked] = await pickFiles();
   if (!picked) return null;
-  return readTextFile(picked);
+  return readTextFile(picked, cap);
 }
 
 /**

@@ -130,6 +130,7 @@ export function SettingsScreen({ navigation }: Props) {
             onPress: () => navigation.navigate('Keys'),
           },
           { icon: 'shield', label: 'Key recovery', onPress: () => navigation.navigate('Recovery') },
+          { icon: 'forward', label: 'Move to a new phone', onPress: () => navigation.navigate('Transfer') },
           { icon: 'signout', label: 'Sign out', onPress: confirmSignOut, tint: color.coral },
         ],
       },

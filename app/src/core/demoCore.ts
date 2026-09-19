@@ -33,7 +33,9 @@ import {
   CryptCore,
   CoreError,
   DecryptedMessage,
+  DeviceTransfer,
   Identity,
+  ImportedTransfer,
   PublicKeyInfo,
   RecoveryBackup,
 } from './types';
@@ -46,6 +48,10 @@ const LEGACY_ARMOR_TAG = 'CIPHERMAIL-DEMO-V1:';
 const RECOVERY_HEADER = '-----BEGIN CRYPTMAIL RECOVERY BACKUP-----';
 const RECOVERY_FOOTER = '-----END CRYPTMAIL RECOVERY BACKUP-----';
 const DEMO_RECOVERY_TAG = 'CRYPTMAIL-DEMO-RECOVERY-V1:';
+
+const TRANSFER_HEADER = '-----BEGIN CRYPTMAIL TRANSFER-----';
+const TRANSFER_FOOTER = '-----END CRYPTMAIL TRANSFER-----';
+const DEMO_TRANSFER_TAG = 'CRYPTMAIL-DEMO-TRANSFER-V1:';
 
 export const demoCore: CryptCore = {
   kind: 'demo',
@@ -150,6 +156,44 @@ export const demoCore: CryptCore = {
     await AsyncStorage.setItem(`${IDENTITY_KEY}.${identity.email}`, JSON.stringify(identity));
     return identity;
   },
+
+  /**
+   * ⚠️  Encodes; does not seal. A demo recovery backup plus the archive, in a
+   * transfer's armor. The demo core has no per-email keys, so there are no
+   * conversations to hand over and its archive is always empty.
+   */
+  async exportTransfer(email: string, archive: string): Promise<DeviceTransfer> {
+    const backup = await demoCore.exportRecoveryBackup(email);
+    const payload = encodeUtf8Base64(`${DEMO_TRANSFER_TAG}${JSON.stringify({ email, backup: backup.blob, archive })}`);
+    const lines = [TRANSFER_HEADER, '', ...(payload.match(/.{1,64}/g) ?? []), TRANSFER_FOOTER];
+    return { code: backup.code, blob: lines.join('\n') };
+  },
+
+  async importTransfer(blob: string, code: string, expectedEmail: string): Promise<ImportedTransfer> {
+    const start = blob.indexOf(TRANSFER_HEADER);
+    const end = blob.indexOf(TRANSFER_FOOTER);
+    if (start < 0 || end < start) throw new CoreError('That is not a CryptMail transfer.', 'malformed');
+    let inner: { email: string; backup: string; archive: string };
+    try {
+      const decoded = decodeUtf8Base64(blob.slice(start + TRANSFER_HEADER.length, end).replace(/\s+/g, ''));
+      if (!decoded.startsWith(DEMO_TRANSFER_TAG)) throw new Error('not a demo transfer');
+      inner = JSON.parse(decoded.slice(DEMO_TRANSFER_TAG.length));
+    } catch {
+      throw new CoreError('This transfer needs the real crypto core, or it is damaged.', 'malformed');
+    }
+    if (expectedEmail && inner.email.toLowerCase() !== expectedEmail.toLowerCase()) {
+      throw new CoreError(`This transfer holds the key for ${inner.email}.`, 'malformed');
+    }
+    const identity = await demoCore.importRecoveryBackup(inner.backup, code);
+    return { identity, archive: inner.archive };
+  },
+
+  /** Nothing to hand over: the demo core has no conversations. */
+  async transferStatus() {
+    return { handedOverAt: null };
+  },
+
+  async resumeSessions() {},
 
   async buildEncrypted(request: BuildRequest): Promise<string> {
     if (request.recipientKeys.length === 0) {

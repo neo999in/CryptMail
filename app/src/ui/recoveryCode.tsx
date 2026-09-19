@@ -16,10 +16,10 @@ import { Field, Input, Label, useFocus } from './primitives';
  * code that way, typed it back in that order, and was told it was wrong, with
  * every character correct. Numbering makes the order part of what is copied.
  */
-export function RecoveryCodeGrid({ code }: { code: string }) {
+export function RecoveryCodeGrid({ code, label = 'Recovery code' }: { code: string; label?: string }) {
   const groups = code.split('-');
   return (
-    <View style={s.box} accessibilityLabel={`Recovery code: ${groups.join(', ')}`}>
+    <View style={s.box} accessibilityLabel={`${label}: ${groups.join(', ')}`}>
       <View style={s.grid}>
         {groups.map((group, i) => (
           <View key={`${group}-${i}`} style={s.cell}>
