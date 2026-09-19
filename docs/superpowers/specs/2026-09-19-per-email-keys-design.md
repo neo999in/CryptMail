@@ -24,12 +24,13 @@ users. Mail with anyone else is unchanged.
 | Ratchet, storage, send/receive in the Rust core | **built** — `core/src/{session,session_store,forward}.rs` |
 | FFI, Kotlin module, regenerated bindings | **built** — `seal` / `open` |
 | TypeScript wiring and the archive | **built** — `nativeCore.ts`, `store/archiveStore.ts`, `state/mailbox.ts`, `state/send.ts` |
-| Tests | `cargo test` 80 (incl. 11 in `forward_secrecy.rs`, 8 in `transfer.rs`); app suite 1,766 |
-| Interop | `spike/interop-rpgp-sequoia` **13/13**, including the new send path |
+| Tests | `cargo test` 82 (incl. 13 in `forward_secrecy.rs`, 8 in `transfer.rs`); app suite 1,783 (incl. 11 in `perEmailOnly-test.ts`) |
+| Interop | `spike/interop-rpgp-sequoia` **14/14**: `seal` refuses a client with no session; Sequoia reads the handshake |
+| Per-email keys only: handshake, `awaiting-session`, strict `seal` | **built** on `feat/per-email-keys-only` — `state/handshake.ts`, `store/handshakeStore.ts`, `core/handshake.ts` |
 | On a device | **emulator, one install**: seal → Gmail → open round trip, offer header survives Gmail, transfer export + resume. Two installs exchanging per-email keys: **not yet run** |
 | Device transfer | **built** — `core/src/transfer.rs`, `screens/TransferScreen.tsx`; the restore field takes a transfer file. Not yet run on a device |
 | QR pairing | **not built** |
-| Compose showing which recipients get per-email keys | **not built** |
+| Compose knowing about sessions before Send | **not built** — compose checks keys only, so a message to someone without a session briefly looks like it is sending before it moves to Scheduled |
 
 Where the work stands and how to pick it up: [handoff](../../handoff-2026-09-19-per-email-keys.md).
 

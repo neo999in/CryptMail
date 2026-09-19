@@ -26,13 +26,14 @@ and the assumptions behind each guarantee.
   subject are visible to the provider — SMTP requires them in the clear. If you
   need metadata privacy, email is the wrong transport; that requires a different
   system (mixnets, sealed-sender messaging).
-- **Forward secrecy — except between CryptMail users.** Long-lived PGP keys
-  mean compromise of a private key exposes past ciphertext it can unwrap. Mail
-  between two CryptMail devices that have each written to the other uses a new
-  key per message instead, destroyed once used
+- **Forward secrecy on what you send; not on everything you receive.**
+  Long-lived PGP keys mean compromise of a private key exposes past ciphertext
+  it can unwrap. On `feat/per-email-keys-only`, every message the user writes
+  uses a new key, destroyed once used
   ([per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md)); a
-  compromised private key opens none of it. Everything else — mail with other
-  PGP users, the first message of every conversation — is still exposed.
+  compromised private key opens none of it. What it still opens: the
+  contentless handshakes, and mail *other people* sealed to your long-term key
+  (other PGP clients, and anything from before this mode).
   Two costs come with it: the decrypted copy the app must keep of forward-secret
   mail is exactly as safe as the device, and the armored block tells the
   provider a little more (that it is CryptMail, device and session identifiers,
@@ -41,7 +42,14 @@ and the assumptions behind each guarantee.
   that's where decryption happens. No email crypto can fix a hostile endpoint.
 - **Recipients who aren't users** get an invite and a wait, not a downgrade. The
   message is never sent in the clear, but it is also not delivered until they
-  have a key — and it may never be. We say so before sending.
+  have a key — and it may never be. We say so before sending. With per-email
+  keys only, the same holds for people who *have* a PGP key but not CryptMail:
+  they get a handshake explaining why, and the message waits.
+- **Handshake spoofing.** Handshakes are found by a cleartext subject anyone can
+  forge. A forged one costs a fetch and a decrypt attempt; an offer is filed only
+  under the fingerprint of the key that signed it, and an answer goes only to the
+  keyring key for the sender's address, so nobody can plant a session in
+  someone else's name.
 
 ## Actors and adversaries
 

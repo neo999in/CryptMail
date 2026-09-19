@@ -384,10 +384,10 @@ visible to the provider. SMTP requires them.
 |---|---|
 | Key generation, algorithms, encrypt/decrypt, signature states | ✅ Rust tests (`core/tests/`) |
 | Envelope assembly, TS composition, demo/native parity | ✅ TS tests |
-| Interop with a second OpenPGP implementation | ✅ 13 checks against Sequoia-PGP, both directions, on v4 keys — re-run 2026-09-19 |
+| Interop with a second OpenPGP implementation | ✅ 14 checks against Sequoia-PGP, both directions, on v4 keys, including "`seal` refuses a client with no session" and "Sequoia reads a handshake" — re-run 2026-09-19 on `feat/per-email-keys-only` |
 | The Kotlin bridge between them | ✅ built for Android (arm64-v8a, x86_64) |
 | Gmail transport | ✅ run on a physical device: send, receive, decrypt, Autocrypt, keyserver publishing, recovery |
-| Per-email keys ([design](superpowers/specs/2026-09-19-per-email-keys-design.md)) | ✅ Rust + TS tests; ⛔ **not yet run on a device** |
+| Per-email keys ([design](superpowers/specs/2026-09-19-per-email-keys-design.md)) | ✅ Rust + TS tests; ✅ emulator, one install (seal/open through Gmail; strict build refuses mail only to yourself); ⛔ **two installs completing a handshake** |
 
 This table previously reported the bridge as never built and the two halves as
 never having met. Both were stale: the device testing above was done before the

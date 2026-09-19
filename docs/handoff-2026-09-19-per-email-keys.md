@@ -26,8 +26,14 @@ again: not a stolen one, not the sender's, not one broken later by a quantum
 computer. Because such a message decrypts only once, the app keeps the
 decrypted copy, sealed, in a durable archive. Moving to a new phone is covered
 by **device transfer**: one sealed file plus a one-time code carries the key,
-the conversations and the archive. Mail with anyone who doesn't use CryptMail
-works exactly as before.
+the conversations and the archive.
+
+The two branches differ on everyone else:
+- **`feat/per-email-keys`:** first contact and mail to anyone who doesn't use
+  CryptMail go out under long-term keys, as before.
+- **`feat/per-email-keys-only`:** they never do. First contact is a
+  contentless handshake, the message waits until the other app answers, and
+  someone without CryptMail can't be sent encrypted mail at all (§8).
 
 ## 2. What was built
 
@@ -67,7 +73,9 @@ the envelope did not change, and other OpenPGP clients ignore the headers.
 
 ## 3. Decisions already made — don't reopen them
 
-The user made these explicitly. Build on them.
+The user made these explicitly. Build on them. On `feat/per-email-keys-only`,
+decisions 3, 4, 6 and 9 are overridden by the user's later "per message key
+mode only" — see §8.
 
 1. **No simulated "qubits".** The user first asked for quantum concepts (qubits,
    teleportation, binding, entanglement). A simulated qubit gives no security,
@@ -94,6 +102,9 @@ The user made these explicitly. Build on them.
    unchanged.
 
 ## 4. What is verified
+
+The numbers here are for `feat/per-email-keys`. The strict branch's are in §8:
+82 Rust, 1,783 app, 14/14 interop.
 
 | Claim | How | Level |
 |---|---|---|
@@ -164,12 +175,19 @@ Traps hit this session:
 ## 6. What's next, in order
 
 1. **Two-device check.** A second emulator image or a phone, signed into a
-   second throwaway Gmail. Exchange mail until per-email keys start (the first
-   reply), then transfer one side to a third install and keep writing. This is
-   the only unverified path that matters.
-2. **Compose indicator.** Show per recipient whether a message will get
-   per-email keys, and say plainly when a mixed recipient list turns them off
-   for the whole message.
+   second throwaway Gmail. On the strict branch:
+   1. A writes to B. A's message waits and B gets a handshake.
+   2. B's app answers on its next sync.
+   3. A's next sync opens the answer, and the held message goes out.
+
+   Then transfer one side to a third install and keep writing. This is the
+   only unverified path that matters.
+2. **Compose knows about sessions.** Compose checks keys only (the
+   `resolveRecipients` path). On the strict branch it should also ask
+   `sessionStatus`, show per recipient "needs a handshake", and say *queued*
+   up front instead of briefly looking like a send. On `feat/per-email-keys`,
+   show which recipients get per-email keys and when a mixed list turns them
+   off.
 3. **Physical phone run** of all of the above.
 4. **Additional devices** (both in use at once). Needs per-device sessions for
    your own devices, not a copy. A transfer can't do this by design.
@@ -177,6 +195,9 @@ Traps hit this session:
 6. Update [docs/features.md](features.md) and
    [docs/implementation-status.md](implementation-status.md) whenever any of
    the above lands.
+7. **Stale docs on `feat/per-email-keys`.** Its CLAUDE.md and this handoff
+   still say "uncommitted on `main`"; the strict branch's copies are current.
+   Fix them on that branch if it is the one that ships.
 
 Limits worth knowing (from the design doc):
 - the construction is **unaudited**
@@ -228,3 +249,31 @@ Verified:
 
 Not verified: two installs completing a handshake over Gmail. That is the
 first thing to run on this branch (§6 step 1).
+
+### How to try it
+
+On `feat/per-email-keys-only` (rebuild the native core first, §5):
+
+1. **Mail only to yourself.** Compose disables Send and says a per-email key
+   needs someone else. Checked on the emulator.
+2. **Mail to a key with no session.** The message moves to Scheduled as
+   "setting up keys". One email goes out with subject
+   `[CryptMail] Setting up per-email keys` and none of the message's words.
+   *Check again* reports "still waiting". Needs a second account with a key.
+3. **The other side.** On its next sync it answers automatically: a second
+   `[CryptMail] …` email, sealed with a per-email key. When the first side
+   syncs, the held message sends. Needs two installs.
+4. **After *Move to a new phone*.** The old phone refuses every encrypted send
+   and says why. *Keep using this phone* restores it.
+
+### Where the rules are enforced
+
+| Rule | Code | Test |
+|---|---|---|
+| `seal` never falls back to long-term keys | `forward::seal` | `forward_secrecy.rs::without_a_session_seal_refuses_and_a_handshake_is_the_way_in`, `one_recipient_without_a_session_stops_the_whole_message` |
+| A handshake carries nothing the user wrote | `core/handshake.ts` (fixed text), `state/handshake.ts` | `perEmailOnly-test.ts`: "holds a message … sends them only a contentless handshake" (asserts on the wire bytes) |
+| Nothing unsealed by a per-email key reaches the wire | `state/send.ts` (`isForwardSecret` check) | "refuses to put anything on the wire the core did not seal with a per-email key" |
+| One answer per first contact, only to the signing key | `state/handshake.ts` (`answer`) | the four "answering handshakes" tests |
+| At most one handshake per address per day | `store/handshakeStore.ts` | "sends one handshake a day per address…" |
+| A handed-over phone sends nothing | `forward::refuse_if_handed_over` | `transfer.rs::the_old_phone_stops_sending_but_still_reads` |
+| Other clients can read a handshake; `seal` refuses them | — | `interop.sh` §4 |

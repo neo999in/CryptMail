@@ -223,9 +223,11 @@ removing or resetting an account clears it explicitly. Never cache the
 decrypted tree there.
 
 **Per-email keys** ([docs/superpowers/specs/2026-09-19-per-email-keys-design.md](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)):
-between CryptMail users, the core's `seal` gives each message its own key and
-destroys it once used, so no long-term key — the sender's included — can reopen
-it. Such a message **decrypts once**, which is why it is the one exception to
+the core's `seal` gives each message its own key and destroys it once used, so
+no long-term key — the sender's included — can reopen it. On this branch `seal`
+refuses rather than fall back: first contact is a handshake (the one
+long-term-key message left, fixed text only, `core/handshake.ts`), answered
+automatically during sync, and `core.sessionStatus` says who needs one. Such a message **decrypts once**, which is why it is the one exception to
 "only `searchIndex` holds decrypted mail":
 [app/src/store/archiveStore.ts](app/src/store/archiveStore.ts) keeps the
 decrypted copy, sealed, in *durable* storage, keyed by the ciphertext. It is the
@@ -252,13 +254,19 @@ Directory keys land as `trust: 'seen'`, never `verified`.
 These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
 
 1. **No plaintext downgrade.** Never "send unencrypted just this once".
-   Two cases, and neither of them puts the message on the wire in the clear:
+   Three cases, and none of them puts the message on the wire in the clear:
    - a recipient whose key **changed fingerprint** blocks the send outright —
      nothing is sent and nothing is queued, because waiting cannot resolve a
      possible key substitution;
    - a recipient with **no key yet** has the message *held* in the outbox
      (`awaiting-key`) while a contentless invite goes to them; it delivers itself
      once a key exists. The UI must say *queued*, never *sent*.
+   - on `feat/per-email-keys-only`, a recipient with a key but **no per-email
+     key session** has the message held (`awaiting-session`) while a contentless
+     handshake goes to them (`state/handshake.ts`). It is never sealed to their
+     long-term key instead: **nothing the user writes is sealed to a long-term
+     key on that branch**, and `deliver` refuses to put anything on the wire that
+     is not sealed with a per-email key.
 
    Enforced in `deliver`/`sendEncrypted` in
    [app/src/state/send.ts](app/src/state/send.ts) and covered by

@@ -98,13 +98,17 @@ guarantees we layer keyserver discovery and optional manual verification (see
 
 When the user hits Send, the app resolves a key for **each** recipient — local
 keyring, then Autocrypt cache, then the directory
-([key-management.md](key-management.md) §Discovery) — and the outcome is one of
-three. Plaintext is not among them.
+([key-management.md](key-management.md) §Discovery). With per-email keys only
+(branch `feat/per-email-keys-only`) it then asks the core whether each
+recipient has a session. The outcome is one of the rows below. Plaintext is not
+among them unless the user chose it up front.
 
 | Situation | Outcome | UX |
 |-----------|---------|-----|
-| Key known for every recipient | **Encrypted, sent** | Lock icon, sends normally |
-| A recipient has no published key | **Encrypted, queued** | Message is held; that recipient is invited; it delivers itself when they have a key |
+| Every recipient has a key **and** a per-email-key session (or their offer) | **Encrypted with per-email keys, sent** | Lock icon, sends normally |
+| A recipient has a key but no session yet | **Held** (`awaiting-session`) | A contentless handshake goes to them; the message sends itself once their CryptMail answers. Never sealed to their long-term key instead |
+| A recipient has no published key | **Held** (`awaiting-key`) | That recipient is invited; once they have a key, a handshake follows as above |
+| The only recipient is the sender | **Refused** | Compose disables Send and says why: a per-email key needs someone else to share it with |
 | A recipient's key **changed** fingerprint | **Blocked** | Nothing is sent and nothing is held — see below |
 | User explicitly chooses a plaintext message | **Plaintext** | A separate action, chosen up front, never a fallback |
 
@@ -195,14 +199,18 @@ therefore says *queued*, never *sent*.
 
 ## Tradeoffs and honest limits
 
-- **Forward secrecy between CryptMail users only.** Mail between two CryptMail
-  devices that have each written to the other uses a new key per message,
+- **Forward secrecy on everything the user writes.** On
+  `feat/per-email-keys-only` every message the user writes uses a new key,
   destroyed once used, so a later-compromised private key opens none of it — see
   [per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). It
   rides inside ordinary OpenPGP (a signed SEIPDv2 message with no key packets;
-  the key travels in armor headers), so nothing about SMTP had to change. Mail
-  with anyone else — and the first message of any conversation — still uses
-  long-lived keys, and a compromised private key still opens those.
+  the key travels in armor headers), so nothing about SMTP had to change. The
+  only message still sealed to a long-term key is the contentless handshake that
+  sets up first contact. The price: a recipient whose app can't answer a
+  handshake (any client but CryptMail) can't be sent encrypted mail at all.
+  Mail *received* under long-term keys still opens, and a compromised private
+  key still opens that. (`feat/per-email-keys` keeps the long-term-key fallback
+  for first contact and non-CryptMail recipients.)
   Forward-secret mail cannot be reopened from the provider by anyone, the sender
   included, so the app keeps a decrypted copy on the device; that copy is
   exactly as safe as the device.

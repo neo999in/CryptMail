@@ -9,6 +9,11 @@ appears under "verified" only if a command was run and its output read.
 
 Last updated: 2026-09-19.
 
+> **Per-email keys only (`feat/per-email-keys-only`, 2026-09-19):** ✅ `cargo
+> test` 82, app suite 1,783, interop 14/14, and on the emulator the strict build
+> runs and refuses mail only to yourself; ⛔ two installs completing a
+> handshake over Gmail. Details in the handoff below, §8.
+>
 > **Per-email keys and device transfer (2026-09-19)** are recorded in
 > [handoff-2026-09-19-per-email-keys.md](handoff-2026-09-19-per-email-keys.md) §4,
 > with the same ledger: ✅ `cargo test` 80, app suite 1,766, seal/open round
