@@ -39,12 +39,15 @@ import {
   CryptCore,
   DecryptedMessage,
   DeviceTransfer,
+  HandshakeRequest,
   Identity,
   ImportedTransfer,
   PublicKeyInfo,
   RecoveryBackup,
+  SessionStatus,
   SignatureStatus,
 } from './types';
+import { helloContent } from './handshake';
 
 export const NATIVE_MODULE_NAME = 'CryptMailCore';
 
@@ -98,6 +101,10 @@ type NativeBridge = {
   seal?(email: string, plaintext: string, recipientKeysJson: string): Promise<string>;
   /** → the `decryptVerify` document plus `forwardSecret`. Opens either kind. */
   open?(armored: string, senderKeysJson: string): Promise<string>;
+  /** → armored handshake: a caller-fixed plaintext plus this device's offer, to long-term keys. */
+  handshake?(email: string, plaintext: string, recipientKeysJson: string): Promise<string>;
+  /** → JSON array of `SessionStatus`, in key order. */
+  sessionStatus?(email: string, recipientKeysJson: string): Promise<string>;
   /**
    * → the armored transfer file. Hands this phone's conversations over. The
    * code is generated here, as a recovery code is. Optional, like the rest.
@@ -238,15 +245,13 @@ export function getNativeCore(
         attachments: request.attachments,
       });
       const keysJson = JSON.stringify(request.recipientKeys);
-      // `seal` decides per message: per-email keys when every recipient can
-      // take one, long-term keys otherwise. It drops the sender's own key from
-      // a forward-secret message itself — a copy under our long-term key would
-      // reopen it — and the send path archives what was sent instead.
-      const armored = bridge.seal
-        ? (JSON.parse(await call(bridge.seal(request.from, inner, keysJson), WORDING.encryptSign)) as {
-            armored: string;
-          }).armored
-        : await call(bridge.encryptSign(request.from, inner, keysJson), WORDING.encryptSign);
+      // Per-email keys only: `seal` refuses anyone without a session, and there
+      // is no `encryptSign` fallback — a core too old to seal cannot send. It
+      // drops the sender's own key itself (a copy under our long-term key would
+      // reopen the message); the send path archives what was sent instead.
+      const { armored } = JSON.parse(
+        await call(required(bridge, 'seal', 'Sending with per-email keys')(request.from, inner, keysJson), WORDING.seal),
+      ) as { armored: string };
       return buildEncryptedEnvelope({
         from: request.from,
         to: request.to,
@@ -254,8 +259,36 @@ export function getNativeCore(
         autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
         inReplyTo: request.inReplyTo,
         references: request.references,
+        handshake: request.handshake,
       });
     },
+
+    async buildHandshake(request: HandshakeRequest): Promise<string> {
+      const inner = buildProtectedInner({ from: request.from, to: [request.to], ...helloContent(request.from) });
+      const armored = await call(
+        required(bridge, 'handshake', 'Setting up per-email keys')(
+          request.from,
+          inner,
+          JSON.stringify([request.recipientKey]),
+        ),
+        WORDING.encryptSign,
+      );
+      return buildEncryptedEnvelope({
+        from: request.from,
+        to: [request.to],
+        armored,
+        autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+        handshake: true,
+      });
+    },
+
+    sessionStatus: async (email, recipientKeys) =>
+      JSON.parse(
+        await call(
+          required(bridge, 'sessionStatus', 'Sending with per-email keys')(email, JSON.stringify(recipientKeys)),
+          WORDING.sessionStatus,
+        ),
+      ) as SessionStatus[],
 
     /**
      * The inverse. The sender's Autocrypt key, when present, is handed to the
@@ -307,7 +340,15 @@ export function getNativeCore(
  * missing feature.
  */
 function required<
-  K extends 'exportRecoveryBackup' | 'importRecoveryBackup' | 'exportTransfer' | 'importTransfer' | 'resumeSessions',
+  K extends
+    | 'exportRecoveryBackup'
+    | 'importRecoveryBackup'
+    | 'exportTransfer'
+    | 'importTransfer'
+    | 'resumeSessions'
+    | 'seal'
+    | 'handshake'
+    | 'sessionStatus',
 >(
   bridge: NativeBridge,
   name: K,
@@ -371,6 +412,17 @@ const WORDING = {
       'That code doesn’t open this transfer. Check each group against the code your old phone showed, in order.',
     malformed:
       'That isn’t a complete CryptMail transfer, or it belongs to another address. Load the file itself rather than pasting it.',
+  },
+  seal: {
+    'no-key':
+      'Per-email keys aren’t set up with everyone on this message yet, so it can’t be sealed. It waits while CryptMail sets them up.',
+    malformed: 'A recipient’s key can’t be used for encryption. Check their key in Contacts.',
+    unavailable:
+      'This phone handed its conversations to another phone, so it can’t send encrypted mail. Settings → Move to a new phone can take them back.',
+  },
+  sessionStatus: {
+    unavailable:
+      'This phone handed its conversations to another phone, so it can’t send encrypted mail. Settings → Move to a new phone can take them back.',
   },
   encryptSign: {
     'no-key': 'There is no key on this device to sign with. Set up your key first.',

@@ -17,6 +17,19 @@ import {
 import { decodeTransfer } from '../mail/transferEncoding';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
+/**
+ * The outer subject of a handshake and of its answer (`core/handshake.ts`).
+ *
+ * In the clear on purpose: it is how a receiving CryptMail finds handshakes
+ * during a sync from the headers alone, without fetching and decrypting every
+ * encrypted message. It says what the armor headers already say to anyone
+ * reading the raw mail — that this is CryptMail — and nothing about content,
+ * which a handshake has none of. Anyone can put it on a message; what makes a
+ * handshake count is its signed offer, which the core checks.
+ */
+export const HANDSHAKE_SUBJECT = '[CryptMail] Setting up per-email keys';
+
+export const isHandshakeSubject = (subject: string | undefined): boolean => subject?.trim() === HANDSHAKE_SUBJECT;
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
 export const ARMOR_END = '-----END PGP MESSAGE-----';
 
@@ -111,6 +124,8 @@ export function buildEncryptedEnvelope(args: {
   /** Threading, in the clear — provider metadata, see message-format.md. */
   inReplyTo?: string;
   references?: string[];
+  /** A handshake or its answer: the outer subject says so, see `HANDSHAKE_SUBJECT`. */
+  handshake?: boolean;
 }): string {
   const boundary = `=-=-=cryptmail-${Math.random().toString(36).slice(2, 10)}=-=-=`;
   const date = (args.date ?? new Date()).toUTCString();
@@ -120,7 +135,7 @@ export function buildEncryptedEnvelope(args: {
     `From: ${args.from}`,
     `To: ${args.to.join(', ')}`,
     `Date: ${date}`,
-    `Subject: ${PLACEHOLDER_SUBJECT}`,
+    `Subject: ${args.handshake ? HANDSHAKE_SUBJECT : PLACEHOLDER_SUBJECT}`,
     `Message-ID: ${messageId}`,
   ];
   if (args.inReplyTo) headers.push(`In-Reply-To: ${args.inReplyTo}`);

@@ -7,6 +7,10 @@
  *  · `time` — the user asked for it later. Released when the clock says so.
  *  · `awaiting-key` — the recipient has no published key yet. Released when one
  *    appears, which is an external event with no notification attached.
+ *  · `awaiting-session` — the recipient has a key but no per-email-key session
+ *    with this device yet, and per-email keys are the only kind this build
+ *    sends. A handshake has gone to them (`state/handshake.ts`); released when
+ *    their CryptMail answers it. Only the core can tell, so `deliver` decides.
  *
  * The second exists because encryption is not retroactive: a message sealed
  * before the recipient had a key could never be opened by them afterwards, so
@@ -29,7 +33,7 @@ import { resolveRecipientStates } from '../state/recipients';
 import { Keyring } from '../store/keyring';
 
 /** Why a message is sitting in the outbox. */
-export type HoldReason = 'time' | 'awaiting-key';
+export type HoldReason = 'time' | 'awaiting-key' | 'awaiting-session';
 
 /** A message queued to send at a future time. */
 export type Scheduled = {
@@ -51,7 +55,7 @@ export type Scheduled = {
 export type Held = Scheduled & {
   /** Defaults to `time` — items written before awaiting-key holds existed. */
   reason?: HoldReason;
-  /** Addresses that had no usable key when the message was held. */
+  /** Addresses that had no usable key — or, awaiting a session, no session — when held. */
   pending?: string[];
 };
 

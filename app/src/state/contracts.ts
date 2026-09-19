@@ -159,6 +159,14 @@ export type PublishService = {
   reconcilePublish(): Promise<void>;
 };
 
+/** First contact with per-email keys only — see `state/handshake.ts`. */
+export type HandshakeService = {
+  /** A contentless handshake to each address, at most once a day each. */
+  send(emails: string[]): Promise<void>;
+  /** Open the handshakes a sync brought in, and answer first contacts. */
+  answer(messages: InboxItem[]): Promise<void>;
+};
+
 export type SendService = {
   canSendEncrypted(): { allowed: boolean; reason?: string };
   /** Encrypt and send, or hold — never plaintext. The whole of rule 1 lives here. */
@@ -376,6 +384,7 @@ export type Services = {
   labels: LabelsService;
   rules: RulesService;
   notify: NotifyService;
+  handshake: HandshakeService;
 };
 
 export type Ctx = {

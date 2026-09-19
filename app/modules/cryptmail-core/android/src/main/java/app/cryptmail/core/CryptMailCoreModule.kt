@@ -121,6 +121,16 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.open(armored, senderKeysJson) }
     }
 
+    // Per-email keys only: `seal` refuses anyone without a session, so first
+    // contact is a contentless `handshake`, and `sessionStatus` says who needs one.
+    AsyncFunction("handshake") Coroutine { email: String, plaintext: String, recipientKeysJson: String ->
+      mapErrors { core.handshake(email, plaintext, recipientKeysJson) }
+    }
+
+    AsyncFunction("sessionStatus") Coroutine { email: String, recipientKeysJson: String ->
+      mapErrors { core.sessionStatus(email, recipientKeysJson) }
+    }
+
     // Device transfer. Exporting hands this phone's conversations over, so the
     // old phone stops sending by session; `resumeSessions` takes them back.
     // Both directions run Argon2id for the identity key, hence `Coroutine`.

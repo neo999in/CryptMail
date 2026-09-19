@@ -15,6 +15,7 @@ import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
 import { CANNED_REPLIES_STORE_KEY } from './cannedRepliesStore';
 import { DRAFTS_STORE_KEY } from './draftsStore';
+import { HANDSHAKE_STORE_KEY } from './handshakeStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
 import { LABELS_STORE_KEY } from './labelsStore';
@@ -45,6 +46,7 @@ export const PER_ACCOUNT_STORE_KEYS = [
   RECOVERY_STORE_KEY,
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
+  HANDSHAKE_STORE_KEY,
   SPAM_STORE_KEY,
   SNOOZE_STORE_KEY,
   MAIL_CACHE_STORE_KEY,

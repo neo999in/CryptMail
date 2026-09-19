@@ -83,6 +83,46 @@ export function createScheduler(ctx: Ctx): SchedulerService {
     store.patch({ scheduled });
   }
 
+  /**
+   * Release messages waiting for per-email keys to be set up.
+   *
+   * Only the core knows whether a session exists yet, so each one simply goes
+   * back through `deliver`: it is sealed if every recipient can now take a
+   * per-email key, and re-held under the same id otherwise. The handshake
+   * `deliver` sends again is rate-limited per address (`handshakeStore.ts`),
+   * so a drain every fifteen seconds does not become an email every fifteen
+   * seconds.
+   */
+  async function drainSessions() {
+    const waiting = listScheduled(store.get().scheduled).filter(
+      (item) => holdReason(item) === 'awaiting-session' && !inFlight.has(item.id),
+    );
+    const sent: string[] = [];
+    for (const item of waiting) {
+      inFlight.add(item.id);
+      try {
+        const outcome = await ctx.services.send.deliver({
+          id: item.id,
+          to: item.to,
+          subject: item.subject,
+          body: item.body,
+          html: item.html,
+          inReplyTo: item.inReplyTo,
+          references: item.references,
+          attachments: item.attachments,
+        });
+        if (outcome.status === 'sent') sent.push(item.id);
+      } catch (e) {
+        if (needsReauth(e)) ctx.services.session.handleAuthLoss(e);
+        // Held, not lost: a changed key, a handed-over phone or a provider
+        // hiccup all leave it where it is for the next drain.
+      } finally {
+        inFlight.delete(item.id);
+      }
+    }
+    await forget(sent);
+  }
+
   const service: SchedulerService = {
     /**
      * Put a message in the outbox to wait for a key.
@@ -178,6 +218,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
      * `changed` in the meantime is not swept out with the rest.
      */
     async drainHeld() {
+      await drainSessions();
+
       const waiting = listScheduled(store.get().scheduled).filter(
         (item) => holdReason(item) === 'awaiting-key' && !inFlight.has(item.id),
       );
@@ -243,6 +285,8 @@ export function createScheduler(ctx: Ctx): SchedulerService {
 
       const sent: string[] = [];
       const rescued: Draft[] = [];
+      /** Why the first rescue failed, in words — "couldn't send" alone gives the user nothing to act on. */
+      let reason: string | null = null;
       for (const item of due) {
         try {
           // Passing the id keeps a message that turns out to need a key from
@@ -263,6 +307,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
           // Rescued as a draft either way; but a revoked grant also has to stop
           // the 15-second loop from retrying a send that cannot succeed.
           if (needsReauth(e)) ctx.services.session.handleAuthLoss(e);
+          reason ??= e instanceof Error ? e.message : null;
           rescued.push({
             id: item.id,
             to: item.to,
@@ -294,7 +339,11 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         scheduled,
         drafts,
         ...(rescued.length > 0
-          ? { error: `Couldn't send ${rescued.length} scheduled message${rescued.length > 1 ? 's' : ''}; saved to drafts.` }
+          ? {
+              error:
+                `Couldn't send ${rescued.length} scheduled message${rescued.length > 1 ? 's' : ''}; saved to drafts.` +
+                (reason ? ` ${reason}` : ''),
+            }
           : {}),
       });
       if (sent.length > 0) await ctx.services.mailbox.refreshInbox();

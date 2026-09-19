@@ -57,6 +57,12 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
         setOutcome({ id: item.id, tone: 'ok', text: 'This message has already left the outbox.' });
       } else if (result.status === 'sent') {
         setOutcome({ id: item.id, tone: 'ok', text: 'Encrypted and sent.' });
+      } else if (result.waitingFor === 'session') {
+        setOutcome({
+          id: item.id,
+          tone: 'warn',
+          text: `Still waiting for ${result.pending.join(', ')} to answer the handshake.`,
+        });
       } else {
         setOutcome({ id: item.id, tone: 'warn', text: describeCheck(result.pending, undiscoverable).text });
       }
@@ -116,6 +122,8 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
         ) : null}
         {items.map((item) => {
           const awaitingKey = holdReason(item) === 'awaiting-key';
+          const awaitingSession = holdReason(item) === 'awaiting-session';
+          const held = awaitingKey || awaitingSession;
           const pending = awaitingKey ? stillPending(item, keyring, identity) : [];
           return (
             <View key={item.id} style={s.card}>
@@ -123,9 +131,9 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                 <Text numberOfLines={1} style={s.title}>
                   {item.subject.trim() || '(no subject)'}
                 </Text>
-                <View style={[s.when, awaitingKey && s.whenHeld]}>
-                  <Text style={[s.whenText, awaitingKey && s.whenTextHeld]}>
-                    {awaitingKey ? 'waiting for a key' : whenLabel(item.sendAt)}
+                <View style={[s.when, held && s.whenHeld]}>
+                  <Text style={[s.whenText, held && s.whenTextHeld]}>
+                    {awaitingKey ? 'waiting for a key' : awaitingSession ? 'setting up keys' : whenLabel(item.sendAt)}
                   </Text>
                 </View>
               </View>
@@ -153,6 +161,10 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                     ? `Not delivered. ${pending.join(', ')} ${pending.length > 1 ? 'have' : 'has'} no key CryptMail can use yet — the message goes out by itself once ${pending.length > 1 ? 'they do' : 'they do'}.`
                     : 'A key has turned up. This sends on the next check.'}
                 </Text>
+              ) : awaitingSession ? (
+                <Text style={s.holdNote}>
+                  {`Not delivered. Per-email keys aren’t set up with ${(item.pending ?? item.to).join(', ')} yet. CryptMail sent a handshake that carries none of this message; it goes out by itself once their CryptMail answers. If they don’t use CryptMail, it waits until they do.`}
+                </Text>
               ) : null}
               {outcome?.id === item.id ? (
                 <Text style={[s.outcome, outcome.tone === 'ok' ? s.outcomeOk : s.outcomeWarn]}>
@@ -167,8 +179,16 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                   does is ask the directory again, and it says what came back.
                 */}
                 <SecondaryButton
-                  title={checking === item.id ? 'Checking…' : awaitingKey ? 'Check for a key' : 'Send now'}
-                  icon={awaitingKey ? 'refresh' : 'send'}
+                  title={
+                    checking === item.id
+                      ? 'Checking…'
+                      : awaitingKey
+                        ? 'Check for a key'
+                        : awaitingSession
+                          ? 'Check again'
+                          : 'Send now'
+                  }
+                  icon={held ? 'refresh' : 'send'}
                   disabled={checking !== null}
                   onPress={() => void check(item)}
                 />

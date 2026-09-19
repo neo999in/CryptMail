@@ -117,7 +117,13 @@ export type OpenedMessage = {
  * held until the recipient has a key, and the UI must say so rather than showing
  * "Sent" (docs/encryption.md, invite-and-queue).
  */
-export type SendOutcome = { status: 'sent' } | { status: 'queued'; pending: string[] };
+export type SendOutcome =
+  | { status: 'sent' }
+  /**
+   * Held. `waitingFor` says on what: a key they have not published (`key`, the
+   * default), or per-email keys not yet set up with them (`session`).
+   */
+  | { status: 'queued'; pending: string[]; waitingFor?: 'key' | 'session' };
 
 /** What a send asks for. The same shape a held message is replayed from. */
 export type SendInput = {

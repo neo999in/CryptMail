@@ -103,7 +103,27 @@ export type BuildRequest = {
    * `mail/attachment.ts` caps their size for the same reason.
    */
   attachments?: Attachment[];
+  /**
+   * The answer to a handshake. Marks the outer subject so the other side's
+   * sync finds it; the caller supplies the fixed text from `core/handshake.ts`.
+   */
+  handshake?: boolean;
 };
+
+/** A first-contact handshake: one recipient, fixed content, see `core/handshake.ts`. */
+export type HandshakeRequest = {
+  from: string;
+  to: string;
+  /** The recipient's armored public key. */
+  recipientKey: string;
+  autocryptKey?: string;
+};
+
+/**
+ * Where a recipient stands with per-email keys: our own key, a conversation
+ * that exists, an offer we can open one with, or nothing yet — a handshake first.
+ */
+export type SessionStatus = 'self' | 'session' | 'offer' | 'none';
 
 /** The result of decrypting a PGP/MIME message: protected headers restored. */
 export type DecryptedMessage = {
@@ -187,8 +207,24 @@ export interface CryptCore {
    */
   resumeSessions(): Promise<void>;
 
-  /** M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message. */
+  /**
+   * M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message.
+   *
+   * **Per-email keys only.** Refuses (`no-key`) unless every recipient other
+   * than the sender has a session or an offer — check `sessionStatus` first and
+   * hold the message instead. Never falls back to long-term keys.
+   */
   buildEncrypted(request: BuildRequest): Promise<string>;
+
+  /**
+   * A contentless first-contact message carrying this device's offer — the one
+   * thing still sealed to a long-term key. Its text is fixed
+   * (`core/handshake.ts`); nothing the user wrote is an argument.
+   */
+  buildHandshake(request: HandshakeRequest): Promise<string>;
+
+  /** Per recipient key, in order: see `SessionStatus`. */
+  sessionStatus(email: string, recipientKeys: string[]): Promise<SessionStatus[]>;
 
   /** M5 inverse: detect, decrypt, verify, restore the protected subject. */
   parseEncrypted(rfc822: string): Promise<DecryptedMessage>;

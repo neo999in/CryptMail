@@ -2,9 +2,13 @@
  * The send path — the file rule 1 is about.
  *
  * Nothing here may put an unencrypted copy of the user's message on the wire.
- * `deliver` has three outcomes and plaintext is not one of them; `sendPlain` is
+ * `deliver` has four outcomes and plaintext is not one of them; `sendPlain` is
  * a separate action the user chooses up front and that nothing on the encrypted
  * path is allowed to call.
+ *
+ * This build sends with **per-email keys only**: a message is never sealed to a
+ * long-term key. Someone with a key but no session gets a contentless handshake
+ * (`state/handshake.ts`) and the message waits until their CryptMail answers.
  */
 import { buildPlaintext, core, CoreError } from '../core';
 import { isForwardSecret } from '../core/mime';
@@ -93,6 +97,9 @@ export function createSend(ctx: Ctx): SendService {
      *  · someone's key *changed* → nothing is sent and nothing is held. A changed
      *    fingerprint is a possible key substitution, and waiting cannot resolve
      *    it; only a person re-verifying the key can.
+     *  · someone has a key but no per-email keys with this device yet → the
+     *    message waits (`awaiting-session`) and they get a contentless handshake.
+     *    It is never sealed to their long-term key instead.
      */
     async deliver({ id, to, subject, body, html, inReplyTo, references, attachments }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
@@ -133,6 +140,38 @@ export function createSend(ctx: Ctx): SendService {
       const gate = service.canSendEncrypted();
       if (!gate.allowed) throw new CoreError(gate.reason ?? 'Sending is disabled.', 'unavailable');
 
+      // Per-email keys only. Ask the core where each recipient stands before
+      // building anything: a message is sealed only when all of them can take
+      // a per-email key, and held otherwise.
+      const statuses = await core.sessionStatus(
+        identity.email,
+        recipients.map((r) => r.key!.armored),
+      );
+      if (statuses.every((s) => s === 'self')) {
+        throw new CoreError(
+          'Per-email keys need someone to write to. A message only to yourself can’t be sealed with one.',
+          'no-key',
+        );
+      }
+      const unset = recipients.filter((_, i) => statuses[i] === 'none').map((r) => r.email);
+      if (unset.length > 0) {
+        await ctx.services.scheduler.hold({
+          id: id ?? newOutboxId(),
+          to,
+          subject,
+          body,
+          html,
+          sendAt: new Date().toISOString(),
+          reason: 'awaiting-session',
+          pending: unset,
+          inReplyTo,
+          references,
+          attachments,
+        });
+        await ctx.services.handshake.send(unset);
+        return { status: 'queued', pending: unset, waitingFor: 'session' };
+      }
+
       const rfc822 = await core.buildEncrypted({
         from: session.email,
         to,
@@ -150,6 +189,13 @@ export function createSend(ctx: Ctx): SendService {
         references,
         attachments,
       });
+
+      // Belt and braces: the core refuses to seal any other way, but a message
+      // this build puts on the wire must carry per-email keys, and a demo
+      // core's encoding is the only exception (it says so on every screen).
+      if (core.kind !== 'demo' && !isForwardSecret(rfc822)) {
+        throw new CoreError('Refusing to send a message that is not sealed with per-email keys.', 'unavailable');
+      }
 
       // Sealed with per-email keys, it cannot be reopened from the provider by
       // anyone — us included. Keep what was sent *before* it leaves: an archive

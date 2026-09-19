@@ -10,6 +10,7 @@ import { createAccounts } from './accounts';
 import { MailHolder, Services } from './contracts';
 import { createContacts } from './contacts';
 import { createDrafts } from './drafts';
+import { createHandshake } from './handshake';
 import { createIdentityService } from './identity';
 import { createLabels } from './labels';
 import { createMailbox } from './mailbox';
@@ -41,6 +42,7 @@ export function createServices(store: Store): { services: Services; mail: MailHo
   services.labels = createLabels(ctx);
   services.rules = createRules(ctx);
   services.notify = createNotify(ctx, osNotifier);
+  services.handshake = createHandshake(ctx);
 
   return { services, mail };
 }

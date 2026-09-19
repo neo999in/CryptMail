@@ -379,6 +379,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
         // same as a Gmail filter that skips the inbox. Never throws.
         await ctx.services.notify.observe(store.get().messages);
         await harvestFrom(messages);
+        // After the harvest, so a handshake's sender key is already known.
+        // Answering one — or opening the answer to ours — is what lets a
+        // message held for per-email keys go, so it comes before the drain.
+        await ctx.services.handshake.answer(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
         // can finally go. Cheap: it only touches the network if something is held.

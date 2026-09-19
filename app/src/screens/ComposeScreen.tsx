@@ -235,6 +235,8 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [mode, setMode] = useState<SendMode>('encrypted');
   /** Set when the message was held for a key rather than delivered. */
   const [queued, setQueued] = useState<string[] | null>(null);
+  /** What a queued message waits on: their key, or per-email keys with them. */
+  const [queuedFor, setQueuedFor] = useState<'key' | 'session'>('key');
   /** The From picker, opened from the address under the title. */
   const [showAccounts, setShowAccounts] = useState(false);
   /** The overflow: schedule and discard, which are not bar icons. */
@@ -365,6 +367,10 @@ export function ComposeScreen({ route, navigation }: Props) {
   const changed = recipients.filter((r) => r.status === 'changed');
   const looking = discovering.length > 0;
   const gate = canSendEncrypted();
+  // Per-email keys only: a message needs someone other than you to hold a key
+  // for it. Caught here so the send button says so, rather than the send failing.
+  const onlyMe =
+    to.length > 0 && !!session && to.every((a) => a.trim().toLowerCase() === session.email.toLowerCase());
 
   // A missing key no longer blocks: the message is held and an invite goes out.
   // A *changed* key still does — waiting cannot resolve a possible substitution.
@@ -373,7 +379,9 @@ export function ComposeScreen({ route, navigation }: Props) {
   // path that must not consult a recipient's key state, because a send that
   // *becomes* possible when a key is absent is the downgrade wearing a hat. The
   // only thing that can block it is having nobody to send to.
-  const blocked = plain ? to.length === 0 : to.length === 0 || changed.length > 0 || looking || !gate.allowed;
+  const blocked = plain
+    ? to.length === 0
+    : to.length === 0 || changed.length > 0 || looking || !gate.allowed || onlyMe;
   // Only a real problem is coloured like one. Waiting on a lookup, or on a
   // recipient who has yet to install anything, is not a warning — an
   // unencrypted message is, for as long as it is on screen.
@@ -702,8 +710,10 @@ export function ComposeScreen({ route, navigation }: Props) {
         await deleteDraft(draftId);
         // A held message has *not* been sent, and the screen does not get to
         // close as if it had. It stays put and says what actually happened.
-        if (outcome.status === 'queued') setQueued(outcome.pending);
-        else navigation.goBack();
+        if (outcome.status === 'queued') {
+          setQueuedFor(outcome.waitingFor ?? 'key');
+          setQueued(outcome.pending);
+        } else navigation.goBack();
         return;
       }
 
@@ -1370,9 +1380,14 @@ export function ComposeScreen({ route, navigation }: Props) {
       );
     }
     if (queued) {
-      return `Encrypted and queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
+      return queuedFor === 'session'
+        ? `Queued for ${queued.join(', ')}. CryptMail sent them a handshake to set up per-email keys — it carries none of this message — and this sends itself once their CryptMail answers.`
+        : `Queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
     }
     if (to.length === 0) return 'Add a recipient. CryptMail encrypts every message it sends.';
+    if (onlyMe) {
+      return 'Every encrypted message gets its own key, shared only with the people it goes to — so it needs someone other than you. Add a recipient, or switch to Not encrypted.';
+    }
     if (looking) return `Looking up keys for ${discovering.join(', ')}…`;
     if (changed.length > 0) {
       return `${changed[0].email}'s key changed since you last saw it. Verify it before sending.`;
