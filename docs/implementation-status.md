@@ -7,7 +7,13 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-17.
+Last updated: 2026-09-19.
+
+> **Per-email keys and device transfer (2026-09-19)** are recorded in
+> [handoff-2026-09-19-per-email-keys.md](handoff-2026-09-19-per-email-keys.md) §4,
+> with the same ledger: ✅ `cargo test` 80, app suite 1,766, seal/open round
+> trip through Gmail and transfer export on the emulator; ⛔ two installs
+> exchanging per-email keys, and importing a transfer on a second device.
 
 > **The demo mailbox was removed on 2026-08-31.** `mail/demoMail.ts`,
 > `auth/demoAuth.ts` and `mail/__tests__/demoMail-test.ts` are gone, and

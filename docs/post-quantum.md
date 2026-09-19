@@ -5,10 +5,14 @@ How CryptMail becomes quantum-safe, in what order, and what it costs.
 Read alongside [encryption.md](encryption.md) (the scheme this modifies) and
 [key-management.md](key-management.md) (the keys this changes the shape of).
 
-Status: **proposed**, with the library question **answered by a working spike**
-(see [PQ.1](#pq1-library-spike--done--rpgp-only)). Nothing here is implemented in
-the app. The decision it asks for is due before M2 of
-[prototype-plan.md](prototype-plan.md) generates its first real keypair.
+Status: **Stage 1 is built.** `core/src/identity.rs` generates a v4 Ed25519
+(algorithm 22) primary with an ML-KEM-768+X25519 subkey, interop with
+Sequoia-PGP passes on those keys (`spike/interop-rpgp-sequoia`, re-run
+2026-09-19), and it runs on a physical device through Gmail. PQ.1 and PQ.2 below
+are done; PQ.3–PQ.5 are not. Forward secrecy, which this document names as the
+compounding problem, now exists between CryptMail users —
+[per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). This
+document was written before any of that and its body is kept as the reasoning.
 
 > **Headline finding:** of the three candidate libraries, only **rPGP**
 > implements RFC 9980. OpenPGP.js and Bouncy Castle do not. If CryptMail wants

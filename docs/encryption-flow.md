@@ -23,15 +23,19 @@ assembles the envelope, Rust does only what must not happen in JavaScript.**
 `attach()` (`app/src/state/session.ts`) calls `core.loadIdentity(email)`;
 generation is a separate, explicit step on the setup screen.
 
-In [`identity::generate`](../core/src/identity.rs), rPGP builds a **V6** key:
+In [`identity::generate`](../core/src/identity.rs), rPGP builds a **V4** key:
 
 | Role | Algorithm |
 |---|---|
-| Primary — certify + sign | `Ed25519` |
-| Encryption subkey | **`MlKem768X25519`** — RFC 9980 algorithm 35 |
+| Primary — certify + sign | `Ed25519Legacy` — algorithm 22 |
+| Encryption subkey (v4) | **`MlKem768X25519`** — RFC 9980 algorithm 35 |
 
 This is Stage 1 of [post-quantum.md](post-quantum.md): post-quantum
-confidentiality, classical signatures. V6 because RFC 9980 requires it.
+confidentiality, classical signatures. **V4, not V6**: RFC 9980 allows
+ML-KEM-768+X25519 on a v4 subkey precisely for this migration, and
+`keys.openpgp.org` rejects v6 uploads — a v6 identity could never be published.
+Algorithm 22 rather than 27 because 27 is not readable by the v4-era software
+this choice exists for. `identity.rs` explains both at length.
 Certificates come out at ~2.4 KB, small enough for an `Autocrypt:` header on
 every message — a full post-quantum signing key would be ~18.5 KB and would
 break that.
@@ -378,11 +382,13 @@ visible to the provider. SMTP requires them.
 
 | Leg | Verified? |
 |---|---|
-| Key generation, algorithms, encrypt/decrypt, signature states | ✅ 27 Rust tests |
-| Envelope assembly, TS composition, demo/native parity | ✅ 101 TS tests |
-| Interop with a second OpenPGP implementation | ✅ 9 checks against Sequoia-PGP, both directions |
-| The Kotlin bridge between them | ⛔ bindings generate; **never built for Android** |
-| Gmail transport | ⛔ never run against Google |
+| Key generation, algorithms, encrypt/decrypt, signature states | ✅ Rust tests (`core/tests/`) |
+| Envelope assembly, TS composition, demo/native parity | ✅ TS tests |
+| Interop with a second OpenPGP implementation | ✅ 13 checks against Sequoia-PGP, both directions, on v4 keys — re-run 2026-09-19 |
+| The Kotlin bridge between them | ✅ built for Android (arm64-v8a, x86_64) |
+| Gmail transport | ✅ run on a physical device: send, receive, decrypt, Autocrypt, keyserver publishing, recovery |
+| Per-email keys ([design](superpowers/specs/2026-09-19-per-email-keys-design.md)) | ✅ Rust + TS tests; ⛔ **not yet run on a device** |
 
-Everything above the bridge is tested against a stub; everything below is tested
-headless. The two halves have never met.
+This table previously reported the bridge as never built and the two halves as
+never having met. Both were stale: the device testing above was done before the
+table was corrected.

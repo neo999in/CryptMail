@@ -195,11 +195,17 @@ therefore says *queued*, never *sent*.
 
 ## Tradeoffs and honest limits
 
-- **No perfect forward secrecy.** OpenPGP uses long-lived keys; if a private key
-  is later compromised, past ciphertext it can unwrap becomes readable. True PFS
-  in email requires session-ratcheting schemes not deployable over standard SMTP.
-  Mitigations: key rotation, subkeys, and offering the libsodium/MLS-style path
-  later.
+- **Forward secrecy between CryptMail users only.** Mail between two CryptMail
+  devices that have each written to the other uses a new key per message,
+  destroyed once used, so a later-compromised private key opens none of it — see
+  [per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). It
+  rides inside ordinary OpenPGP (a signed SEIPDv2 message with no key packets;
+  the key travels in armor headers), so nothing about SMTP had to change. Mail
+  with anyone else — and the first message of any conversation — still uses
+  long-lived keys, and a compromised private key still opens those.
+  Forward-secret mail cannot be reopened from the provider by anyone, the sender
+  included, so the app keeps a decrypted copy on the device; that copy is
+  exactly as safe as the device.
 - **Metadata is not hidden.** Envelope (To/From/Date/Size/Subject-placeholder)
   is visible to the provider.
 - **Endpoint trust.** Encryption protects data in transit and at rest in the

@@ -50,6 +50,33 @@ hQIMA4z7... (base64 ciphertext: encrypted session key + AEAD payload) ...==
 - **Second part** is the ASCII-armored `-----BEGIN PGP MESSAGE-----` block — the
   encrypted session key(s) + the AEAD-encrypted MIME tree.
 
+### Armor headers (per-email keys)
+
+The armored block may open with armor headers, which OpenPGP clients ignore and
+`mime.ts` passes through untouched. Each value is base64 split into 64-character
+lines under one repeated key, since armor headers cannot fold:
+
+```
+-----BEGIN PGP MESSAGE-----
+CryptMail-Offer: AQAAAAAAAAAA…          ← every message CryptMail sends
+CryptMail-Offer: …
+CryptMail-Session: AQEAAAAA…            ← forward-secret messages only
+CryptMail-Session: …
+
+wcBMA…
+-----END PGP MESSAGE-----
+```
+
+- **`CryptMail-Offer`** — the sending device's offer key, signed by the sender's
+  identity. How a contact learns this device can receive per-email keys.
+- **`CryptMail-Session`** — one entry per recipient device, each carrying the
+  message's content key wrapped under a one-time key. A message with this header
+  has **no key packets**: no long-term key, the sender's included, can open it.
+
+A message carrying `CryptMail-Session` is otherwise the same PGP/MIME envelope.
+Layout of both values:
+[per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md#on-the-wire).
+
 ## The encrypted inner MIME tree (after decryption)
 
 The armored block decrypts to a complete MIME message. Using **protected

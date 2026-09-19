@@ -4,6 +4,12 @@ Do not ever create artifacts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Work in progress — read first
+
+Per-email keys (forward secrecy) and device transfer are built but **uncommitted**
+on `main`. State, decisions already made, build steps, emulator traps and what
+is next: [docs/handoff-2026-09-19-per-email-keys.md](docs/handoff-2026-09-19-per-email-keys.md).
+
 ## What this is
 
 CryptMail — a cross-platform email client that signs into an existing Gmail/IMAP
@@ -123,7 +129,7 @@ to be read twice to know which one it described. Testing therefore needs a real
 (throwaway) Gmail account — see [docs/running-it.md](docs/running-it.md).
 
 To reach live mode: build the native core (M2), register the Kotlin module as
-`CryptMailCore` with the five methods in
+`CryptMailCore` with the methods in
 [app/src/core/nativeCore.ts](app/src/core/nativeCore.ts) — nothing else changes —
 then `cp app/.env.example app/.env` and fill in the **Web** client id as
 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`. Sign-in goes through Google Play services
@@ -210,7 +216,25 @@ bytes in [app/src/store/rawCache.ts](app/src/store/rawCache.ts), so reopening it
 skips the network. That cache is **ciphertext only**, one sealed file per
 message rather than AsyncStorage, and it is not in `PER_ACCOUNT_STORE_KEYS`, so
 removing or resetting an account clears it explicitly. Never cache the
-decrypted tree there. `searchIndex` stays the only decrypted mail on disk.
+decrypted tree there.
+
+**Per-email keys** ([docs/superpowers/specs/2026-09-19-per-email-keys-design.md](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)):
+between CryptMail users, the core's `seal` gives each message its own key and
+destroys it once used, so no long-term key — the sender's included — can reopen
+it. Such a message **decrypts once**, which is why it is the one exception to
+"only `searchIndex` holds decrypted mail":
+[app/src/store/archiveStore.ts](app/src/store/archiveStore.ts) keeps the
+decrypted copy, sealed, in *durable* storage, keyed by the ciphertext. It is the
+only copy there is, so: it never evicts; `openMessage` reads it before asking
+the core and writes it (awaited) the moment one opens; `deliver` writes it
+**before** sending and refuses to send if it cannot; removing an account clears
+it, but resetting cached content must **never** touch it. Normal mail is still
+never archived — `searchIndex` stays its only decrypted trace. Moving to a new
+phone ([TransferScreen](app/src/screens/TransferScreen.tsx), `core/src/transfer.rs`)
+seals the key, the sessions and the archive into one file under a code shown
+once, and **hands the old phone's sessions over** — it stops sending by session,
+because two phones writing into one conversation breaks it. The new phone's
+restore field takes that file as it takes a backup.
 
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))

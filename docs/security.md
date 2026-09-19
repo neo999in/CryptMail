@@ -26,8 +26,17 @@ and the assumptions behind each guarantee.
   subject are visible to the provider — SMTP requires them in the clear. If you
   need metadata privacy, email is the wrong transport; that requires a different
   system (mixnets, sealed-sender messaging).
-- **Forward secrecy.** Long-lived PGP keys mean compromise of a private key
-  exposes past ciphertext it can unwrap. Mitigated by rotation, not eliminated.
+- **Forward secrecy — except between CryptMail users.** Long-lived PGP keys
+  mean compromise of a private key exposes past ciphertext it can unwrap. Mail
+  between two CryptMail devices that have each written to the other uses a new
+  key per message instead, destroyed once used
+  ([per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md)); a
+  compromised private key opens none of it. Everything else — mail with other
+  PGP users, the first message of every conversation — is still exposed.
+  Two costs come with it: the decrypted copy the app must keep of forward-secret
+  mail is exactly as safe as the device, and the armored block tells the
+  provider a little more (that it is CryptMail, device and session identifiers,
+  message counters, how many recipient devices).
 - **The endpoint.** A compromised/malware-infected device sees plaintext because
   that's where decryption happens. No email crypto can fix a hostile endpoint.
 - **Recipients who aren't users** get an invite and a wait, not a downgrade. The

@@ -54,9 +54,11 @@ each test-driven and verified in the running app. Knowing this is what makes
 | Spam & phishing detection — **plaintext mail only** | [`spam/`](../app/src/spam/) (`spam.ts`, `headers.ts`, `content.ts`, `urls.ts`, `bayes.ts`, `tokenize.ts`, `unicode.ts`), [`store/spamModelStore.ts`](../app/src/store/spamModelStore.ts) | Inbox Spam category, `MessageScreen` notice + mark actions | 330 |
 | The provider's junk folder, fetched and filed under Spam ([SPAM_PHISHING_DETECTION.md §14.4](SPAM_PHISHING_DETECTION.md)) | [`mail/gmail.ts`](../app/src/mail/gmail.ts), [`state/mailbox.ts`](../app/src/state/mailbox.ts) | Drawer → Spam | 20 |
 | Configurable swipe actions ([swipe-actions.md](swipe-actions.md)) | [`swipe/swipe.ts`](../app/src/swipe/swipe.ts), [`store/mailPrefsStore.ts`](../app/src/store/mailPrefsStore.ts) | Mail rows, `Settings → Mail → Swipe options` | 56 |
+| Per-email keys (forward secrecy between CryptMail users) + archive ([design](superpowers/specs/2026-09-19-per-email-keys-design.md)) | [`core/src/forward.rs`](../core/src/forward.rs), [`store/archiveStore.ts`](../app/src/store/archiveStore.ts) | `MessageScreen` notice; send path | 11 Rust e2e + 19 |
+| Device transfer — move to a new phone ([design](superpowers/specs/2026-09-19-per-email-keys-design.md#device-transfer)) | [`core/src/transfer.rs`](../core/src/transfer.rs), [`state/identity.ts`](../app/src/state/identity.ts) | `Settings → Move to a new phone`; restore field in Setup and Recovery | 8 Rust e2e + 16 |
 | App lock — PIN + fingerprint ([app-lock.md](app-lock.md)) | [`applock/appLock.ts`](../app/src/applock/appLock.ts), [`store/appLockStore.ts`](../app/src/store/appLockStore.ts), [`lib/biometrics.ts`](../app/src/lib/biometrics.ts) | `Settings → App lock`, the lock screen | 17 |
 
-1571 tests across 89 suites (2026-09-17). Run with `npm test` (jest-expo). Convention: pure logic lives
+1766 tests across 104 suites (2026-09-19). Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
 lives in `store/*`; `state/*` orchestrates (a React end in `AppState.tsx`, the
 work in plain service modules).

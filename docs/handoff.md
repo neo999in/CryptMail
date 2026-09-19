@@ -1,5 +1,8 @@
 # Handoff — what is left
 
+> **Latest handoff:** [handoff-2026-09-19-per-email-keys.md](handoff-2026-09-19-per-email-keys.md)
+> (per-email keys and device transfer, uncommitted).
+>
 > **Snapshot, not current state.** This was written on 2026-08-08, and its counts
 > and "next" items are as of then. Much of §2 has since shipped, including Google
 > sign-in with several mailboxes, Outlook, and the app's test suite, now at 1571
