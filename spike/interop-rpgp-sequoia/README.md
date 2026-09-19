@@ -49,8 +49,10 @@ that ships, not a reimplementation of it.
 
 ## What it checks
 
-1. **Sequoia parses our certificate** and agrees it is an Ed25519 v6 primary
-   with an ML-KEM-768+X25519 encryption subkey. The cheapest check and the one
+1. **Sequoia parses our certificate** and agrees it is a v4 EdDSA (algorithm
+   22) primary with an ML-KEM-768+X25519 encryption subkey — v4 because
+   `keys.openpgp.org` refuses v6 uploads (see `core/src/identity.rs`). Re-run
+   2026-09-19 against v4: all interop checks pass. The cheapest check and the one
    that catches the most: if the algorithm IDs disagree, every recipient rejects
    our key outright.
 2. **We send, they read** — the prototype's one-sentence goal with the recipient

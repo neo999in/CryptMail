@@ -110,6 +110,25 @@ impl CryptMailCore {
         Ok(self.core.import_recovery_backup(&self.passphrase, &blob, &code)?)
     }
 
+    /// → the armored transfer file. Hands this phone's conversations over.
+    pub fn export_transfer(&self, email: String, code: String, archive: String) -> FfiResult<String> {
+        Ok(self.core.export_transfer(&email, &self.passphrase, &code, &archive)?)
+    }
+
+    /// → `{ identity, archive }` JSON. `expected_email` may be empty.
+    pub fn import_transfer(&self, armored: String, code: String, expected_email: String) -> FfiResult<String> {
+        Ok(self.core.import_transfer(&self.passphrase, &armored, &code, &expected_email)?)
+    }
+
+    /// → `{ handedOverAt }` JSON, Unix seconds or null.
+    pub fn transfer_status(&self) -> FfiResult<String> {
+        Ok(self.core.transfer_status(&self.passphrase)?)
+    }
+
+    pub fn resume_sessions(&self) -> FfiResult<()> {
+        Ok(self.core.resume_sessions(&self.passphrase)?)
+    }
+
     pub fn encrypt_sign(
         &self,
         email: String,
@@ -127,6 +146,21 @@ impl CryptMailCore {
         let keys = parse_keys(&sender_keys_json)?;
         let email = self.sole_identity_email()?;
         Ok(self.core.decrypt_verify(&email, &self.passphrase, &armored, &keys)?)
+    }
+
+    /// → `{ armored, forwardSecret }`. A new, destroyable key per email when
+    /// every recipient can take one, otherwise exactly `encrypt_sign`.
+    pub fn seal(&self, email: String, plaintext: String, recipient_keys_json: String) -> FfiResult<String> {
+        let keys = parse_keys(&recipient_keys_json)?;
+        Ok(self.core.seal(&email, &self.passphrase, &plaintext, &keys)?)
+    }
+
+    /// → the `decrypt_verify` document plus `forwardSecret`. A forward-secret
+    /// message opens **once**: the caller must keep what it decrypted.
+    pub fn open(&self, armored: String, sender_keys_json: String) -> FfiResult<String> {
+        let keys = parse_keys(&sender_keys_json)?;
+        let email = self.sole_identity_email()?;
+        Ok(self.core.open(&email, &self.passphrase, &armored, &keys)?)
     }
 }
 

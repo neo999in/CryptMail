@@ -54,8 +54,11 @@ echo "1. can a foreign parser read our certificate, and agree what it is?"
 inspected="$("$SEQ" inspect "$work/alice.asc")"
 field() { python3 -c "import json,sys; print(json.load(sys.stdin)$1)" <<< "$inspected"; }
 check "sequoia parses a cryptmail-core certificate" "0" "$?"
-check "primary is Ed25519"            "Ed25519"          "$(field "['primary']")"
-check "primary is a v6 key"           "6"                "$(field "['primaryVersion']")"
+# v4 with EdDSA (algorithm 22), deliberately — see core/src/identity.rs. Sequoia
+# names algorithm 22 "EdDSA"; "Ed25519" is RFC 9580's algorithm 27, which v4-era
+# software does not read and keys.openpgp.org refuses on a v6 key.
+check "primary is EdDSA (algorithm 22)" "EdDSA"           "$(field "['primary']")"
+check "primary is a v4 key"           "4"                "$(field "['primaryVersion']")"
 check "encryption subkey is ML-KEM-768+X25519" "['MLKEM768_X25519']" "$(field "['encryptionSubkeys']")"
 
 echo
@@ -75,7 +78,19 @@ check "cryptmail-core decrypts a sequoia message" "$MESSAGE" "$(python3 -c "impo
 check "cryptmail-core verifies a sequoia signature" "valid" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['signature'])" <<< "$out")"
 
 echo
-echo "4. interop must not weaken fail-closed"
+echo "4. the app's own send path (seal/open) still interoperates"
+# seal() adds a signed CryptMail-Offer armor header to every message. A foreign
+# parser has to skip it, or every message the app sends breaks for everyone else.
+"$RPGP" seal "$work/alice" alice@example.com "$work/bob.asc" "$work/plaintext.txt"   > "$work/sealed-to-bob.asc"
+check "the sealed message carries an offer header" "yes" "$(grep -q '^CryptMail-Offer:' "$work/sealed-to-bob.asc" && echo yes || echo no)"
+out="$("$SEQ" decrypt "$work/bob-secret.asc" "$work/alice.asc" "$work/sealed-to-bob.asc")"
+check "sequoia decrypts a sealed message" "$MESSAGE" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['plaintext'])" <<< "$out")"
+check "sequoia verifies its signature" "valid" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['signature'])" <<< "$out")"
+out="$("$RPGP" open "$work/alice" alice@example.com "$work/bob.asc" "$work/to-alice.asc")"
+check "open() reads a sequoia message" "$MESSAGE" "$(python3 -c "import json,sys; print(json.load(sys.stdin)['plaintext'])" <<< "$out")"
+
+echo
+echo "5. interop must not weaken fail-closed"
 # A message encrypted to somebody else must stay unreadable, however well the
 # two implementations agree on the format.
 "$SEQ" gen "$work/mallory-secret.asc" mallory@example.com > "$work/mallory.asc"

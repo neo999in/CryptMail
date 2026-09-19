@@ -15,7 +15,7 @@ const PW: &str = "interop-harness-passphrase";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let usage = "usage: rpgp-side <gen|encrypt|decrypt> ...";
+    let usage = "usage: rpgp-side <gen|encrypt|decrypt|seal|open> ...";
 
     let result = match args.get(1).map(String::as_str) {
         // gen <dir> <email>  → armored public cert on stdout
@@ -24,6 +24,12 @@ fn main() {
         Some("encrypt") => encrypt(&args[2], &args[3], &args[4], &args[5]),
         // decrypt <dir> <email> <sender-cert> <message-file> → Decrypted JSON
         Some("decrypt") => decrypt(&args[2], &args[3], &args[4], &args[5]),
+        // seal / open: the path the app uses, which picks per-email keys when it
+        // can. To a foreign client it can never have a session with, so it must
+        // produce an ordinary message — plus armor headers a foreign parser has
+        // to tolerate.
+        Some("seal") => seal(&args[2], &args[3], &args[4], &args[5]),
+        Some("open") => open(&args[2], &args[3], &args[4], &args[5]),
         _ => {
             eprintln!("{usage}");
             exit(2);
@@ -65,6 +71,21 @@ fn decrypt(dir: &str, email: &str, sender_cert: &str, message: &str) -> Result<S
     let core = Core::new(dir);
     core.decrypt_verify(email, PW, &read(message)?, &[read(sender_cert)?])
         .map_err(|e| e.to_string())
+}
+
+fn seal(dir: &str, email: &str, recipient_cert: &str, plaintext: &str) -> Result<String, String> {
+    let core = Core::new(dir);
+    let json = core.seal(email, PW, &read(plaintext)?, &[read(recipient_cert)?]).map_err(|e| e.to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    if value["forwardSecret"] != false {
+        return Err("claimed forward secrecy with a client that cannot hold a session".into());
+    }
+    value["armored"].as_str().map(str::to_string).ok_or_else(|| "seal returned no armored message".into())
+}
+
+fn open(dir: &str, email: &str, sender_cert: &str, message: &str) -> Result<String, String> {
+    let core = Core::new(dir);
+    core.open(email, PW, &read(message)?, &[read(sender_cert)?]).map_err(|e| e.to_string())
 }
 
 fn read(path: &str) -> Result<String, String> {

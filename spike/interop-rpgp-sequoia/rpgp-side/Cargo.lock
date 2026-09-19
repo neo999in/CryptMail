@@ -473,15 +473,23 @@ checksum = "fd121741cf3eb82c08dd3023eb55bf2665e5f60ec20f89760cf836ae4562e6a0"
 name = "cryptmail-core"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
+ "base64",
  "chrono",
  "hex",
+ "hkdf",
+ "hmac",
+ "ml-kem",
  "pgp",
  "rand",
  "serde",
  "serde_json",
+ "sha2",
  "smallvec",
  "thiserror",
  "uniffi",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
