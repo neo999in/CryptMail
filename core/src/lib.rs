@@ -33,7 +33,9 @@ mod ffi;
 mod forward;
 mod identity;
 mod keys;
+mod km;
 mod message;
+mod qkd;
 mod recovery;
 pub mod session;
 mod session_store;
@@ -239,6 +241,43 @@ impl Core {
     /// safe if the other phone never sent by session; the app says so first.
     pub fn resume_sessions(&self, passphrase: &str) -> Result<()> {
         session_store::SessionStore::open(&self.dir, passphrase)?.resume()
+    }
+
+    // ------------------------------------------------ Key Manager (Levels 2–3) --
+    //
+    // One login: the KM account is the mailbox account. Every call names the
+    // signed-in address, whose bank is created on first use (`km.rs`).
+
+    /// `{ account, saeId, peerSaeId, role, available, remaining, bankSize,
+    /// keyBits }` — never a key.
+    pub fn km_status(&self, passphrase: &str, email: &str) -> Result<String> {
+        json(&km::KeyManager::for_account(&self.dir, passphrase, email)?.status()?)
+    }
+
+    /// A new bank of 100 keys. A linked bank has to be linked again.
+    pub fn km_regenerate(&self, passphrase: &str, email: &str) -> Result<String> {
+        km::KeyManager::for_account(&self.dir, passphrase, email)?.regenerate()?;
+        self.km_status(passphrase, email)
+    }
+
+    /// The simulated QKD link: this bank, sealed under `code`, for the other end.
+    pub fn km_export_link(&self, passphrase: &str, email: &str, code: &str) -> Result<String> {
+        km::KeyManager::for_account(&self.dir, passphrase, email)?.export_link(code)
+    }
+
+    pub fn km_import_link(&self, passphrase: &str, email: &str, armored: &str, code: &str) -> Result<String> {
+        km::KeyManager::for_account(&self.dir, passphrase, email)?.import_link(armored, code)?;
+        self.km_status(passphrase, email)
+    }
+
+    /// Level 2 (quantum-aided AES) or 3 (one-time pad). Returns the armored block.
+    pub fn qkd_seal(&self, passphrase: &str, email: &str, level: u8, plaintext: &str) -> Result<String> {
+        qkd::seal(&km::KeyManager::for_account(&self.dir, passphrase, email)?, level, plaintext)
+    }
+
+    /// `{ plaintext, level, senderSae }`. The keys are deleted from the bank.
+    pub fn qkd_open(&self, passphrase: &str, email: &str, armored: &str) -> Result<String> {
+        json(&qkd::open(&km::KeyManager::for_account(&self.dir, passphrase, email)?, armored)?)
     }
 
     /// The address of the identity this device holds, if any. Used by the FFI

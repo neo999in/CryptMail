@@ -168,6 +168,34 @@ impl CryptMailCore {
         Ok(self.core.session_status(&email, &self.passphrase, &keys)?)
     }
 
+    /// → KM status JSON for the signed-in mailbox `email` — the one login.
+    /// Never a key.
+    pub fn km_status(&self, email: String) -> FfiResult<String> {
+        Ok(self.core.km_status(&self.passphrase, &email)?)
+    }
+
+    pub fn km_regenerate(&self, email: String) -> FfiResult<String> {
+        Ok(self.core.km_regenerate(&self.passphrase, &email)?)
+    }
+
+    pub fn km_export_link(&self, email: String, code: String) -> FfiResult<String> {
+        Ok(self.core.km_export_link(&self.passphrase, &email, &code)?)
+    }
+
+    pub fn km_import_link(&self, email: String, armored: String, code: String) -> FfiResult<String> {
+        Ok(self.core.km_import_link(&self.passphrase, &email, &armored, &code)?)
+    }
+
+    /// Level 2 or 3 → the armored QKD block. The keys never leave the core.
+    pub fn qkd_seal(&self, email: String, level: u8, plaintext: String) -> FfiResult<String> {
+        Ok(self.core.qkd_seal(&self.passphrase, &email, level, &plaintext)?)
+    }
+
+    /// → `{ plaintext, level, senderSae }`. Opens once.
+    pub fn qkd_open(&self, email: String, armored: String) -> FfiResult<String> {
+        Ok(self.core.qkd_open(&self.passphrase, &email, &armored)?)
+    }
+
     /// → the `decrypt_verify` document plus `forwardSecret`. A forward-secret
     /// message opens **once**: the caller must keep what it decrypted.
     pub fn open(&self, armored: String, sender_keys_json: String) -> FfiResult<String> {
