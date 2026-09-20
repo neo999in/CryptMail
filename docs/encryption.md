@@ -94,6 +94,13 @@ Autocrypt is opportunistic and deliberately low-friction; for stronger
 guarantees we layer keyserver discovery and optional manual verification (see
 [key-management.md](key-management.md)).
 
+**Security levels.** On `feat/qkd` the user picks a level per message
+([design](superpowers/specs/2026-09-20-qkd-levels-design.md)): 1 OpenPGP to
+long-term keys, 2 AES seeded by a quantum key, 3 a one-time pad from quantum
+keys, 4 per-email keys (the default). Levels 2 and 3 take their keys from a
+simulated Key Manager, so they need no recipient public key; the table below is
+levels 1 and 4.
+
 ## Encryption decision at send time
 
 When the user hits Send, the app resolves a key for **each** recipient — local

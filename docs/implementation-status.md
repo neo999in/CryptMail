@@ -9,6 +9,14 @@ appears under "verified" only if a command was run and its output read.
 
 Last updated: 2026-09-19.
 
+> **QKD security levels (2026-09-20, on `main`):** ✅ `cargo test` 95, app suite
+> 1,795; on the emulator a Level 2 and a Level 3 message each went through Gmail
+> and opened with its level named, and the key bank's counts matched. ⛔ opening
+> through the Key Manager rather than the archive (needs two linked installs),
+> and no real KM hardware — the Key Manager is **simulated**, so it is not
+> quantum security. See
+> [the design](superpowers/specs/2026-09-20-qkd-levels-design.md).
+>
 > **Per-email keys only (`feat/per-email-keys-only`, 2026-09-19):** ✅ `cargo
 > test` 82, app suite 1,783, interop 14/14, and on the emulator the strict build
 > runs and refuses mail only to yourself; ⛔ two installs completing a

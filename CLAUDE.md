@@ -4,15 +4,30 @@ Do not ever create artifacts
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Work in progress — read first
+## Recently landed on `main` — read first
 
-Per-email keys (forward secrecy) and device transfer are committed on
-`feat/per-email-keys`, which keeps a long-term-key fallback. The branch
-`feat/per-email-keys-only`, cut from it, removes the fallback: nothing the user
-writes is sealed to a long-term key, and first contact goes through a
-contentless handshake (`state/handshake.ts`). Neither branch is merged into
-`main`. State, decisions, build steps, emulator traps and what is next:
+Three pieces of encryption work merged on 2026-09-20. Together they are what
+the send path now does, so read them before changing it.
+
+1. **Per-email keys** ([design](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)):
+   every message the user writes gets its own key, destroyed once read.
+2. **Per-email keys only**: `seal` never falls back to a long-term key. First
+   contact is a contentless handshake (`state/handshake.ts`), answered
+   automatically during a sync, and the message waits (`awaiting-session`)
+   until it is. A recipient who does not use CryptMail cannot be sent encrypted
+   mail; Level 1 below is the explicit way out.
+3. **Device transfer** — moving key, conversations and archive to a new phone —
+   and **QKD security levels**
+   ([design](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)): a
+   simulated Key Manager in the core (`core/src/km.rs`; its keys are random, so
+   it is **not** quantum security) behind Levels 1–3, with Level 4 (per-email
+   keys) the default. The Key Manager's login is the mailbox login.
+
+State, decisions already made, build steps, emulator traps and what is next:
 [docs/handoff-2026-09-19-per-email-keys.md](docs/handoff-2026-09-19-per-email-keys.md).
+The branches `feat/per-email-keys`, `feat/per-email-keys-only` and `feat/qkd`
+are the history of that work; `feat/per-email-keys` is the only place the
+long-term-key fallback still exists.
 
 ## What this is
 
@@ -242,6 +257,17 @@ once, and **hands the old phone's sessions over** — it stops sending by sessio
 because two phones writing into one conversation breaks it. The new phone's
 restore field takes that file as it takes a backup.
 
+**Security levels** ([docs/superpowers/specs/2026-09-20-qkd-levels-design.md](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)):
+compose picks one per message. **1** OpenPGP to long-term keys (the explicit
+"no quantum security" choice); **2** AES-256-GCM seeded by one 1 Kb key from
+the Key Manager; **3** a one-time pad from those keys, one per 128 bytes plus
+one for the HMAC; **4** per-email keys, the default. Levels 2 and 3 need no
+recipient key at all — holding the same bank is what makes a message readable —
+and their keys are deleted as the message opens, so they are archived exactly
+as per-email-key mail is. `deliver` branches on the level and a held message
+carries it. The bank never leaves the core; the app sees only status and
+ciphertext.
+
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))
 stays synchronous and network-free because it decides whether a send is allowed.
@@ -261,12 +287,11 @@ These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
    - a recipient with **no key yet** has the message *held* in the outbox
      (`awaiting-key`) while a contentless invite goes to them; it delivers itself
      once a key exists. The UI must say *queued*, never *sent*.
-   - on `feat/per-email-keys-only`, a recipient with a key but **no per-email
-     key session** has the message held (`awaiting-session`) while a contentless
+   - a recipient with a key but **no per-email key session** has the message held (`awaiting-session`) while a contentless
      handshake goes to them (`state/handshake.ts`). It is never sealed to their
      long-term key instead: **nothing the user writes is sealed to a long-term
-     key on that branch**, and `deliver` refuses to put anything on the wire that
-     is not sealed with a per-email key.
+     key**, unless they pick Level 1 up front, and `deliver` refuses to put
+     anything on the wire that is not sealed the way its level says.
 
    Enforced in `deliver`/`sendEncrypted` in
    [app/src/state/send.ts](app/src/state/send.ts) and covered by

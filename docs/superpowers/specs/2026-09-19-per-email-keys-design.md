@@ -10,8 +10,9 @@ harvest-now-decrypt-later: Gmail keeps every ciphertext indefinitely, and one
 long-term key opened all of it. This closes that for mail between CryptMail
 users. Mail with anyone else is unchanged.
 
-> **Branch `feat/per-email-keys-only`: per-email keys only.** On this branch
-> nothing the user writes is ever sealed to a long-term key. See
+> **Per-email keys only** — on `main` since 2026-09-20. Nothing the user writes
+> is ever sealed to a long-term key, unless they choose Level 1
+> ([QKD levels](2026-09-20-qkd-levels-design.md)). See
 > [§Per-email keys only](#per-email-keys-only) — it overrides decisions 1, 3 and
 > 4 below, and "the first message is not forward-secret" under *What this does
 > not do*. `feat/per-email-keys` keeps the default-on design with the

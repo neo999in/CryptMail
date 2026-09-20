@@ -6,11 +6,13 @@ check it, and what is next. The design itself — protocol, wire format, threat
 model — is in
 [superpowers/specs/2026-09-19-per-email-keys-design.md](superpowers/specs/2026-09-19-per-email-keys-design.md).
 
-**Branches** (created with the user's permission; not pushed, not merged):
+**Merged into `main` on 2026-09-20** (fast-forward, with the user's
+permission; not pushed). The branches below are the history:
 
 | Branch | What it is |
 |---|---|
 | `feat/per-email-keys` | Per-email keys on by default, with a long-term-key fallback for first contact and non-CryptMail recipients. Device transfer. Three commits on `main`. |
+| `feat/qkd` | Cut from `feat/per-email-keys-only`, and the tip that `main` now points at. Adds the simulated QKD **Key Manager** and security **Levels 1–3** beside the default Level 4. [Its design](superpowers/specs/2026-09-20-qkd-levels-design.md). |
 | `feat/per-email-keys-only` | Cut from the branch above. **Per-email keys only**: `seal` never falls back, first contact goes through a contentless handshake, and messages wait (`awaiting-session`) until it is answered. See [§8](#8-per-email-keys-only-branch). |
 
 Claude runs git write commands in this repo only with the user's explicit
@@ -210,8 +212,7 @@ Limits worth knowing (from the design doc):
 
 ## 7. Git state
 
-Committed on the two branches listed at the top of this file; nothing is
-pushed. Still untracked and **not part of this work** — leave them out unless
+Merged into `main` (fast-forward); nothing is pushed. Still untracked and **not part of this work** — leave them out unless
 you mean to include them:
 - `assets/logo-transperant.png`
 - `docs/contributions.md`
