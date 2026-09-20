@@ -24,6 +24,7 @@ import { OpenedMessage, useApp } from '../state/AppState';
 import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { settingsOf } from '../store/accountScope';
 import { countRemoteImages } from '../html/remoteImages';
+import { LEVELS } from '../core/qkd';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
@@ -619,6 +620,18 @@ export function MessageScreen({ route, navigation }: Props) {
                   {opened.notice ? (
                     <View style={{ marginBottom: 14 }}>
                       <Banner tone="warn" icon="alert">{opened.notice}</Banner>
+                    </View>
+                  ) : null}
+                  {/* Which security level sealed it. Level 4 is the default and
+                      goes unsaid; the others were someone's deliberate choice. */}
+                  {opened.decrypted?.securityLevel && opened.decrypted.securityLevel !== 4 ? (
+                    <View style={{ marginBottom: 14 }}>
+                      <Banner tone={opened.decrypted.securityLevel === 1 ? 'note' : 'ok'} icon="lock">
+                        {LEVELS[opened.decrypted.securityLevel].name}.{' '}
+                        {opened.decrypted.securityLevel === 1
+                          ? 'Sealed to a long-term key, so it opens again later.'
+                          : 'Opened with quantum keys from your Key Manager, which are now deleted — this copy on the phone is the only one.'}
+                      </Banner>
                     </View>
                   ) : null}
                   {/* Real mail is mostly HTML, and the plain-text alternative

@@ -110,6 +110,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
           inReplyTo: item.inReplyTo,
           references: item.references,
           attachments: item.attachments,
+          level: item.level,
         });
         if (outcome.status === 'sent') sent.push(item.id);
       } catch (e) {
@@ -163,6 +164,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         inReplyTo: input.inReplyTo,
         references: input.references,
         attachments: input.attachments,
+        level: input.level,
       });
       scheduleOneShot(input.sendAt);
     },
@@ -199,6 +201,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
         inReplyTo: item.inReplyTo,
         references: item.references,
         attachments: item.attachments,
+        level: item.level,
       });
       if (outcome.status !== 'sent') return outcome;
       await forget([id]);
@@ -254,6 +257,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             inReplyTo: item.inReplyTo,
             references: item.references,
             attachments: item.attachments,
+            level: item.level,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {
@@ -301,6 +305,7 @@ export function createScheduler(ctx: Ctx): SchedulerService {
             inReplyTo: item.inReplyTo,
             references: item.references,
             attachments: item.attachments,
+            level: item.level,
           });
           if (outcome.status === 'sent') sent.push(item.id);
         } catch (e) {

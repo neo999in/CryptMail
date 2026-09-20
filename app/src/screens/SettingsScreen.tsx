@@ -131,6 +131,7 @@ export function SettingsScreen({ navigation }: Props) {
           },
           { icon: 'shield', label: 'Key recovery', onPress: () => navigation.navigate('Recovery') },
           { icon: 'forward', label: 'Move to a new phone', onPress: () => navigation.navigate('Transfer') },
+          { icon: 'shield', label: 'Quantum Key Manager', onPress: () => navigation.navigate('KeyManager') },
           { icon: 'signout', label: 'Sign out', onPress: confirmSignOut, tint: color.coral },
         ],
       },

@@ -131,6 +131,33 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.sessionStatus(email, recipientKeysJson) }
     }
 
+    // The simulated QKD Key Manager (Levels 2 and 3). One login: every call
+    // names the signed-in mailbox, whose bank the core keeps. The quantum keys
+    // themselves never leave Rust — only ciphertext and status cross here.
+    AsyncFunction("kmStatus") Coroutine { email: String ->
+      mapErrors { core.kmStatus(email) }
+    }
+
+    AsyncFunction("kmRegenerate") Coroutine { email: String ->
+      mapErrors { core.kmRegenerate(email) }
+    }
+
+    AsyncFunction("kmExportLink") Coroutine { email: String, code: String ->
+      mapErrors { core.kmExportLink(email, code) }
+    }
+
+    AsyncFunction("kmImportLink") Coroutine { email: String, armored: String, code: String ->
+      mapErrors { core.kmImportLink(email, armored, code) }
+    }
+
+    AsyncFunction("qkdSeal") Coroutine { email: String, level: Int, plaintext: String ->
+      mapErrors { core.qkdSeal(email, level.toUByte(), plaintext) }
+    }
+
+    AsyncFunction("qkdOpen") Coroutine { email: String, armored: String ->
+      mapErrors { core.qkdOpen(email, armored) }
+    }
+
     // Device transfer. Exporting hands this phone's conversations over, so the
     // old phone stops sending by session; `resumeSessions` takes them back.
     // Both directions run Argon2id for the identity key, hence `Coroutine`.

@@ -11,6 +11,7 @@ import { MailHolder, Services } from './contracts';
 import { createContacts } from './contacts';
 import { createDrafts } from './drafts';
 import { createHandshake } from './handshake';
+import { createKm } from './km';
 import { createIdentityService } from './identity';
 import { createLabels } from './labels';
 import { createMailbox } from './mailbox';
@@ -43,6 +44,7 @@ export function createServices(store: Store): { services: Services; mail: MailHo
   services.rules = createRules(ctx);
   services.notify = createNotify(ctx, osNotifier);
   services.handshake = createHandshake(ctx);
+  services.km = createKm(ctx);
 
   return { services, mail };
 }

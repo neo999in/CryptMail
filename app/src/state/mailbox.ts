@@ -545,7 +545,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
         // A forward-secret message opens once: its key is destroyed as it is
         // used, so every later open reads the copy kept the first time.
         const archived = await readArchived(account, raw);
-        const decrypted = archived ?? (await core.parseEncrypted(raw));
+        // The signed-in mailbox names the Key Manager that opens Level 2/3 mail.
+        const decrypted = archived ?? (await core.parseEncrypted(raw, store.get().session?.email));
         let notice: string | undefined;
         if (!archived && decrypted.forwardSecret) {
           // Awaited, and before anything else can fail: past this point there

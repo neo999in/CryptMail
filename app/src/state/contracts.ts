@@ -13,7 +13,7 @@
 import { ImapSignIn, Provider, Session } from '../auth';
 import { Discovered } from '../mail/autoconfig';
 import { ImapAccount } from '../mail/imap';
-import { Identity, RecoveryBackup } from '../core';
+import { Identity, KmLink, KmStatus, RecoveryBackup } from '../core';
 import { Draft } from '../drafts/drafts';
 import { Label, LabelChange } from '../labels/labels';
 import { NotificationTap } from '../notifications/os';
@@ -157,6 +157,14 @@ export type PublishService = {
   refreshPublish(): Promise<void>;
   /** Adopt the listing a restored key already had, so it is not published twice. */
   reconcilePublish(): Promise<void>;
+};
+
+/** The simulated QKD Key Manager for the signed-in mailbox — see `state/km.ts`. */
+export type KmService = {
+  status(): Promise<KmStatus>;
+  regenerate(): Promise<KmStatus>;
+  exportLink(): Promise<KmLink>;
+  importLink(blob: string, code: string): Promise<KmStatus>;
 };
 
 /** First contact with per-email keys only — see `state/handshake.ts`. */
@@ -385,6 +393,7 @@ export type Services = {
   rules: RulesService;
   notify: NotifyService;
   handshake: HandshakeService;
+  km: KmService;
 };
 
 export type Ctx = {

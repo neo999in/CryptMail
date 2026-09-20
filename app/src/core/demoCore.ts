@@ -214,6 +214,20 @@ export const demoCore: CryptCore = {
     return rfc822;
   },
 
+  /** The Key Manager lives in the real core: its keys never exist in JavaScript. */
+  async kmStatus() {
+    throw noKm();
+  },
+  async kmRegenerate() {
+    throw noKm();
+  },
+  async kmExportLink() {
+    throw noKm();
+  },
+  async kmImportLink() {
+    throw noKm();
+  },
+
   /** Nothing to hand over: the demo core has no conversations. */
   async transferStatus() {
     return { handedOverAt: null };
@@ -222,6 +236,7 @@ export const demoCore: CryptCore = {
   async resumeSessions() {},
 
   async buildEncrypted(request: BuildRequest): Promise<string> {
+    if (request.level === 2 || request.level === 3) throw noKm();
     if (request.recipientKeys.length === 0) {
       throw new CoreError('Refusing to build a message with no recipient keys.', 'no-key');
     }
@@ -321,6 +336,10 @@ function dearmorRecovery(blob: string): string | null {
     .filter((line) => line.trim() !== '' && !line.includes(':'))
     .join('')
     .trim();
+}
+
+function noKm(): CoreError {
+  return new CoreError('The quantum Key Manager needs the real crypto core (demo mode is running).', 'unavailable');
 }
 
 function randomFingerprint(): string {

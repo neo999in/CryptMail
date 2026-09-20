@@ -11,7 +11,8 @@
  * (`state/handshake.ts`) and the message waits until their CryptMail answers.
  */
 import { buildPlaintext, core, CoreError } from '../core';
-import { isForwardSecret } from '../core/mime';
+import { isForwardSecret, isPgpMime } from '../core/mime';
+import { DEFAULT_LEVEL, isQkdMessage } from '../core/qkd';
 import { cryptoMode } from '../config';
 import { archive } from '../store/archiveStore';
 import { recordInvite, saveInvites, shouldInvite } from '../store/inviteStore';
@@ -100,10 +101,50 @@ export function createSend(ctx: Ctx): SendService {
      *  · someone has a key but no per-email keys with this device yet → the
      *    message waits (`awaiting-session`) and they get a contentless handshake.
      *    It is never sealed to their long-term key instead.
+     *
+     * That is Level 4, the default. The user may choose another level up front
+     * (`core/qkd.ts`): Level 1 seals to long-term keys, the checks above apply
+     * but the session ones do not; Levels 2 and 3 take keys from the Key
+     * Manager, so no recipient key is needed at all.
      */
-    async deliver({ id, to, subject, body, html, inReplyTo, references, attachments }: SendInput): Promise<SendOutcome> {
+    async deliver({ id, to, subject, body, html, inReplyTo, references, attachments, level }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
+      const chosen = level ?? DEFAULT_LEVEL;
+
+      // Levels 2 and 3: the quantum keys come from this mailbox's Key Manager,
+      // and the recipient's KM holds the same ones — nothing about their public
+      // key matters. Like per-email keys, it opens once, so it is kept first.
+      if (chosen === 2 || chosen === 3) {
+        if (to.length === 0) throw new CoreError('Add a recipient first.', 'no-key');
+        const rfc822 = await core.buildEncrypted({
+          from: session.email,
+          to,
+          subject,
+          body,
+          html,
+          recipientKeys: [],
+          autocryptKey: identity.publicKeyArmored,
+          inReplyTo,
+          references,
+          attachments,
+          level: chosen,
+        });
+        if (!isQkdMessage(rfc822)) {
+          throw new CoreError('Refusing to send a message that is not sealed with quantum keys.', 'unavailable');
+        }
+        await archive(ctx.services.accounts.requireActive(), rfc822, {
+          subject,
+          body,
+          html,
+          attachments: attachments ?? [],
+          signature: 'none',
+          forwardSecret: true,
+          securityLevel: chosen,
+        });
+        await mail.current.send(rfc822);
+        return { status: 'sent' };
+      }
 
       const recipients = await ctx.services.contacts.discoverRecipients(to);
 
@@ -132,6 +173,7 @@ export function createSend(ctx: Ctx): SendService {
           // Held whole. A message that came back from the outbox without its
           // attachment would be a different message than the one the user sent.
           attachments,
+          level,
         });
         await sendInvites(missing);
         return { status: 'queued', pending: missing };
@@ -139,6 +181,27 @@ export function createSend(ctx: Ctx): SendService {
 
       const gate = service.canSendEncrypted();
       if (!gate.allowed) throw new CoreError(gate.reason ?? 'Sending is disabled.', 'unavailable');
+
+      // Level 1, the user's explicit choice: standard OpenPGP to long-term keys,
+      // with the sender's own key so Sent stays readable. No session needed.
+      if (chosen === 1) {
+        const rfc822 = await core.buildEncrypted({
+          from: session.email,
+          to,
+          subject,
+          body,
+          html,
+          recipientKeys: [...new Set([...recipients.map((r) => r.key!.armored), identity.publicKeyArmored])],
+          autocryptKey: identity.publicKeyArmored,
+          inReplyTo,
+          references,
+          attachments,
+          level: 1,
+        });
+        if (!isPgpMime(rfc822)) throw new CoreError('Refusing to send a message that is not encrypted.', 'unavailable');
+        await mail.current.send(rfc822);
+        return { status: 'sent' };
+      }
 
       // Per-email keys only. Ask the core where each recipient stands before
       // building anything: a message is sealed only when all of them can take

@@ -37,13 +37,25 @@ jest.mock('../../core', () => {
       sessionStatus: jest.fn(async (_email: string, keys: string[]) =>
         keys.map((k) => mockStatus.get(k) ?? 'none'),
       ),
-      buildEncrypted: jest.fn(async (req: { to: string[]; subject: string; body: string; handshake?: boolean }) =>
-        mime.buildEncryptedEnvelope({
-          from: 'me@example.com',
-          to: req.to,
-          armored: `-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n\nsealed:${req.subject}\n-----END PGP MESSAGE-----`,
-          handshake: req.handshake,
-        }),
+      buildEncrypted: jest.fn(
+        async (req: { to: string[]; subject: string; body: string; handshake?: boolean; level?: number }) => {
+          const qkd = jest.requireActual('../../core/qkd');
+          if (req.level === 2 || req.level === 3) {
+            return qkd.buildQkdEnvelope({
+              from: 'me@example.com',
+              to: req.to,
+              level: req.level,
+              armored: `${qkd.QKD_BEGIN}\nLevel: ${req.level}\n\nc2VhbGVk\n${qkd.QKD_END}`,
+            });
+          }
+          const session = req.level === 1 ? '' : 'CryptMail-Session: AAAA\n';
+          return mime.buildEncryptedEnvelope({
+            from: 'me@example.com',
+            to: req.to,
+            armored: `-----BEGIN PGP MESSAGE-----\n${session}\nsealed:${req.subject}\n-----END PGP MESSAGE-----`,
+            handshake: req.handshake,
+          });
+        },
       ),
       buildHandshake: jest.fn(async (req: { to: string }) =>
         mime.buildEncryptedEnvelope({
@@ -296,5 +308,44 @@ describe('answering handshakes during a sync', () => {
       arrived(h, 'm3', 'RAW-3', hello(), { account: 'gmail:other@example.com' }),
     ]);
     expect(h.wire).toHaveLength(0);
+  });
+});
+
+describe('the security levels', () => {
+  it('Level 2 needs no recipient key and no session: it seals with the Key Manager and is kept before it leaves', async () => {
+    const h = harness({ keyring: {} });
+    const outcome = await h.services.send.sendEncrypted({ ...MESSAGE, level: 2 });
+
+    expect(outcome).toEqual({ status: 'sent' });
+    expect(h.wire).toHaveLength(1);
+    expect(h.wire[0]).toContain('-----BEGIN CRYPTMAIL QKD MESSAGE-----');
+    expect(h.wire[0]).not.toContain('Quarterly numbers');
+    expect(h.wire[0]).not.toContain(HANDSHAKE_SUBJECT);
+    expect(mockArchived.get(h.wire[0])).toMatchObject({ subject: 'Quarterly numbers', securityLevel: 2, forwardSecret: true });
+  });
+
+  it('Level 3 goes the same way, and can be written to yourself', async () => {
+    const h = harness();
+    expect(await h.services.send.sendEncrypted({ ...MESSAGE, to: ['me@example.com'], level: 3 })).toEqual({
+      status: 'sent',
+    });
+    expect(h.wire[0]).toContain('Level: 3');
+  });
+
+  it('Level 1 is standard OpenPGP: no handshake, no session, sent at once', async () => {
+    const h = harness();
+    expect(await h.services.send.sendEncrypted({ ...MESSAGE, level: 1 })).toEqual({ status: 'sent' });
+    expect(h.wire).toHaveLength(1);
+    expect(h.wire[0]).toContain('multipart/encrypted');
+    expect(h.wire[0]).not.toContain('CryptMail-Session');
+    expect(h.wire[0]).not.toContain(HANDSHAKE_SUBJECT);
+  });
+
+  it('a held message keeps the level it was written at', async () => {
+    const h = harness({ keyring: {} });
+    await h.services.send.sendEncrypted({ ...MESSAGE, to: ['nobody@example.com'], level: 1 });
+    const [held] = Object.values(h.store.get().scheduled);
+    expect(holdReason(held)).toBe('awaiting-key');
+    expect(held.level).toBe(1);
   });
 });

@@ -54,6 +54,8 @@ export type RootStackParamList = {
   Recovery: undefined;
   /** Moving this phone's key, conversations and archive to a replacement. */
   Transfer: undefined;
+  /** The simulated QKD Key Manager behind Levels 2 and 3. */
+  KeyManager: undefined;
   Settings: undefined;
   Appearance: undefined;
   /** How mail behaves, as against how it looks. Swipe gestures live under it. */

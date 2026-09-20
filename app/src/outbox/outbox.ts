@@ -27,7 +27,7 @@
  * message as a self-addressed encrypted draft in the user's own mailbox). The
  * scheduler lives in state/scheduler.ts; persistence in store/outboxStore.ts.
  */
-import { Identity } from '../core';
+import { Identity, SecurityLevel } from '../core';
 import { Attachment } from '../mail/attachment';
 import { resolveRecipientStates } from '../state/recipients';
 import { Keyring } from '../store/keyring';
@@ -49,6 +49,8 @@ export type Scheduled = {
   references?: string[];
   /** Files, carried whole — a held message is delivered exactly as written. */
   attachments?: Attachment[];
+  /** The security level the user chose, carried so a held message keeps it. */
+  level?: SecurityLevel;
 };
 
 /** A queued message plus why it has not gone yet. */

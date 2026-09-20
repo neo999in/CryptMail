@@ -108,7 +108,40 @@ export type BuildRequest = {
    * sync finds it; the caller supplies the fixed text from `core/handshake.ts`.
    */
   handshake?: boolean;
+  /**
+   * Which security level seals it (`core/qkd.ts`). Defaults to 4, per-email
+   * keys. 1 is OpenPGP to long-term keys — only ever the user's explicit
+   * choice. 2 and 3 take keys from the Key Manager and need no recipient keys.
+   */
+  level?: SecurityLevel;
 };
+
+/**
+ * The security levels the user can choose between, in the problem statement's
+ * numbering: 1 no quantum security (OpenPGP), 2 quantum-aided AES, 3 quantum
+ * one-time pad, 4 post-quantum per-email keys (the default).
+ */
+export type SecurityLevel = 1 | 2 | 3 | 4;
+
+/**
+ * The simulated QKD Key Manager, as the app may see it — never a key.
+ * `account` is the signed-in mailbox: the KM login is the mail login.
+ */
+export type KmStatus = {
+  account: string;
+  saeId: string;
+  peerSaeId: string | null;
+  role: 'Solo' | 'Master' | 'Slave';
+  /** Keys this end can still encrypt with. */
+  available: number;
+  /** Keys still in the bank, either end's, not yet consumed. */
+  remaining: number;
+  bankSize: number;
+  keyBits: number;
+};
+
+/** The simulated QKD link: this bank sealed for the other phone, under a code shown once. */
+export type KmLink = { code: string; blob: string };
 
 /** A first-contact handshake: one recipient, fixed content, see `core/handshake.ts`. */
 export type HandshakeRequest = {
@@ -153,6 +186,8 @@ export type DecryptedMessage = {
    * (`store/archiveStore.ts`), because no key anywhere can open it again.
    */
   forwardSecret?: boolean;
+  /** The level it was sealed at. 2 and 3 open once, like per-email keys. */
+  securityLevel?: SecurityLevel;
 };
 
 export interface CryptCore {
@@ -226,8 +261,20 @@ export interface CryptCore {
   /** Per recipient key, in order: see `SessionStatus`. */
   sessionStatus(email: string, recipientKeys: string[]): Promise<SessionStatus[]>;
 
-  /** M5 inverse: detect, decrypt, verify, restore the protected subject. */
-  parseEncrypted(rfc822: string): Promise<DecryptedMessage>;
+  /**
+   * M5 inverse: detect, decrypt, verify, restore the protected subject.
+   * `mailbox` is the signed-in address, whose Key Manager opens Level 2/3 mail.
+   */
+  parseEncrypted(rfc822: string, mailbox?: string): Promise<DecryptedMessage>;
+
+  /** The Key Manager for the signed-in `mailbox` — the one login. Created on first use. */
+  kmStatus(mailbox: string): Promise<KmStatus>;
+  /** A fresh bank of 100 × 1 Kb keys. A linked bank must be linked again. */
+  kmRegenerate(mailbox: string): Promise<KmStatus>;
+  /** Seal this bank for the other phone; this end becomes master. */
+  kmExportLink(mailbox: string): Promise<KmLink>;
+  /** Adopt the other phone's link. */
+  kmImportLink(mailbox: string, blob: string, code: string): Promise<KmStatus>;
 
   /** Cheap structural check used to decide whether to call `parseEncrypted`. */
   looksEncrypted(rfc822: string): boolean;

@@ -23,6 +23,8 @@ import {
   textToHtml,
 } from '../compose/richText';
 import { cryptoMode } from '../config';
+import { KmStatus } from '../core';
+import { DEFAULT_LEVEL, LEVELS, otpKeysNeeded, SecurityLevel } from '../core/qkd';
 import { Contact, searchContacts } from '../contacts/contacts';
 import { useContacts } from '../contacts/useContacts';
 import { isDraftEmpty } from '../drafts/drafts';
@@ -147,6 +149,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     activeAccount,
     switchAccount,
     session,
+    kmStatus,
   } = useApp();
   const contacts = useContacts();
   const { replies: cannedReplies } = useCannedReplies();
@@ -235,6 +238,15 @@ export function ComposeScreen({ route, navigation }: Props) {
   const [mode, setMode] = useState<SendMode>('encrypted');
   /** Set when the message was held for a key rather than delivered. */
   const [queued, setQueued] = useState<string[] | null>(null);
+  /**
+   * The security level this message goes at (`core/qkd.ts`). Level 4 — a
+   * per-email key — unless the user picks another for this message.
+   */
+  const [level, setLevel] = useState<SecurityLevel>(DEFAULT_LEVEL);
+  const quantum = level === 2 || level === 3;
+  /** This mailbox's Key Manager, read when a quantum level is chosen. */
+  const [km, setKm] = useState<KmStatus | null>(null);
+  const [kmError, setKmError] = useState<string | null>(null);
   /** What a queued message waits on: their key, or per-email keys with them. */
   const [queuedFor, setQueuedFor] = useState<'key' | 'session'>('key');
   /** The From picker, opened from the address under the title. */
@@ -362,6 +374,20 @@ export function ComposeScreen({ route, navigation }: Props) {
     [contacts, draft, to],
   );
 
+  // The Key Manager is read when a quantum level is picked, and again after a
+  // send — its count of keys left is what decides whether Level 3 fits.
+  useEffect(() => {
+    if (!quantum) return;
+    let live = true;
+    setKmError(null);
+    kmStatus()
+      .then((status) => live && setKm(status))
+      .catch((e) => live && setKmError(userMessage(e)));
+    return () => {
+      live = false;
+    };
+  }, [quantum, kmStatus]);
+
   const recipients = useMemo(() => resolveRecipients(to), [resolveRecipients, to]);
   const missing = recipients.filter((r) => r.status === 'missing');
   const changed = recipients.filter((r) => r.status === 'changed');
@@ -369,8 +395,20 @@ export function ComposeScreen({ route, navigation }: Props) {
   const gate = canSendEncrypted();
   // Per-email keys only: a message needs someone other than you to hold a key
   // for it. Caught here so the send button says so, rather than the send failing.
+  // Only Level 4 needs someone else: Level 1 seals to your own key, and Levels
+  // 2 and 3 to your own Key Manager, both of which can read mail to yourself.
   const onlyMe =
-    to.length > 0 && !!session && to.every((a) => a.trim().toLowerCase() === session.email.toLowerCase());
+    level === 4 &&
+    to.length > 0 &&
+    !!session &&
+    to.every((a) => a.trim().toLowerCase() === session.email.toLowerCase());
+  // A one-time pad spends one 1 Kb key per 128 bytes of the sealed message —
+  // estimated from what it holds, plus the headers the inner tree adds.
+  const sealedBytes =
+    subject.length + body.length + (html?.length ?? 0) + attachments.reduce((n, a) => n + a.data.length, 0) + 400;
+  const otpKeys = otpKeysNeeded(sealedBytes);
+  const otpTooBig = level === 3 && km !== null && otpKeys > km.available;
+  const kmBlocked = quantum && (km === null || kmError !== null || otpTooBig || km.available === 0);
 
   // A missing key no longer blocks: the message is held and an invite goes out.
   // A *changed* key still does — waiting cannot resolve a possible substitution.
@@ -379,13 +417,17 @@ export function ComposeScreen({ route, navigation }: Props) {
   // path that must not consult a recipient's key state, because a send that
   // *becomes* possible when a key is absent is the downgrade wearing a hat. The
   // only thing that can block it is having nobody to send to.
+  // Levels 2 and 3 use no recipient key, so nothing about keys blocks them —
+  // only having nobody to send to, or a Key Manager that cannot cover it.
   const blocked = plain
     ? to.length === 0
-    : to.length === 0 || changed.length > 0 || looking || !gate.allowed || onlyMe;
+    : quantum
+      ? to.length === 0 || kmBlocked
+      : to.length === 0 || changed.length > 0 || looking || !gate.allowed || onlyMe;
   // Only a real problem is coloured like one. Waiting on a lookup, or on a
   // recipient who has yet to install anything, is not a warning — an
   // unencrypted message is, for as long as it is on screen.
-  const alarming = plain || changed.length > 0 || !gate.allowed;
+  const alarming = plain || (!quantum && changed.length > 0) || !gate.allowed || otpTooBig;
 
   /* ------------------------------------------------------------- from ---- */
 
@@ -693,7 +735,8 @@ export function ComposeScreen({ route, navigation }: Props) {
       // reaches the wire on a timer, so delaying it would only misreport what
       // happened. Those go straight through sendEncrypted, which is the one
       // place rule 1 is enforced.
-      const states = await discoverRecipients(to);
+      // Levels 2 and 3 need no recipient key, so nothing about keys can hold them.
+      const states = quantum ? [] : await discoverRecipients(to);
       const held = states.some((r) => r.status === 'missing' || r.status === 'changed');
 
       if (held) {
@@ -706,6 +749,7 @@ export function ComposeScreen({ route, navigation }: Props) {
           attachments,
           inReplyTo,
           references,
+          level,
         });
         await deleteDraft(draftId);
         // A held message has *not* been sent, and the screen does not get to
@@ -731,6 +775,7 @@ export function ComposeScreen({ route, navigation }: Props) {
         inReplyTo,
         references,
         sendAt,
+        level,
       });
       await deleteDraft(draftId);
       navigation.goBack();
@@ -808,6 +853,7 @@ export function ComposeScreen({ route, navigation }: Props) {
         inReplyTo,
         references,
         sendAt: sendAt.toISOString(),
+        level,
       });
       await deleteDraft(draftId);
       navigation.goBack();
@@ -963,6 +1009,36 @@ export function ComposeScreen({ route, navigation }: Props) {
             tone="warn"
           />
         </View>
+      )}
+      {queued || plain ? null : (
+        /* The security level, for encrypted mail: the problem statement's
+           three levels plus the post-quantum one this app sends by default. */
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={s.levelsBar}
+          contentContainerStyle={s.levels}
+          accessibilityLabel="Security level"
+        >
+          {([1, 2, 3, 4] as SecurityLevel[]).map((l) => (
+            <Pressable
+              key={l}
+              accessibilityRole="button"
+              accessibilityLabel={LEVELS[l].name}
+              accessibilityState={{ selected: level === l }}
+              onPress={() => setLevel(l)}
+              style={({ pressed }) => [
+                s.mode,
+                level === l && s.modeActive,
+                pressed && level !== l && { backgroundColor: color.rowPress },
+              ]}
+            >
+              <Text style={[s.modeText, { color: level === l ? color.ground : color.inkDim }, level === l && s.modeTextActive]}>
+                {LEVELS[l].short}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
       {withRichText(
@@ -1385,6 +1461,17 @@ export function ComposeScreen({ route, navigation }: Props) {
         : `Queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
     }
     if (to.length === 0) return 'Add a recipient. CryptMail encrypts every message it sends.';
+    if (quantum) {
+      if (kmError) return kmError;
+      if (!km) return 'Opening your Key Manager…';
+      const bank = `${km.available} quantum key${km.available === 1 ? '' : 's'} left in the Key Manager for ${km.account}`;
+      if (km.available === 0) return `${LEVELS[level].name}: no quantum keys left to send with. Refill or relink the bank under Settings → Quantum Key Manager.`;
+      if (level === 2) return `${LEVELS[2].name}. One 1 Kb quantum key seeds AES-256-GCM for this message · ${bank}.`;
+      if (otpTooBig) {
+        return `${LEVELS[3].name} needs ${otpKeys} keys for a message this size — one per 128 bytes — and there are ${km.available}. Shorten it, drop attachments, or use Level 2.`;
+      }
+      return `${LEVELS[3].name}. This message uses ${otpKeys} of the ${bank}.`;
+    }
     if (onlyMe) {
       return 'Every encrypted message gets its own key, shared only with the people it goes to — so it needs someone other than you. Add a recipient, or switch to Not encrypted.';
     }
@@ -1406,6 +1493,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       return `No key published for ${names} yet. CryptMail will invite them and hold this message — encrypted, undelivered — until there is a key to send it to.`;
     }
     if (!gate.allowed) return gate.reason ?? 'Sending is disabled.';
+    if (level === 1) return `${LEVELS[1].name}: standard OpenPGP to their long-term key. No quantum or per-email keys.`;
     const verified = recipients.filter((r) => r.status === 'verified').length;
     return `Encrypted for ${recipients.length} recipient${recipients.length > 1 ? 's' : ''}${
       verified ? ` · ${verified} verified` : ''
@@ -1644,6 +1732,10 @@ const s = StyleSheet.create({
   /* -------------------------------------------------------------- modes ---- */
 
   modes: { flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingVertical: 11 },
+  // `flexGrow: 0`: a horizontal ScrollView otherwise takes the free height and
+  // stretches every chip in it into a column.
+  levelsBar: { flexGrow: 0 },
+  levels: { alignItems: 'center', flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingBottom: 11 },
   mode: {
     alignItems: 'center',
     backgroundColor: color.panel,

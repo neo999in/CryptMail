@@ -42,6 +42,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { Platform } from 'react-native';
 
 import { extractArmor } from '../core/mime';
+import { extractQkdArmor } from '../core/qkd';
 import type { DecryptedMessage } from '../core/types';
 import { utf8ToBytes } from '../lib/base64';
 import { AccountId } from './accountScope';
@@ -81,7 +82,8 @@ function active(): ArchiveBackend | null {
  * `null` when the message carries no armored block, and so cannot be archived.
  */
 export function archiveKeyFor(rfc822: string): string | null {
-  const armor = extractArmor(rfc822);
+  // Level 2/3 mail opens once too — its quantum keys are deleted as it does.
+  const armor = extractArmor(rfc822) ?? extractQkdArmor(rfc822);
   if (!armor) return null;
   return bytesToHex(sha256(utf8ToBytes(armor.replace(/\s+/g, ''))));
 }

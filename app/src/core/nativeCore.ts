@@ -42,12 +42,15 @@ import {
   HandshakeRequest,
   Identity,
   ImportedTransfer,
+  KmLink,
+  KmStatus,
   PublicKeyInfo,
   RecoveryBackup,
   SessionStatus,
   SignatureStatus,
 } from './types';
 import { helloContent } from './handshake';
+import { buildQkdEnvelope, extractQkdArmor, isQkdMessage } from './qkd';
 
 export const NATIVE_MODULE_NAME = 'CryptMailCore';
 
@@ -105,6 +108,18 @@ type NativeBridge = {
   handshake?(email: string, plaintext: string, recipientKeysJson: string): Promise<string>;
   /** → JSON array of `SessionStatus`, in key order. */
   sessionStatus?(email: string, recipientKeysJson: string): Promise<string>;
+  /**
+   * The simulated QKD Key Manager. Every call names the signed-in mailbox —
+   * the KM login is the mail login. The keys themselves stay in the core.
+   */
+  kmStatus?(email: string): Promise<string>;
+  kmRegenerate?(email: string): Promise<string>;
+  kmExportLink?(email: string, code: string): Promise<string>;
+  kmImportLink?(email: string, armored: string, code: string): Promise<string>;
+  /** Level 2 or 3 → the armored QKD block. */
+  qkdSeal?(email: string, level: number, plaintext: string): Promise<string>;
+  /** → `{ plaintext, level, senderSae }`. Opens once: the keys are deleted. */
+  qkdOpen?(email: string, armored: string): Promise<string>;
   /**
    * → the armored transfer file. Hands this phone's conversations over. The
    * code is generated here, as a recovery code is. Optional, like the rest.
@@ -233,7 +248,8 @@ export function getNativeCore(
      * payload differs.
      */
     async buildEncrypted(request: BuildRequest): Promise<string> {
-      if (request.recipientKeys.length === 0) {
+      const level = request.level ?? 4;
+      if ((level === 1 || level === 4) && request.recipientKeys.length === 0) {
         throw new CoreError('Refusing to build a message with no recipient keys.', 'no-key');
       }
       const inner = buildProtectedInner({
@@ -244,7 +260,38 @@ export function getNativeCore(
         html: request.html,
         attachments: request.attachments,
       });
+      // Levels 2 and 3: keys from the Key Manager, sealed in the core, in an
+      // ordinary text email any client can carry and display.
+      if (level === 2 || level === 3) {
+        const armored = await call(
+          required(bridge, 'qkdSeal', 'Quantum encryption')(request.from, level, inner),
+          WORDING.qkdSeal,
+        );
+        return buildQkdEnvelope({
+          from: request.from,
+          to: request.to,
+          armored,
+          level,
+          autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+          inReplyTo: request.inReplyTo,
+          references: request.references,
+        });
+      }
+
       const keysJson = JSON.stringify(request.recipientKeys);
+      // Level 1, only ever the user's explicit choice: standard OpenPGP to the
+      // recipients' long-term keys, no quantum keys anywhere.
+      if (level === 1) {
+        return buildEncryptedEnvelope({
+          from: request.from,
+          to: request.to,
+          armored: await call(bridge.encryptSign(request.from, inner, keysJson), WORDING.encryptSign),
+          autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+          inReplyTo: request.inReplyTo,
+          references: request.references,
+        });
+      }
+
       // Per-email keys only: `seal` refuses anyone without a session, and there
       // is no `encryptSign` fallback — a core too old to seal cannot send. It
       // drops the sender's own key itself (a copy under our long-term key would
@@ -295,7 +342,30 @@ export function getNativeCore(
      * core as a verification candidate — so a message that carries its own key
      * can be checked on first contact rather than reading as `unknown`.
      */
-    async parseEncrypted(rfc822: string): Promise<DecryptedMessage> {
+    async parseEncrypted(rfc822: string, mailbox?: string): Promise<DecryptedMessage> {
+      const qkdBlock = extractQkdArmor(rfc822);
+      if (qkdBlock) {
+        const opened = JSON.parse(
+          await call(
+            required(bridge, 'qkdOpen', 'Opening quantum-encrypted mail')(mailbox ?? '', qkdBlock),
+            WORDING.qkdOpen,
+          ),
+        ) as { plaintext: string; level: 2 | 3 };
+        const { subject, body, html, attachments } = parseProtectedInner(opened.plaintext);
+        return {
+          subject,
+          body,
+          html,
+          attachments,
+          // Authenticated by the quantum key (GCM tag or HMAC), which only the
+          // linked Key Managers hold — not by a signature.
+          signature: 'none',
+          // Its keys are deleted as it opens, so it opens once, like per-email keys.
+          forwardSecret: true,
+          securityLevel: opened.level,
+        };
+      }
+
       const block = extractArmor(rfc822);
       if (!block) throw new CoreError('No PGP message block found.', 'malformed');
 
@@ -323,10 +393,38 @@ export function getNativeCore(
         signerFingerprint: decrypted.signerFingerprint,
         autocryptKey,
         forwardSecret: decrypted.forwardSecret === true,
+        securityLevel: decrypted.forwardSecret === true ? 4 : 1,
       };
     },
 
-    looksEncrypted: isPgpMime,
+    looksEncrypted: (raw) => isPgpMime(raw) || isQkdMessage(raw),
+
+    kmStatus: async (mailbox) =>
+      JSON.parse(
+        await call(required(bridge, 'kmStatus', 'The Key Manager')(mailbox), WORDING.km),
+      ) as KmStatus,
+
+    kmRegenerate: async (mailbox) =>
+      JSON.parse(
+        await call(required(bridge, 'kmRegenerate', 'The Key Manager')(mailbox), WORDING.km),
+      ) as KmStatus,
+
+    kmExportLink: async (mailbox): Promise<KmLink> => {
+      const code = generateRecoveryCode();
+      const blob = await call(
+        required(bridge, 'kmExportLink', 'Linking Key Managers')(mailbox, normaliseRecoveryCode(code)),
+        WORDING.km,
+      );
+      return { code, blob };
+    },
+
+    kmImportLink: async (mailbox, blob, code) =>
+      JSON.parse(
+        await call(
+          required(bridge, 'kmImportLink', 'Linking Key Managers')(mailbox, blob, normaliseRecoveryCode(code)),
+          WORDING.kmImportLink,
+        ),
+      ) as KmStatus,
   };
 }
 
@@ -348,7 +446,13 @@ function required<
     | 'resumeSessions'
     | 'seal'
     | 'handshake'
-    | 'sessionStatus',
+    | 'sessionStatus'
+    | 'kmStatus'
+    | 'kmRegenerate'
+    | 'kmExportLink'
+    | 'kmImportLink'
+    | 'qkdSeal'
+    | 'qkdOpen',
 >(
   bridge: NativeBridge,
   name: K,
@@ -419,6 +523,23 @@ const WORDING = {
     malformed: 'A recipient’s key can’t be used for encryption. Check their key in Contacts.',
     unavailable:
       'This phone handed its conversations to another phone, so it can’t send encrypted mail. Settings → Move to a new phone can take them back.',
+  },
+  qkdSeal: {
+    'no-key':
+      'The Key Manager doesn’t have enough quantum keys left for this. A one-time pad needs one 1 Kb key per 128 bytes — shorten it, use Level 2, or refill the bank.',
+  },
+  qkdOpen: {
+    'decrypt-failed':
+      'This quantum-encrypted message can’t be opened here. Its keys are not in this Key Manager — it was already opened, the Key Managers aren’t linked, or it was changed after it was sent.',
+    malformed: 'This quantum-encrypted message is damaged or incomplete.',
+    'no-key': 'Sign in to a mailbox to use its Key Manager.',
+  },
+  km: {
+    'no-key': 'Sign in to a mailbox to use its Key Manager.',
+  },
+  kmImportLink: {
+    'decrypt-failed': 'That code doesn’t open this link. Check each group against the code the other phone showed.',
+    malformed: 'That isn’t a Key Manager link file, or it is damaged.',
   },
   sessionStatus: {
     unavailable:

@@ -7,7 +7,7 @@
 import { ImapSignIn, Provider, Session } from '../auth';
 import { Discovered } from '../mail/autoconfig';
 import { ImapAccount } from '../mail/imap';
-import { DecryptedMessage, DeviceTransfer, Identity, RecoveryBackup } from '../core';
+import { DecryptedMessage, DeviceTransfer, Identity, KmLink, KmStatus, RecoveryBackup, SecurityLevel } from '../core';
 import { Draft, Drafts } from '../drafts/drafts';
 import { Label, LabelChange, LabelState } from '../labels/labels';
 import { Attachment } from '../mail/attachment';
@@ -138,6 +138,8 @@ export type SendInput = {
   references?: string[];
   /** Files to seal in alongside the body. Held with the message if it is held. */
   attachments?: Attachment[];
+  /** Which security level seals it (`core/qkd.ts`). Defaults to 4, per-email keys. */
+  level?: SecurityLevel;
 };
 
 /**
@@ -481,6 +483,13 @@ export type Actions = {
   transferStatus(): Promise<Date | null>;
   /** Take the conversations back — only safe if the other phone never sent. */
   resumeSessions(): Promise<void>;
+  /** The quantum Key Manager for the signed-in mailbox — the one login. */
+  kmStatus(): Promise<KmStatus>;
+  /** A fresh bank of 100 × 1 Kb keys. A linked bank must be linked again. */
+  kmRegenerate(): Promise<KmStatus>;
+  /** Seal this bank for another phone; the code is shown once. */
+  kmExportLink(): Promise<KmLink>;
+  kmImportLink(blob: string, code: string): Promise<KmStatus>;
   /**
    * Encrypt and send. Never sends anything unencrypted: a recipient with no key
    * yet gets an invite and the message waits — see `SendOutcome`.
