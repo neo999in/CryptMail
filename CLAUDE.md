@@ -289,8 +289,9 @@ and `deliver` refuses it; received Level 3 mail still opens. Level 2 is labelled
 
 They are offered as **two pairs, not a ladder** (`LEVEL_GROUPS` in
 [app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 4 then 1, which work
-with anyone, need no setup and are signed — and *Quantum keys* — 2 and 3, which
-need a bank shared with the recipient. Numbered 1–4 in a row they read as
+with anyone, need no setup and are signed — and *Quantum keys* — 2 (and 3 when
+enabled), which need a bank shared with the recipient. The group names are not
+drawn in compose; a divider separates the pairs. Numbered 1–4 in a row they read as
 increasing security, which is wrong twice over: 4 is both the default and the
 strongest thing in this build, and 3's guarantee rests on a key source that is
 simulated. Don't reintroduce a single 1→4 row.

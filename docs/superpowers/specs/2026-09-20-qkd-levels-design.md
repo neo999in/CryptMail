@@ -159,8 +159,9 @@ HMAC at Level 3 — so nobody can swap the level or the key list.
 ## In the app
 
 **The chooser is two pairs.** `LEVEL_GROUPS` (`app/src/core/qkd.ts`) groups the
-levels as *Everyday* (4, 1) and *Quantum keys* (2, 3), default first, with a
-divider between them. A flat 1–4 row reads as a security ladder and invites the
+levels as *Everyday* (4, 1) and *Quantum keys* (2; 3 is switched off), default
+first, with a divider between them. The group names are not drawn; the divider
+alone separates them. A flat 1–4 row reads as a security ladder and invites the
 question "why would I ever pick 2 over 4?" — to which the honest answer is
 *with real hardware you would, and without it you would not*. The grouping says
 that without a paragraph.

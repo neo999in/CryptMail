@@ -179,7 +179,8 @@ Traps hit this session:
 Since this was written, two more pieces landed: the **key bank now travels in a
 device transfer** (it did not, and moving phones silently lost every unread
 Level 2/3 message and the link with the other end), and **quantum links can be
-built by running BB84 over email** — three ordinary messages, with an error
+built by running BB84 over email** — three messages, each sealed to the other
+end's ML-KEM-768 + X25519 key and signed since 2026-09-21, with an error
 check that refuses to build a bank on a channel that looks watched
 (`core/src/bb84.rs`, `app/src/state/bb84.ts`, and the design doc's BB84
 section). All four levels have since been driven on the emulator against real
@@ -201,10 +202,12 @@ covered and what it could not.
 
    Two traps cost an evening here and are **not yet fixed** — fix them before
    the next session or they will cost another:
-   - `handshake.answer` and `bb84.answer` keep an in-memory `seen` set, so a leg
-     that fails once is never retried until the app restarts — including when
-     the failure is "no key for them yet", which resolves by itself. Nothing in
-     the UI says so, and pull-to-refresh will never recover it.
+   - `handshake.answer` keeps an in-memory `seen` set, so a handshake that
+     fails once is never retried until the app restarts — including when the
+     failure is "no key for them yet", which resolves by itself. Nothing in the
+     UI says so, and pull-to-refresh will never recover it. (`bb84.answer` has
+     the same set, but *Check for link messages* now clears its failures,
+     retries, and shows the error.)
    - `forgetKey` does not clear the invite (7-day) or handshake (24-hour)
      windows, so re-testing a contact silently sends nothing at all.
 

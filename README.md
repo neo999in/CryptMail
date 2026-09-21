@@ -75,6 +75,12 @@ One message is traced end to end in
   (RFC 9980), so ciphertext harvested today resists a future quantum computer.
   Signatures are still classical Ed25519; see
   [docs/post-quantum.md](docs/post-quantum.md).
+- **A security level per message.** `L4 · PQC` (per-email keys, the default),
+  `L1 · PGP` (standard OpenPGP), and `L2 · Quantum` (AES-256-GCM keyed from a
+  bank shared with the recipient over BB84, whose messages are themselves sealed
+  to ML-KEM-768 + X25519 and signed). The Key Manager is **simulated**: its
+  keys are random, not quantum. Level 3 (one-time pad) is switched off for now.
+  See [docs/security-levels-explained.md](docs/security-levels-explained.md).
 
 **What it does not hide:** metadata. The sender, recipients, timestamps and
 message size stay visible to your provider, because email cannot be delivered
@@ -95,6 +101,8 @@ for UI work only.
 | Any other mailbox (IMAP/SMTP) | 🟨 Built and tested against in-memory servers · never run against a real one |
 | Key recovery, safety-number verification, sealed local storage | ✅ Built and tested |
 | Background delivery of queued mail | 🟨 Built on `expo-background-task` · never run on a device |
+| Security levels 1–3 between two installs | ✅ Emulator + phone over Gmail · Level 3 now switched off |
+| BB84 link messages sealed to ML-KEM + signed | 🟨 Built and tested · not yet run between two installs |
 | Physical phone (StrongBox) | ⛔ Emulator only so far |
 
 ✅ means someone ran it and read the output. The deliberately pessimistic ledger

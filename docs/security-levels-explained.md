@@ -6,7 +6,11 @@ does, what it costs, and how they compare — in plain language, with the crypto
 jargon translated as it appears.
 
 If you read nothing else: **Level 4 is the default and it is the right answer
-almost always.** The other three exist for specific reasons explained below.
+almost always.** The others exist for specific reasons explained below.
+
+> **In this build, compose offers three:** `L4 · PQC`, `L1 · PGP` and
+> `L2 · Quantum`. **Level 3 is switched off**: hidden, and refused if a held
+> message still carries it. Level 3 mail you already received still opens.
 
 ---
 
@@ -16,8 +20,8 @@ almost always.** The other three exist for specific reasons explained below.
 - [Why they are two pairs, not a ladder](#why-they-are-two-pairs-not-a-ladder)
 - [Level 4 — post-quantum per-email keys](#level-4--post-quantum-per-email-keys-the-default)
 - [Level 1 — no quantum security (standard PGP)](#level-1--no-quantum-security-standard-pgp)
-- [Level 2 — quantum-aided AES](#level-2--quantum-aided-aes)
-- [Level 3 — quantum secure, one-time pad](#level-3--quantum-secure-one-time-pad)
+- [Level 2 — quantum](#level-2--quantum)
+- [Level 3 — quantum secure, one-time pad (switched off)](#level-3--quantum-secure-one-time-pad-switched-off)
 - [Comparisons](#comparisons)
 - [Choosing: a short decision guide](#choosing-a-short-decision-guide)
 - [Things true at every level](#things-true-at-every-level)
@@ -55,13 +59,14 @@ better. That reading is wrong in two directions at once:
   exist. In *this* build the keys come from a software random generator, not
   from quantum hardware, so the paper guarantee does not transfer.
 
-So compose groups them as two pairs:
+So compose groups them as two pairs, separated by a divider (the group names
+below are not shown on screen):
 
 **Everyday — 4, then 1.** Works with anyone who uses CryptMail. No setup, no
 shared key bank, and both are **signed** so the recipient knows it was you.
 
-**Quantum keys — 2 and 3.** Need a key bank shared with the recipient in
-advance. These demonstrate how a real Quantum Key Distribution system would plug
+**Quantum keys — 2 (and 3, switched off for now).** Need a key bank shared
+with the recipient in advance. These demonstrate how a real Quantum Key Distribution system would plug
 into email.
 
 ---
@@ -150,7 +155,9 @@ Signed.
 
 ---
 
-## Level 2 — quantum-aided AES
+## Level 2 — quantum
+
+Shown in compose as **`L2 · Quantum`** (it was called *quantum-aided AES*).
 
 ### What it does
 
@@ -168,7 +175,9 @@ Levels 2 and 3 work completely differently from 1 and 4: **they never look at
 the recipient's public key at all.** Instead, both devices must already hold
 **the same bank of secret keys** — 100 keys of 1 Kb each. Holding that bank is
 what makes the message readable. Nothing about the key travels with the email
-except its ID, and an ID without the bank is worthless.
+except its ID, and an ID without the bank is worthless. So Level 2 is exactly as
+safe as the bank is secret, which is why the messages that build it are sealed
+with post-quantum encryption (below).
 
 You establish a shared bank in **Settings → Quantum Key Manager**, two ways:
 
@@ -177,7 +186,8 @@ You establish a shared bank in **Settings → Quantum Key Manager**, two ways:
    signed (send states, compare measurement bases, check the error rate, then
    privacy-amplify what survives). You need their key first — exchange one
    encrypted message before linking. It completes over a few
-   syncs with no action from either person.
+   syncs with no action from either person, or press **Check for link
+   messages** on each phone to move it along and see what happened.
 2. **A link file and a one-time code** — copies one bank straight to the other
    phone. Kept for when both phones are in the same room.
 
@@ -202,7 +212,9 @@ destroys it completely.
 
 ---
 
-## Level 3 — quantum secure (one-time pad)
+## Level 3 — quantum secure (one-time pad) *(switched off)*
+
+**Switched off in this build.** Level 3 is hidden from compose and refused if a held message still carries it; Level 3 mail you already received still opens. The section below describes it for when it returns.
 
 ### What it does
 
@@ -247,7 +259,7 @@ shortcut in this implementation:
 
 ### At a glance
 
-| | **L4 · Post-quantum** | **L1 · PGP** | **L2 · Quantum** | **L3 · One-time pad** |
+| | **L4 · PQC** | **L1 · PGP** | **L2 · Quantum** | **L3 · One-time pad** *(off)* |
 |---|---|---|---|---|
 | Group | Everyday | Everyday | Quantum keys | Quantum keys |
 | Default | **yes** | no | no | no |
@@ -256,7 +268,7 @@ shortcut in this implementation:
 | Setup needed | none (auto handshake) | their public key | shared key bank | shared key bank |
 | Uses recipient's key | yes | yes | **no** | **no** |
 | Forward secrecy | **yes** | **no** | yes (keys deleted) | yes (keys deleted) |
-| Resists future quantum computers | **yes** | **no** | keys yes, cipher standard | in principle yes |
+| Resists future quantum computers | **yes** | **no** | **yes**: AES-256, bank linked over ML-KEM | in principle yes |
 | Signed | yes | yes | no — bank proves sender | no — bank proves sender |
 | Tamper-evident | yes | yes | yes (GCM) | yes (HMAC) |
 | Message size limit | none | none | none | **very small** — short text |
@@ -295,9 +307,10 @@ Both need the same setup and both spend keys from the same bank. The trade is
 | Messages from a full 50-key half | ~50 | a handful of short notes |
 | Practical for daily mail | yes | no |
 
-**Pick Level 2** for anything normal once you share a bank. **Pick Level 3** for
-short, high-stakes text where you want the strongest guarantee the protocol can
-express — bearing the simulation caveat in mind.
+**Pick Level 2** for anything normal once you share a bank. Level 3 is switched
+off in this build; when it returns it is for short, high-stakes text where you
+want the strongest guarantee the protocol can express, bearing the simulation
+caveat in mind.
 
 ### Everyday pair vs Quantum pair
 
@@ -320,8 +333,8 @@ express — bearing the simulation caveat in mind.
    accepting no forward secrecy and no quantum resistance.
 3. **Want to see the QKD integration work, and you share a bank with them?** →
    **Level 2** for normal mail.
-4. **Short, high-stakes text, bank shared, and you want the one-time pad?** →
-   **Level 3**, watching the key count.
+4. **Want the one-time pad?** Not available: **Level 3 is switched off** in
+   this build.
 
 ---
 

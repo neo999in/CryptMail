@@ -7,7 +7,22 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-20.
+Last updated: 2026-09-21.
+
+> **Link messages sealed, Level 2 renamed, Level 3 off (2026-09-21, later):**
+>
+> | Claim | Level |
+> |---|---|
+> | BB84 legs arrive quoted-printable from Gmail and were refused as "damaged or incomplete"; now transfer-decoded | ✅ seen on the emulator, fixed, and the emulator then answered leg 1 |
+> | BB84 legs sealed to the recipient's ML-KEM-768 + X25519 key and signed; plain, unsigned or wrongly signed legs refused | ✅ tests (`quantumLink-test.ts`) · ⛔ **not yet run between two installs** |
+> | *Check for link messages* (Key Manager) retries failed legs and shows the error | ✅ on the emulator |
+> | Level 2 labelled `L2 · Quantum`; compose shows no group labels | ✅ on the emulator |
+> | Level 3 hidden from compose and refused by `deliver` | ✅ on the emulator (picker) and tests (refusal) |
+>
+> Any bank built before this change travelled in **plain** link messages and
+> should be treated as known to anyone who could read that mail: re-link.
+> App suite **1,842**, `tsc` clean.
+
 
 > **Levels 1–3 between two installs, and two bugs found (2026-09-21):** a
 > physical phone and the emulator, on two Gmail accounts.

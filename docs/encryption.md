@@ -96,10 +96,12 @@ guarantees we layer keyserver discovery and optional manual verification (see
 
 **Security levels.** The user picks a level per message
 ([design](superpowers/specs/2026-09-20-qkd-levels-design.md)): 1 OpenPGP to
-long-term keys, 2 AES seeded by a quantum key, 3 a one-time pad from quantum
-keys, 4 per-email keys (the default). Compose offers them as two pairs rather
-than a 1–4 ladder — *Everyday* (4, 1) and *Quantum keys* (2, 3) — because the
-default is also the strongest option in this build.
+long-term keys, 2 (`L2 · Quantum`) AES-256-GCM seeded by a quantum key, 3 a
+one-time pad from quantum keys, 4 per-email keys (the default). **Level 3 is
+switched off for now** (`DISABLED_LEVELS`): hidden from compose and refused by
+`deliver`; received Level 3 mail still opens. Compose offers the rest as two
+pairs rather than a 1–4 ladder — 4 and 1, then 2 after a divider, with no group
+labels — because the default is also the strongest option in this build.
 
 Levels 2 and 3 take their keys from a simulated Key Manager and need no
 recipient public key at all, so no recipient check can catch a message to

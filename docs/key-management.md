@@ -418,6 +418,13 @@ Two routes put the same bank on two phones, and both end in the same state
   which both ends *derive* the same keys and neither ever sent them. If too
   much of the checked sample disagrees, neither end builds a bank. This is the
   path the Key Manager screen offers first.
+
+  Each message is **sealed to the other end's ML-KEM-768 + X25519 key and
+  signed** (a Level 1 message), and one that arrives plain, unsigned or signed
+  by another key is refused. The simulated channel is only bits in an email,
+  so the sealing is what keeps the bank secret, and linking needs the other
+  end's key first. *Check for link messages* on the Key Manager screen syncs,
+  retries a leg that failed, and says what became of each one.
 - **By file and code** — this bank sealed under a one-time code for the other
   phone to adopt. Instant and manual, and plainly a copy. Kept for when both
   phones are in one room.
