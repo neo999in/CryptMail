@@ -300,6 +300,6 @@ On `feat/per-email-keys-only` (rebuild the native core first, §5):
 | A handshake carries nothing the user wrote | `core/handshake.ts` (fixed text), `state/handshake.ts` | `perEmailOnly-test.ts`: "holds a message … sends them only a contentless handshake" (asserts on the wire bytes) |
 | Nothing unsealed by a per-email key reaches the wire | `state/send.ts` (`isForwardSecret` check) | "refuses to put anything on the wire the core did not seal with a per-email key" |
 | One answer per first contact, only to the signing key | `state/handshake.ts` (`answer`) | the four "answering handshakes" tests |
-| At most one handshake per address per day | `store/handshakeStore.ts` | "sends one handshake a day per address…" |
+| One handshake per address until answered, a week passes, or the user resends; failures kept with their reason and retried after 5 min | `store/handshakeStore.ts` | "sends one handshake per address…", "records why a handshake failed…", "resends on request…", `handshakeStore-test.ts` |
 | A handed-over phone sends nothing | `forward::refuse_if_handed_over` | `transfer.rs::the_old_phone_stops_sending_but_still_reads` |
 | Other clients can read a handshake; `seal` refuses them | — | `interop.sh` §4 |

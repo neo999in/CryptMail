@@ -19,6 +19,7 @@ import { SearchIndex } from '../search/search';
 import { SnoozeMap } from '../snooze/snooze';
 import type { LinkPair } from '../spam/spam';
 import { AccountId, AccountRef, AccountSettings } from '../store/accountScope';
+import { HandshakeEntry } from '../store/handshakeStore';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { NotificationPrefs } from '../store/notifyStore';
@@ -533,6 +534,14 @@ export type Actions = {
    * longer in the outbox — and throws when a recipient's key changed.
    */
   sendScheduledNow(id: string): Promise<SendOutcome | null>;
+  /**
+   * What happened to the last per-email-key handshake to each address, so a
+   * message held as `awaiting-session` can say whether one went out, when, or
+   * why it failed. `null` for an address none was tried to.
+   */
+  handshakeStatus(emails: string[]): Promise<Record<string, HandshakeEntry | null>>;
+  /** Send a handshake to this address now, whatever happened last time. */
+  resendHandshake(email: string): Promise<HandshakeEntry | null>;
   /**
    * Move a message to spam, and teach the filter from it.
    *

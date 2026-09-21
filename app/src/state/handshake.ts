@@ -24,7 +24,17 @@
 import { core } from '../core';
 import { ackContent, isHandshakeSubject } from '../core/handshake';
 import { archive, readArchived } from '../store/archiveStore';
-import { loadHandshakes, recordHandshake, saveHandshakes, shouldHandshake } from '../store/handshakeStore';
+import { userMessage } from '../lib/errors';
+import {
+  clearHandshake,
+  handshakeEntry,
+  HandshakeEntry,
+  loadHandshakes,
+  recordHandshake,
+  recordHandshakeFailure,
+  saveHandshakes,
+  shouldHandshake,
+} from '../store/handshakeStore';
 import { Ctx, HandshakeService } from './contracts';
 import { InboxItem } from './types';
 
@@ -34,32 +44,59 @@ export function createHandshake(ctx: Ctx): HandshakeService {
   /** Handshakes looked at this run. A failure is not retried until the next launch. */
   const seen = new Set<string>();
 
+  /**
+   * A handshake to each address that is due one — or to all of them when
+   * `force`, which is the user asking. Every attempt is recorded, a failure
+   * with its reason, so the outbox can say what happened rather than "queued".
+   */
+  async function sendTo(emails: string[], force: boolean): Promise<Record<string, HandshakeEntry | null>> {
+    const { session, identity } = store.get();
+    if (!mail.current || !session || !identity || emails.length === 0) return {};
+
+    const account = ctx.services.accounts.requireActive();
+    const now = new Date();
+    let log = await loadHandshakes(account);
+    if (force) for (const e of emails) log = clearHandshake(log, e);
+    const recipients = await ctx.services.contacts.discoverRecipients(emails);
+    for (const r of recipients) {
+      if (!shouldHandshake(log, r.email, now)) continue;
+      if (!r.key) {
+        log = recordHandshakeFailure(log, r.email, 'CryptMail has no key for this address to send a handshake to.', now);
+        continue;
+      }
+      try {
+        await mail.current.send(
+          await core.buildHandshake({
+            from: session.email,
+            to: r.email,
+            recipientKey: r.key.armored,
+            autocryptKey: identity.publicKeyArmored,
+          }),
+        );
+        log = recordHandshake(log, r.email, now);
+      } catch (e) {
+        // The held message stays held; a drain tries again after a pause.
+        log = recordHandshakeFailure(log, r.email, userMessage(e), now);
+      }
+    }
+    await saveHandshakes(account, log);
+    return Object.fromEntries(recipients.map((r) => [r.email, handshakeEntry(log, r.email)]));
+  }
+
   return {
     async send(emails: string[]) {
-      const { session, identity } = store.get();
-      if (!mail.current || !session || !identity || emails.length === 0) return;
+      await sendTo(emails, false);
+    },
 
-      const account = ctx.services.accounts.requireActive();
-      const now = new Date();
-      let log = await loadHandshakes(account);
-      const recipients = await ctx.services.contacts.discoverRecipients(emails);
-      for (const r of recipients) {
-        if (!r.key || !shouldHandshake(log, r.email, now)) continue;
-        try {
-          await mail.current.send(
-            await core.buildHandshake({
-              from: session.email,
-              to: r.email,
-              recipientKey: r.key.armored,
-              autocryptKey: identity.publicKeyArmored,
-            }),
-          );
-          log = recordHandshake(log, r.email, now);
-        } catch {
-          // The held message stays held; the next drain tries again.
-        }
-      }
-      await saveHandshakes(account, log);
+    async status(emails: string[]) {
+      if (!store.get().session || emails.length === 0) return {};
+      const log = await loadHandshakes(ctx.services.accounts.requireActive());
+      return Object.fromEntries(emails.map((e) => [e, handshakeEntry(log, e)]));
+    },
+
+    async resend(email: string) {
+      const entries = await sendTo([email], true);
+      return entries[email] ?? null;
     },
 
     async answer(messages: InboxItem[]) {

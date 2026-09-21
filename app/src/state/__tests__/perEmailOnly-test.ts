@@ -11,6 +11,7 @@ import { HANDSHAKE_SUBJECT } from '../../core/mime';
 import { DecryptedMessage, Identity } from '../../core';
 import { MailClient } from '../../mail/types';
 import { holdReason } from '../../outbox/outbox';
+import { HandshakeLog } from '../../store/handshakeStore';
 import { ContactKey } from '../../store/keyring';
 import { createServices } from '../services';
 import { createStore, initialState } from '../store';
@@ -23,7 +24,7 @@ const mockStatus = new Map<string, Status>();
 /** What `parseEncrypted` returns for a raw message, by its text. */
 const mockOpened = new Map<string, DecryptedMessage>();
 const mockArchived = new Map<string, DecryptedMessage>();
-let mockHandshakeLog: Record<string, string> = {};
+let mockHandshakeLog: HandshakeLog = {};
 
 jest.mock('@react-native-google-signin/google-signin', () => ({ GoogleSignin: { configure: jest.fn() } }));
 
@@ -96,7 +97,7 @@ jest.mock('../../store/inviteStore', () => ({
 jest.mock('../../store/handshakeStore', () => ({
   ...jest.requireActual('../../store/handshakeStore'),
   loadHandshakes: jest.fn(async () => mockHandshakeLog),
-  saveHandshakes: jest.fn(async (_account: string, log: Record<string, string>) => {
+  saveHandshakes: jest.fn(async (_account: string, log: HandshakeLog) => {
     mockHandshakeLog = log;
   }),
 }));
@@ -157,7 +158,7 @@ function harness(over: Partial<State> = {}) {
     updateFlags: async () => {},
   };
   mail.current = client;
-  return { store, services, wire, raws };
+  return { store, services, mail, wire, raws };
 }
 
 /** An inbox row for a handshake that arrived, with its raw text registered. */
@@ -212,12 +213,42 @@ describe('sending with per-email keys only', () => {
     expect(h.wire[0]).not.toContain('Attached, as promised.');
   });
 
-  it('sends one handshake a day per address, however often the message is retried', async () => {
+  it('sends one handshake per address, however often the message is retried', async () => {
     const h = harness();
     await h.services.send.sendEncrypted(MESSAGE);
     await h.services.scheduler.drainHeld();
     await h.services.scheduler.drainHeld();
     expect(h.wire).toHaveLength(1);
+    expect(await h.services.handshake.status(['ada@example.com'])).toEqual({
+      'ada@example.com': { outcome: 'sent', at: expect.any(String) },
+    });
+  });
+
+  it('records why a handshake failed, instead of holding the message silently', async () => {
+    const h = harness();
+    h.mail.current = {
+      ...h.mail.current!,
+      send: async () => {
+        throw new Error('Gmail refused the message');
+      },
+    };
+
+    await h.services.send.sendEncrypted(MESSAGE);
+
+    const status = await h.services.handshake.status(['ada@example.com']);
+    expect(status['ada@example.com']).toMatchObject({ outcome: 'failed', error: expect.any(String) });
+    expect(Object.values(h.store.get().scheduled)).toHaveLength(1);
+  });
+
+  it('resends on request even though one went out already', async () => {
+    const h = harness();
+    await h.services.send.sendEncrypted(MESSAGE);
+    expect(h.wire).toHaveLength(1);
+
+    const entry = await h.services.handshake.resend('ada@example.com');
+    expect(entry).toMatchObject({ outcome: 'sent' });
+    expect(h.wire).toHaveLength(2);
+    expect(h.wire[1]).toContain(`Subject: ${HANDSHAKE_SUBJECT}`);
   });
 
   it('sends the held message once the session exists, sealed with a per-email key', async () => {

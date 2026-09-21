@@ -205,6 +205,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       scheduleSend: services.scheduler.scheduleSend,
       cancelScheduled: services.scheduler.cancelScheduled,
       sendScheduledNow: services.scheduler.sendScheduledNow,
+      handshakeStatus: services.handshake.status,
+      resendHandshake: services.handshake.resend,
       markSpam: services.mailbox.markSpam,
       markNotSpam: services.mailbox.markNotSpam,
       snoozeMessage: services.snooze.snoozeMessage,

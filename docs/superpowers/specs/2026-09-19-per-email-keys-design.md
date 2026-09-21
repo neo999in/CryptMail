@@ -228,7 +228,10 @@ Every message the user writes is sealed with a per-email key or not sent.
    message, sealed with a per-email key.
 
 **Limits.**
-- Handshakes are rate-limited to one per address per day
+- A handshake that went out is not sent again by a drain for a week; one that
+  failed is retried after five minutes, and its reason is kept. The outbox
+  shows, per address, whether a handshake went out, when, or why it failed,
+  and offers **Resend handshake** to send one now regardless
   (`store/handshakeStore.ts`).
 - A handshake says nothing the user wrote, and a test holds that promise
   against the bytes on the wire (`state/__tests__/perEmailOnly-test.ts`).
