@@ -4,7 +4,7 @@
  * | Level | What seals the message | Keys from |
  * |---|---|---|
  * | 1 — No quantum security | OpenPGP to the recipient's long-term key | their public key |
- * | 2 — Quantum-aided AES | AES-256-GCM, key from HKDF over one 1 Kb quantum key | the Key Manager |
+ * | 2 — Quantum | AES-256-GCM, key from HKDF over one 1 Kb quantum key | the Key Manager |
  * | 3 — Quantum secure (OTP) | one-time pad: XOR with quantum keys, HMAC with one more | the Key Manager |
  * | 4 — Post-quantum (default) | a per-email key over ML-KEM-768 + X25519 | the session with them |
  *
@@ -38,6 +38,16 @@ export const DEFAULT_LEVEL: SecurityLevel = 4;
  * protects your mail, and what demonstrates the Key Manager — so the row says
  * so, and leads with the default.
  */
+/**
+ * Levels that cannot be chosen or sent in this build. Level 3 is switched off:
+ * a one-time pad is only as good as its key source, which here is simulated,
+ * and it drains the bank a key per 128 bytes. Mail already received at Level 3
+ * still opens — only sending is off. Remove it from here to bring it back.
+ */
+export const DISABLED_LEVELS: readonly SecurityLevel[] = [3];
+
+export const isLevelEnabled = (level: SecurityLevel): boolean => !DISABLED_LEVELS.includes(level);
+
 export const LEVEL_GROUPS: { label: string; hint: string; levels: SecurityLevel[] }[] = [
   {
     label: 'Everyday',
@@ -47,7 +57,7 @@ export const LEVEL_GROUPS: { label: string; hint: string; levels: SecurityLevel[
   {
     label: 'Quantum keys',
     hint: 'Needs a key bank shared with them (Settings → Quantum Key Manager). Demonstrates the QKD integration.',
-    levels: [2, 3],
+    levels: ([2, 3] as SecurityLevel[]).filter(isLevelEnabled),
   },
 ];
 
@@ -63,9 +73,11 @@ export const LEVELS: Record<SecurityLevel, { short: string; name: string; detail
     detail: 'Standard OpenPGP to their long-term key. No quantum keys are used.',
   },
   2: {
-    short: 'L2 · Q-AES',
-    name: 'Level 2 — Quantum-aided AES',
-    detail: 'A quantum key from the Key Manager seeds AES-256-GCM. One key per message; attachments fit.',
+    short: 'L2 · Quantum',
+    name: 'Level 2 — Quantum',
+    detail:
+      'A quantum key from the shared key bank, used once, seeds AES-256-GCM. The bank is linked over ' +
+      'ML-KEM-768 + X25519. One key per message; attachments fit.',
   },
   3: {
     short: 'L3 · OTP',
@@ -138,13 +150,21 @@ function topLevelPart(raw: string): { encoding?: string; charset?: string; body:
  * and the undecoded text is the fallback for anything this does not recognise.
  */
 export function extractQkdArmor(raw: string): string | null {
+  const decoded = transferDecodedBody(raw);
+  return (decoded !== null ? sliceArmor(decoded) : null) ?? sliceArmor(raw);
+}
+
+/**
+ * The body of a single-part message with a quoted-printable or base64
+ * transfer encoding undone, or null when it declares neither. Any armored block
+ * we send as `7bit` needs this on the way back in — see `extractQkdArmor`; the
+ * quantum-link legs (`state/bb84.ts`) are the other case.
+ */
+export function transferDecodedBody(raw: string): string | null {
   const part = topLevelPart(raw);
   const scheme = (part?.encoding ?? '').toLowerCase().trim();
-  if (part && (scheme === 'quoted-printable' || scheme === 'base64')) {
-    const found = sliceArmor(decodeTransfer(part.encoding, part.body, part.charset));
-    if (found) return found;
-  }
-  return sliceArmor(raw);
+  if (!part || (scheme !== 'quoted-printable' && scheme !== 'base64')) return null;
+  return decodeTransfer(part.encoding, part.body, part.charset);
 }
 
 export const isQkdMessage = (raw: string): boolean => extractQkdArmor(raw) !== null;

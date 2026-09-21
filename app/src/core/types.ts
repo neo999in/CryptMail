@@ -114,6 +114,12 @@ export type BuildRequest = {
    * choice. 2 and 3 take keys from the Key Manager and need no recipient keys.
    */
   level?: SecurityLevel;
+  /**
+   * A quantum-link leg (`state/bb84.ts`), sent at Level 1 so the states travel
+   * sealed to the recipient's ML-KEM-768 + X25519 key and signed. Names the
+   * outer subject so the other side's sync can route it.
+   */
+  linkLeg?: Bb84Leg;
 };
 
 /**

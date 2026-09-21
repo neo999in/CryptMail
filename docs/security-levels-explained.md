@@ -173,8 +173,10 @@ except its ID, and an ID without the bank is worthless.
 You establish a shared bank in **Settings → Quantum Key Manager**, two ways:
 
 1. **BB84 over email** — runs the actual quantum-key-distribution protocol
-   across three ordinary emails (send states, compare measurement bases, check
-   the error rate, then privacy-amplify what survives). It completes over a few
+   across three emails, each sealed to the other person's post-quantum key and
+   signed (send states, compare measurement bases, check the error rate, then
+   privacy-amplify what survives). You need their key first — exchange one
+   encrypted message before linking. It completes over a few
    syncs with no action from either person.
 2. **A link file and a one-time code** — copies one bank straight to the other
    phone. Kept for when both phones are in the same room.
@@ -245,7 +247,7 @@ shortcut in this implementation:
 
 ### At a glance
 
-| | **L4 · Post-quantum** | **L1 · PGP** | **L2 · Quantum AES** | **L3 · One-time pad** |
+| | **L4 · Post-quantum** | **L1 · PGP** | **L2 · Quantum** | **L3 · One-time pad** |
 |---|---|---|---|---|
 | Group | Everyday | Everyday | Quantum keys | Quantum keys |
 | Default | **yes** | no | no | no |
@@ -366,8 +368,11 @@ These are stated plainly in the app too, not just here.
   holding matching banks. Swapping in real hardware would replace one file.
 - **BB84 over email is the real protocol over a fake channel.** What makes
   genuine quantum eavesdropping detectable is that a quantum state cannot be
-  copied. Here the states are bits inside an email, so anyone reading that email
-  gets the bits *and* the bases and leaves no trace in the error rate.
+  copied. Here the states are bits inside an email, so anyone who could read
+  that email would get the bits *and* the bases and leave no trace in the error
+  rate. That is why each leg is sealed to the recipient's post-quantum
+  (ML-KEM-768 + X25519) key and signed: the bank is as secret as that sealed
+  message, and a leg that arrives plain or signed by someone else is refused.
   Everything above the channel — sifting, the error check, privacy
   amplification, the refusal when too much of the sample disagrees — is the
   genuine protocol and would not change with hardware.

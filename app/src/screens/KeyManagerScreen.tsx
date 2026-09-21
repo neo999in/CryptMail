@@ -51,7 +51,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'KeyManager'>;
  *    phones are on one table.
  */
 export function KeyManagerScreen({ navigation }: Props) {
-  const { kmStatus, kmRegenerate, kmExportLink, kmImportLink, beginQuantumLink } = useApp();
+  const { kmStatus, kmRegenerate, kmExportLink, kmImportLink, beginQuantumLink, checkQuantumLink } = useApp();
   const insets = useSafeAreaInsets();
 
   const [status, setStatus] = useState<KmStatus | null>(null);
@@ -64,6 +64,14 @@ export function KeyManagerScreen({ navigation }: Props) {
   const [peer, setPeer] = useState('');
   const [started, setStarted] = useState<string | null>(null);
   const peerFocus = useFocus();
+  /** What the last "Check for link messages" found. */
+  const [checked, setChecked] = useState<string | null>(null);
+
+  const checkLink = () =>
+    void run(async () => {
+      setChecked(await checkQuantumLink());
+      refresh();
+    });
 
   const startLink = () =>
     void run(async () => {
@@ -243,6 +251,8 @@ export function KeyManagerScreen({ navigation }: Props) {
                 </Text>
               </>
             )}
+            <SecondaryButton title="Check for link messages" icon="refresh" onPress={checkLink} />
+            {checked ? <Text style={s.hint}>{checked}</Text> : null}
           </View>
         </Group>
 

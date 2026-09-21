@@ -15,6 +15,7 @@ import {
   newAttachmentId,
 } from '../mail/attachment';
 import { decodeTransfer } from '../mail/transferEncoding';
+import { Bb84Leg, linkSubject } from './bb84';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
 /**
@@ -126,6 +127,8 @@ export function buildEncryptedEnvelope(args: {
   references?: string[];
   /** A handshake or its answer: the outer subject says so, see `HANDSHAKE_SUBJECT`. */
   handshake?: boolean;
+  /** A quantum-link leg: the outer subject names it, see `core/bb84.ts`. */
+  linkLeg?: Bb84Leg;
 }): string {
   const boundary = `=-=-=cryptmail-${Math.random().toString(36).slice(2, 10)}=-=-=`;
   const date = (args.date ?? new Date()).toUTCString();
@@ -135,7 +138,7 @@ export function buildEncryptedEnvelope(args: {
     `From: ${args.from}`,
     `To: ${args.to.join(', ')}`,
     `Date: ${date}`,
-    `Subject: ${args.handshake ? HANDSHAKE_SUBJECT : PLACEHOLDER_SUBJECT}`,
+    `Subject: ${args.linkLeg ? linkSubject(args.linkLeg) : args.handshake ? HANDSHAKE_SUBJECT : PLACEHOLDER_SUBJECT}`,
     `Message-ID: ${messageId}`,
   ];
   if (args.inReplyTo) headers.push(`In-Reply-To: ${args.inReplyTo}`);

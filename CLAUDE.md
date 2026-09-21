@@ -272,14 +272,20 @@ leg arrived (`services.bb84.answer`, beside the handshake). If too much of the
 checked sample disagrees the core refuses (`bb84-eavesdropper`) and **no bank is
 built on either side**; `Core::bb84_eavesdrop` exists to demonstrate that and is
 documented as demonstration-only. The channel is simulated — the states are
-bits in an email, so a real attacker reading it leaves no trace — but everything
-above the channel is the protocol.
+bits in an email, so a reader of a plain leg would leave no trace — which is why
+every leg is sealed to the recipient's ML-KEM-768 + X25519 key and signed (a
+Level 1 message, `linkLeg` on `BuildRequest`), and a leg that arrives plain,
+unsigned or signed by another key is refused. Linking needs the other end's key
+first. Everything above the channel is the protocol.
 
 **Security levels** ([docs/superpowers/specs/2026-09-20-qkd-levels-design.md](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)):
 compose picks one per message. **1** OpenPGP to long-term keys (the explicit
 "no quantum security" choice); **2** AES-256-GCM seeded by one 1 Kb key from
 the Key Manager; **3** a one-time pad from those keys, one per 128 bytes plus
-one for the HMAC; **4** per-email keys, the default.
+one for the HMAC; **4** per-email keys, the default. **Level 3 is switched off
+for now** — `DISABLED_LEVELS` in `app/src/core/qkd.ts` hides it from the picker
+and `deliver` refuses it; received Level 3 mail still opens. Level 2 is labelled
+`L2 · Quantum`.
 
 They are offered as **two pairs, not a ladder** (`LEVEL_GROUPS` in
 [app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 4 then 1, which work

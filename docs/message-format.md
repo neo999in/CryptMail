@@ -242,8 +242,10 @@ base64 of (ciphertext ‖ tag)
 
 ## Quantum link setup on the wire (BB84)
 
-Three ordinary `text/plain` messages, told apart by their outer subject
-(`Setting up a quantum link (n of 3)`) and confirmed by the block inside:
+Three PGP/MIME messages — the same envelope as Level 1, sealed to the
+recipient's ML-KEM-768 + X25519 key and signed — told apart by their outer
+subject (`Setting up a quantum link (n of 3)`, in the clear so a sync can route
+them) and confirmed by the block inside the decrypted body:
 
 | Block | Carries |
 |---|---|
@@ -255,6 +257,11 @@ Each block is base64 JSON. Leg 1 is the only large one — at 32 states per key
 byte a full bank is ~130 KB, verified through Gmail. The bodies are fixed text
 (`app/src/core/bb84.ts`), so nothing a user wrote is ever an argument to them.
 The protocol itself is `core/src/bb84.rs`.
+
+A leg that arrives unencrypted, unsigned, or signed by any key but the
+contact's known one is refused (`app/src/state/bb84.ts`): the states in a plain
+leg were readable on the way, so a bank built from them would not be secret.
+Starting a link therefore needs the other end's key first.
 
 ## Design notes
 

@@ -278,6 +278,7 @@ export const demoCore: CryptCore = {
       inReplyTo: request.inReplyTo,
       references: request.references,
       handshake: request.handshake,
+      linkLeg: request.linkLeg,
     });
   },
 

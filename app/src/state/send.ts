@@ -12,7 +12,7 @@
  */
 import { buildPlaintext, core, CoreError } from '../core';
 import { isForwardSecret, isPgpMime } from '../core/mime';
-import { DEFAULT_LEVEL, isQkdMessage } from '../core/qkd';
+import { DEFAULT_LEVEL, isLevelEnabled, isQkdMessage, LEVELS } from '../core/qkd';
 import { cryptoMode } from '../config';
 import { archive } from '../store/archiveStore';
 import { recordInvite, saveInvites, shouldInvite } from '../store/inviteStore';
@@ -111,6 +111,11 @@ export function createSend(ctx: Ctx): SendService {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
       const chosen = level ?? DEFAULT_LEVEL;
+      // Before anything is built or held: a level switched off in this build
+      // sends nothing, including a message held from before it was.
+      if (!isLevelEnabled(chosen)) {
+        throw new CoreError(`${LEVELS[chosen].name} is turned off in this version. Choose another level.`, 'unavailable');
+      }
 
       // Levels 2 and 3: the quantum keys come from this mailbox's Key Manager,
       // and the recipient's KM holds the same ones — nothing about their public

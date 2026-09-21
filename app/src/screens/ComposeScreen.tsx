@@ -1021,7 +1021,8 @@ export function ComposeScreen({ route, navigation }: Props) {
       {queued || plain ? null : (
         /* The security level, in the two groups of `LEVEL_GROUPS` rather than
            as 1–4: numbered in a row they read as a ladder, and the default sits
-           at the top of it. Everyday first, the Key Manager's pair after. */
+           at the top of it. Everyday first, the Key Manager's pair after; the
+           divider is the only mark between them. */
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1032,7 +1033,6 @@ export function ComposeScreen({ route, navigation }: Props) {
           {LEVEL_GROUPS.map((group, i) => (
             <React.Fragment key={group.label}>
               {i > 0 ? <View style={s.levelsDivider} /> : null}
-              <Text style={s.levelsGroup}>{group.label}</Text>
               {group.levels.map((l) => (
                 <Pressable
                   key={l}
@@ -1759,7 +1759,6 @@ const s = StyleSheet.create({
   // `flexGrow: 0`: a horizontal ScrollView otherwise takes the free height and
   // stretches every chip in it into a column.
   levelsBar: { flexGrow: 0 },
-  levelsGroup: { ...type.eyebrow, color: color.inkFaint },
   levelsDivider: { backgroundColor: color.border, height: 18, marginHorizontal: 3, width: 1 },
   levels: { alignItems: 'center', flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingBottom: 11 },
   mode: {

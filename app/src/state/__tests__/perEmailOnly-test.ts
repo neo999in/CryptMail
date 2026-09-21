@@ -355,12 +355,13 @@ describe('the security levels', () => {
     expect(mockArchived.get(h.wire[0])).toMatchObject({ subject: 'Quarterly numbers', securityLevel: 2, forwardSecret: true });
   });
 
-  it('Level 3 goes the same way, and can be written to yourself', async () => {
+  it('Level 3 is turned off: refused, and nothing is sent or held', async () => {
     const h = harness();
-    expect(await h.services.send.sendEncrypted({ ...MESSAGE, to: ['me@example.com'], level: 3 })).toEqual({
-      status: 'sent',
-    });
-    expect(h.wire[0]).toContain('Level: 3');
+    await expect(h.services.send.sendEncrypted({ ...MESSAGE, to: ['me@example.com'], level: 3 })).rejects.toThrow(
+      /turned off/,
+    );
+    expect(h.wire).toHaveLength(0);
+    expect(Object.keys(h.store.get().scheduled)).toHaveLength(0);
   });
 
   it('Level 1 is standard OpenPGP: no handshake, no session, sent at once', async () => {

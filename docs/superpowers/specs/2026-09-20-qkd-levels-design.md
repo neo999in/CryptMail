@@ -30,7 +30,7 @@ ends holding the same bank.
 | Level | Seals with | Keys from | Size cost |
 |---|---|---|---|
 | 1 — No quantum security | OpenPGP (ML-KEM-768 + X25519 hybrid, as before) | the recipient's long-term public key | — |
-| 2 — Quantum-aided AES | AES-256-GCM, key = HKDF-SHA256(quantum key, key id) | one 1 Kb key from the KM | 1 key per message |
+| 2 — Quantum (was "quantum-aided AES") | AES-256-GCM, key = HKDF-SHA256(quantum key, key id) | one 1 Kb key from the KM | 1 key per message |
 | 3 — Quantum secure (OTP) | one-time pad (XOR), HMAC-SHA256 to authenticate | one 1 Kb key per 128 bytes, plus one for the MAC | 1 key per 128 bytes + 1 |
 | 4 — Post-quantum per-email keys (**default**) | a per-email key over the ratchet | the session with that contact | — |
 
@@ -94,15 +94,20 @@ discard what was said out loud, and amplify the rest with HKDF-SHA256 into the
 which any provider carries. Key IDs are derived from the material rather than
 random, so both ends independently agree on them.
 
-The legs are ordinary `text/plain` messages routed by subject
+The legs are sealed and signed like a Level 1 message — OpenPGP to the
+recipient's ML-KEM-768 + X25519 key — and routed by an outer subject
 (`app/src/core/bb84.ts`), and a sync carries one forward
 (`app/src/state/bb84.ts`), so a link takes three syncs on each side rather than
 any action by the user. `linkStore` keeps one exchange per address in flight.
 
-**This is not secure and not quantum.** The states are bits in an email: anyone
-who reads that email has the bits *and* the bases and leaves no trace in the
-error rate, because what makes real eavesdropping detectable is that a state
-cannot be copied. `bb84_eavesdrop` plays by the protocol's rules so the check
+**This is not quantum.** The states are bits in an email: anyone who could read
+that email would have the bits *and* the bases and leave no trace in the error
+rate, because what makes real eavesdropping detectable is that a state cannot
+be copied. Sealing each leg to the recipient's post-quantum key is what stops
+that reader, and the signature is the authenticated classical channel BB84
+assumes; a leg that is plain, unsigned or signed by another key is refused. So
+the bank is as secret as a Level 1 message, not more — the error check guards
+nothing the sealing does not already. `bb84_eavesdrop` plays by the protocol's rules so the check
 can be seen working — the one property a real link buys. What is real, and what
 hardware would not change, is everything above the channel.
 
@@ -165,7 +170,10 @@ recipient's key, so no recipient check can catch a message to someone who
 shares no bank. Compose checks the link instead (`km.peerSaeId === null`) and
 refuses, naming the Key Manager screen.
 
-- **Compose** has a level picker (`L1 · PGP`, `L2 · Q-AES`, `L3 · OTP`,
+- **Level 3 is switched off for now** (`DISABLED_LEVELS` in `app/src/core/qkd.ts`):
+  hidden from the picker and refused by `deliver`, held messages included.
+  Received Level 3 mail still opens.
+- **Compose** has a level picker (`L1 · PGP`, `L2 · Quantum`, `L3 · OTP` (hidden),
   `L4 · PQC`). It reads the KM when a quantum level is picked and says how many
   keys the message will spend of how many are left. Level 3 blocks Send when
   the message needs more keys than the bank has, and says so.

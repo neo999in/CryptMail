@@ -189,6 +189,8 @@ export type Bb84Service = {
   begin(email: string): Promise<void>;
   /** Handle whichever legs a sync brought in, and carry the exchange forward. */
   answer(messages: InboxItem[]): Promise<void>;
+  /** Sync now, retrying legs that failed, and say what became of each one. */
+  check(): Promise<string>;
 };
 
 export type SendService = {

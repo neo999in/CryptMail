@@ -497,6 +497,7 @@ export type Actions = {
    * appears when the last one lands, and nothing is copied.
    */
   beginQuantumLink(email: string): Promise<void>;
+  checkQuantumLink(): Promise<string>;
   /**
    * Encrypt and send. Never sends anything unencrypted: a recipient with no key
    * yet gets an invite and the message waits — see `SendOutcome`.

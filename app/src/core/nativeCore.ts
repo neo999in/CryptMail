@@ -302,6 +302,7 @@ export function getNativeCore(
           autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
           inReplyTo: request.inReplyTo,
           references: request.references,
+          linkLeg: request.linkLeg,
         });
       }
 

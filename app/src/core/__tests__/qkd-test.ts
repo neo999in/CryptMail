@@ -161,3 +161,12 @@ describe('levels through the native bridge', () => {
     await expect(failing.buildEncrypted({ ...request, level: 3 })).rejects.toThrow(/one 1 Kb key per 128 bytes/);
   });
 });
+
+describe('levels switched off in this build', () => {
+  it('Level 3 cannot be picked, and the others can', () => {
+    const { LEVEL_GROUPS, isLevelEnabled } = jest.requireActual('../qkd');
+    const offered = LEVEL_GROUPS.flatMap((g: { levels: number[] }) => g.levels);
+    expect(offered).toEqual([4, 1, 2]);
+    expect(isLevelEnabled(3)).toBe(false);
+  });
+});

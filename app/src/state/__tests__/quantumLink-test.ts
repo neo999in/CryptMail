@@ -19,6 +19,10 @@ const mockLeg = new Map<string, string | null>();
 let mockLinks: Record<string, { at: string; state: string }> = {};
 /** Set to make `bb84Judge` behave as though someone were listening. */
 let mockWatched = false;
+/** Who the fake core says signed what it opened. */
+let mockSigner: { signature: string; signerFingerprint?: string } = { signature: 'valid', signerFingerprint: 'ADA-FP' };
+/** Set to make the other end's key unknown. */
+let mockNoKey = false;
 
 jest.mock('@react-native-google-signin/google-signin', () => ({ GoogleSignin: { configure: jest.fn() } }));
 
@@ -38,6 +42,19 @@ jest.mock('../../core', () => {
       }),
       bb84Accept: jest.fn(async () => ({ account: 'me@example.com', role: 'Slave' })),
       bb84Leg: jest.fn(async (raw: string) => mockLeg.get(raw) ?? null),
+      // Sealing, faked as a readable wrapper: what is under test is that the
+      // legs go through it, to whose key, and what is refused on the way in.
+      buildEncrypted: jest.fn(
+        async (r: { to: string[]; subject: string; body: string; recipientKeys: string[]; level?: number }) =>
+          `To: ${r.to.join(', ')}\nSubject: ${r.subject}\nX-Level: ${r.level}\nX-Sealed-To: ${r.recipientKeys.join(',')}\n\nSEALED:${r.body}`,
+      ),
+      looksEncrypted: jest.fn((raw: string) => raw.includes('SEALED:')),
+      parseEncrypted: jest.fn(async (raw: string) => ({
+        subject: '',
+        body: raw.slice(raw.indexOf('SEALED:') + 'SEALED:'.length),
+        attachments: [],
+        ...mockSigner,
+      })),
     },
   };
 });
@@ -99,6 +116,12 @@ function harness() {
     updateFlags: async () => {},
   };
   mail.current = client;
+  services.contacts.discoverRecipients = async (emails: string[]) =>
+    emails.map((email) =>
+      mockNoKey
+        ? ({ email, status: 'awaiting-key' } as never)
+        : ({ email, status: 'ok', key: { armored: 'ADA-KEY', fingerprint: 'ADA-FP' } } as never),
+    );
   return { store, services, wire, raws };
 }
 
@@ -110,7 +133,7 @@ function arrived(
   over: Partial<InboxItem> = {},
 ): InboxItem {
   const raw = `RAW-${id}`;
-  h.raws.set(id, raw);
+  h.raws.set(id, `SEALED:${raw}`);
   mockLeg.set(raw, leg);
   return {
     id,
@@ -132,10 +155,12 @@ beforeEach(() => {
   mockLeg.clear();
   mockLinks = {};
   mockWatched = false;
+  mockNoKey = false;
+  mockSigner = { signature: 'valid', signerFingerprint: 'ADA-FP' };
 });
 
 describe('starting a quantum link', () => {
-  it('sends the states as an ordinary message and records that one is running', async () => {
+  it('sends the states and records that one is running', async () => {
     const h = harness();
     await h.services.bb84.begin('ada@example.com');
 
@@ -243,6 +268,85 @@ describe('when the channel looks watched', () => {
 
     await h.services.bb84.answer([arrived(h, 'm8', 'photons')]);
     expect(h.store.get().error).toBeNull();
+    expect(h.wire).toHaveLength(0);
+  });
+});
+
+describe('checking by hand', () => {
+  /** A sync that brings `rows` in, the way `refreshInbox` does. */
+  function syncs(h: ReturnType<typeof harness>, rows: InboxItem[]) {
+    h.services.mailbox.refreshInbox = async () => {
+      h.store.patch({ messages: rows });
+      await h.services.bb84.answer(rows);
+    };
+  }
+
+  it('says when there is no link message at all', async () => {
+    const h = harness();
+    syncs(h, []);
+    await expect(h.services.bb84.check()).resolves.toMatch(/No link messages/);
+  });
+
+  it('reports the reply it sent', async () => {
+    const h = harness();
+    syncs(h, [arrived(h, 'c1', 'photons')]);
+    await expect(h.services.bb84.check()).resolves.toMatch(/replied \(2 of 3\)/);
+    expect(h.wire).toHaveLength(1);
+  });
+
+  it('says why a leg failed, and retries it when asked again', async () => {
+    const h = harness();
+    const { core } = jest.requireMock('../../core');
+    core.bb84Measure.mockRejectedValueOnce(new CoreError('no exchange waiting', 'unavailable'));
+    syncs(h, [arrived(h, 'c2', 'photons')]);
+
+    await expect(h.services.bb84.check()).resolves.toMatch(/no exchange waiting/i);
+    expect(h.wire).toHaveLength(0);
+
+    await expect(h.services.bb84.check()).resolves.toMatch(/replied/);
+    expect(h.wire).toHaveLength(1);
+  });
+});
+
+describe('the legs are sealed and signed', () => {
+  it('seals every leg at Level 1 to the other end’s key', async () => {
+    const h = harness();
+    await h.services.bb84.begin('ada@example.com');
+    await h.services.bb84.answer([arrived(h, 's1', 'photons')]);
+
+    expect(h.wire).toHaveLength(2);
+    for (const sent of h.wire) {
+      expect(sent).toContain('X-Level: 1');
+      expect(sent).toContain('X-Sealed-To: ADA-KEY');
+    }
+  });
+
+  it('will not start without their key', async () => {
+    mockNoKey = true;
+    const h = harness();
+    const { core } = jest.requireMock('../../core');
+    const begun = core.bb84Begin.mock.calls.length;
+    await expect(h.services.bb84.begin('ada@example.com')).rejects.toThrow(/needs their key/);
+    expect(h.wire).toHaveLength(0);
+    expect(core.bb84Begin.mock.calls.length).toBe(begun);
+  });
+
+  it('refuses a leg that arrived in the clear', async () => {
+    const h = harness();
+    const row = arrived(h, 's2', 'photons');
+    h.raws.set('s2', 'RAW-s2');
+    await h.services.bb84.answer([row]);
+    expect(h.wire).toHaveLength(0);
+  });
+
+  it('refuses a leg not signed by their known key', async () => {
+    mockSigner = { signature: 'valid', signerFingerprint: 'SOMEONE-ELSE' };
+    const h = harness();
+    await h.services.bb84.answer([arrived(h, 's3', 'photons')]);
+    expect(h.wire).toHaveLength(0);
+
+    mockSigner = { signature: 'invalid' };
+    await h.services.bb84.answer([arrived(h, 's4', 'photons')]);
     expect(h.wire).toHaveLength(0);
   });
 });
