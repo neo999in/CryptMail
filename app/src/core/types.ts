@@ -121,6 +121,10 @@ export type BuildRequest = {
  * numbering: 1 no quantum security (OpenPGP), 2 quantum-aided AES, 3 quantum
  * one-time pad, 4 post-quantum per-email keys (the default).
  */
+import type { Bb84Leg } from './bb84';
+
+export type { Bb84Leg };
+
 export type SecurityLevel = 1 | 2 | 3 | 4;
 
 /**
@@ -138,6 +142,12 @@ export type KmStatus = {
   remaining: number;
   bankSize: number;
   keyBits: number;
+  /**
+   * The bank moved to another phone with a device transfer. It still opens
+   * mail — reading deletes only this phone's own copy of a key — but it issues
+   * no more, because two ends sending from one half would reuse a one-time pad.
+   */
+  handedOver: boolean;
 };
 
 /** The simulated QKD link: this bank sealed for the other phone, under a code shown once. */
@@ -275,6 +285,27 @@ export interface CryptCore {
   kmExportLink(mailbox: string): Promise<KmLink>;
   /** Adopt the other phone's link. */
   kmImportLink(mailbox: string, blob: string, code: string): Promise<KmStatus>;
+
+  /**
+   * BB84 over email (`core/src/bb84.rs`, `core/bb84.ts`): the two phones run
+   * the protocol in three messages and each build the same bank, instead of one
+   * copying its bank to the other.
+   */
+  /** Leg 1 → the armored states to send. */
+  bb84Begin(mailbox: string): Promise<string>;
+  /** Leg 2 → the armored measurement. Builds nothing yet. */
+  bb84Measure(mailbox: string, armored: string): Promise<string>;
+  /**
+   * Leg 3 → the armored verdict, and this end's half of the bank. Throws
+   * `decrypt-failed` rather than build one over a channel that looks watched.
+   */
+  bb84Judge(mailbox: string, armored: string): Promise<string>;
+  /** After leg 3 → the KM status, with the other half of the bank built. */
+  bb84Accept(mailbox: string, armored: string): Promise<KmStatus>;
+  /** Which leg a message body carries, if any — routing without parsing. */
+  bb84Leg(text: string): Promise<Bb84Leg | null>;
+  /** Demonstration only: intercept-resend, so the error check can be shown. */
+  bb84Eavesdrop(armored: string): Promise<string>;
 
   /** Cheap structural check used to decide whether to call `parseEncrypted`. */
   looksEncrypted(rfc822: string): boolean;

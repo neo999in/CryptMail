@@ -8,6 +8,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { core } from '../../core';
 import { MailClient } from '../../mail/types';
 import { accountIdFor } from '../../store/accountScope';
 import { initLocalCrypto, resetLocalCryptoForTests } from '../../store/localCrypto';
@@ -39,7 +40,31 @@ const ROW: InboxItem = {
   starred: false,
 };
 
-const ENCRYPTED = [
+/**
+ * A message the core can actually open.
+ *
+ * It used to be a hand-written envelope whose ciphertext read `not really`,
+ * which looked encrypted and decrypted to nothing. That was load-bearing for
+ * the old behaviour — bytes were cached on the strength of `looksEncrypted`
+ * alone — and it hid the bug this file now pins: a message that never opens
+ * must never be cached, or one bad fetch is permanent.
+ */
+let ENCRYPTED = '';
+
+beforeAll(async () => {
+  ENCRYPTED = await core.buildEncrypted({
+    from: 'alice@example.com',
+    to: ['me@example.com'],
+    subject: 'Hello',
+    body: 'a real one',
+    // The demo core refuses a message with no recipients; it never reads the
+    // key itself, so a well-formed placeholder is enough.
+    recipientKeys: ['-----BEGIN PGP PUBLIC KEY BLOCK-----\nx\n-----END PGP PUBLIC KEY BLOCK-----'],
+  });
+});
+
+/** Shaped like encrypted mail, and pure nonsense inside. */
+const UNOPENABLE = [
   'From: alice@example.com',
   'Subject: [Encrypted message]',
   'MIME-Version: 1.0',
@@ -60,8 +85,17 @@ const ENCRYPTED = [
 
 const PLAIN = ['From: alice@example.com', 'Subject: Hi', 'Content-Type: text/plain', '', 'Hello'].join('\r\n');
 
-/** Lets the un-awaited cache write land. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+/**
+ * Lets the un-awaited cache write land.
+ *
+ * More than one tick because the write is fire-and-forget *and* now sits below
+ * the decrypt: it used to start before `openMessage` awaited anything else, so
+ * those awaits carried it along, and a single tick was enough. Sealing the
+ * bytes is itself asynchronous, so this drains a few.
+ */
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
 
 function harness(raw: string) {
   const writes: string[] = [];
@@ -134,6 +168,26 @@ describe('openMessage and the raw cache', () => {
     expect(writes).toHaveLength(1);
     expect(second.raw).toBe(first.raw);
     expect(second.encryption.kind).toBe('encrypted');
+  });
+
+  /**
+   * The failure this guards against, seen between two installs on 2026-09-20:
+   * Gmail re-encoded a Level 2 body, the armor markers survived so the message
+   * still "looked encrypted", and it was cached before anything tried to open
+   * it. Every reopen then read the damaged copy back from disk and the message
+   * was never requested from the provider again — a transport hiccup turned
+   * into permanent data loss.
+   */
+  it('does not cache a message that failed to open, so a bad fetch is not permanent', async () => {
+    const { services, getRaw, writes } = harness(UNOPENABLE);
+
+    await services.mailbox.openMessage(ROW);
+    await settle();
+    await services.mailbox.openMessage(ROW);
+
+    expect(writes).toHaveLength(0);
+    // Asked again rather than served the copy that could not be read.
+    expect(getRaw).toHaveBeenCalledTimes(2);
   });
 
   it('never caches plain mail', async () => {

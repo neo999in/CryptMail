@@ -192,6 +192,70 @@ For a recipient with no key, we don't produce PGP/MIME. Instead:
 - Opening the link loads a zero-knowledge web reader; the recipient enters the
   passphrase to decrypt locally in the browser. See [encryption.md](encryption.md).
 
+## Quantum levels on the wire (Levels 2 and 3)
+
+A Level 2 or 3 message is **not** PGP/MIME. It is an ordinary `text/plain`
+email: a sentence saying what it is, then an armored block. Any mail system
+carries it and any client shows something a person can read, which is the point
+— these levels are what the QKD integration looks like to the existing mail
+infrastructure.
+
+```
+Subject: [Encrypted message]
+X-CryptMail-Security: 3
+
+This message is encrypted with quantum keys from a Key Manager.
+
+-----BEGIN CRYPTMAIL QKD MESSAGE-----
+Level: 3
+Cipher: one-time pad, HMAC-SHA256 with a QKD key
+SAE: sae-7af975536f00
+Key-ID: 3f9a01c2-b7d4-4e51-9c02-1a2b3c4d0007
+Key-ID: 3f9a01c2-b7d4-4e51-9c02-1a2b3c4d0008
+
+base64 of (ciphertext ‖ tag)
+-----END CRYPTMAIL QKD MESSAGE-----
+```
+
+- The **outer subject is the same placeholder** as every encrypted message, so
+  the inbox, rules and notifications treat it as encrypted without being told.
+- **Key IDs travel in the clear, deliberately** — that is what ETSI GS QKD 014
+  intends, and an ID without the bank is worthless. Level 3 repeats `Key-ID:`
+  once per key, pad keys first and the MAC key last.
+- **Every header line is authenticated**: it is the AEAD's associated data at
+  Level 2 and part of the HMAC input at Level 3, so changing `Level:` or a
+  `Key-ID:` fails the open.
+- **The body is transfer-decoded before the block is read.** The envelope is
+  sent as `7bit`, but that is a claim about what leaves, not a promise about
+  what arrives: a provider may re-encode the body, and Gmail does. The failure
+  is silent, which is why this is a rule rather than a note — `BEGIN` and `END`
+  contain no character quoted-printable escapes, so the markers survive intact
+  while the base64 between them is rewritten (`=` padding becomes `=3D`, long
+  lines gain soft breaks). The block is then found, looks well-formed, and fails
+  to open. Observed between two installs on 2026-09-21: every Level 2 and 3
+  message opened on the sender and failed on the receiver.
+  Decoding must use the part's **declared** encoding and can never be guessed
+  after the fact — a base64 line ending in `=` and a quoted-printable soft break
+  are the same two bytes.
+- Written and read by `core/src/qkd.rs`; the envelope is
+  `app/src/core/qkd.ts`. Change them and this section together.
+
+## Quantum link setup on the wire (BB84)
+
+Three ordinary `text/plain` messages, told apart by their outer subject
+(`Setting up a quantum link (n of 3)`) and confirmed by the block inside:
+
+| Block | Carries |
+|---|---|
+| `-----BEGIN CRYPTMAIL QKD PHOTONS-----` | the sending SAE, `n`, and two packed bitsets — the states and the bases they were prepared in |
+| `-----BEGIN CRYPTMAIL QKD MEASUREMENT-----` | the measuring SAE, its bases, and its result at a random sample of positions |
+| `-----BEGIN CRYPTMAIL QKD VERDICT-----` | which positions agreed, the measured error rate, and how many positions it was measured over |
+
+Each block is base64 JSON. Leg 1 is the only large one — at 32 states per key
+byte a full bank is ~130 KB, verified through Gmail. The bodies are fixed text
+(`app/src/core/bb84.ts`), so nothing a user wrote is ever an argument to them.
+The protocol itself is `core/src/bb84.rs`.
+
 ## Design notes
 
 - We keep `Content-Type: multipart/encrypted` rather than dumping armor into a

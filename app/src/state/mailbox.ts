@@ -383,6 +383,9 @@ export function createMailbox(ctx: Ctx): MailboxService {
         // Answering one — or opening the answer to ours — is what lets a
         // message held for per-email keys go, so it comes before the drain.
         await ctx.services.handshake.answer(messages);
+        // And a quantum link under way: one leg per sync, each an ordinary
+        // message this sync just fetched (`state/bb84.ts`).
+        await ctx.services.bb84.answer(messages);
         // Someone installing CryptMail is an external event with no notification
         // attached, so every sync is also a chance to notice that a held message
         // can finally go. Cheap: it only touches the network if something is held.
@@ -511,10 +514,24 @@ export function createMailbox(ctx: Ctx): MailboxService {
       const account = ctx.services.accounts.requireActive();
       const cached = await readCachedRaw(account, summary.id);
       const raw = cached ?? (await mail.current.getRaw(summary.id));
-      if (cached === null && core.looksEncrypted(raw)) {
+      /**
+       * Whether these bytes are worth keeping — decided *after* they open, not
+       * before.
+       *
+       * This used to write the cache as soon as the message looked encrypted,
+       * which made a single bad fetch permanent: the damaged copy went to disk,
+       * every reopen read it back, and the message was never requested again.
+       * `looksEncrypted` cannot stand in for "this worked" — a quoted-printable
+       * body keeps its armor markers, so a message mangled in transit passes
+       * that test and fails to decrypt (see `extractQkdArmor`).
+       *
+       * So the write moved below the open. The cost is that the first open of a
+       * message always hits the network, which it did anyway.
+       */
+      const keepRaw = () => {
         // Not awaited: sealing and writing must not hold up the reader.
-        void writeCachedRaw(account, summary.id, raw);
-      }
+        if (cached === null && core.looksEncrypted(raw)) void writeCachedRaw(account, summary.id, raw);
+      };
 
       if (!core.looksEncrypted(raw)) {
         // One scan of the MIME tree, two consumers: the spam engine reads the
@@ -547,6 +564,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
         const archived = await readArchived(account, raw);
         // The signed-in mailbox names the Key Manager that opens Level 2/3 mail.
         const decrypted = archived ?? (await core.parseEncrypted(raw, store.get().session?.email));
+        // It opened, so the bytes are sound and a reopen can skip the network.
+        keepRaw();
         let notice: string | undefined;
         if (!archived && decrypted.forwardSecret) {
           // Awaited, and before anything else can fail: past this point there

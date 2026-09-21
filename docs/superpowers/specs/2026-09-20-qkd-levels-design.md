@@ -16,7 +16,7 @@ let the user switch between three security levels.
 | Level 2 (quantum-aided AES) and Level 3 (one-time pad) | **built** — [`core/src/qkd.rs`](../../../core/src/qkd.rs) |
 | FFI, Kotlin, TypeScript bridge, envelope | **built** — `ffi.rs`, `CryptMailCoreModule.kt`, [`app/src/core/qkd.ts`](../../../app/src/core/qkd.ts) |
 | Level picker in compose, Key Manager screen, level shown on an opened message | **built** — `ComposeScreen`, [`KeyManagerScreen`](../../../app/src/screens/KeyManagerScreen.tsx), `MessageScreen` |
-| Tests | `cargo test` **95** (9 in `tests/qkd.rs`, 4 KM unit); app suite **1,795** (8 in `core/__tests__/qkd-test.ts`, 4 more in `perEmailOnly-test.ts`) |
+| Tests | `cargo test` **122** (9 in `tests/qkd.rs`, 11 in `tests/bb84.rs`, 12 BB84 unit, 4 KM unit); app suite **1,819** (8 in `core/__tests__/qkd-test.ts`, 5 in `core/__tests__/bb84-test.ts`, 12 in `state/__tests__/quantumLink-test.ts`, 7 in `store/__tests__/linkStore-test.ts`) |
 | On a device | ✅ emulator, one install: the KM screen, and a Level 2 and a Level 3 message each sent through Gmail, opened with its level named, and reopened from the archive. Keys spent as expected (3 per Level 3 message here, 1 per Level 2). ⛔ **opening through the Key Manager rather than the archive** — on one install the sender's own archived copy always answers first, so that needs two linked phones |
 | Real KM hardware | **not built** — the simulator implements the same call shape |
 
@@ -76,7 +76,53 @@ same key, which for a one-time pad would be fatal. Before any link, a bank is
 **solo** and sends from all 100: that is mail to yourself, and the sender's own
 copy.
 
+**Two ends, the other way: BB84 over email.** *Set up a quantum link* runs the
+protocol instead of copying a bank (`core/src/bb84.rs`). Three messages:
+
+```
+1. Alice → Bob   n states — a bit in one of two bases, packed, base64
+2. Bob   → Alice the bases he measured in, and his result at a random sample
+3. Alice → Bob   which positions agreed, and the measured error rate
+```
+
+Textbook BB84 takes four legs; folding the sample into leg 2 costs nothing,
+because Bob picks it before he knows what will survive sifting, and saves a
+round trip — which over email is the expensive thing. Both ends then sift
+(~n/2), compare the sample (intercept-resend shows ~25%, the limit is 11%),
+discard what was said out loud, and amplify the rest with HKDF-SHA256 into the
+12,800 bytes a bank is. At 32 states per key byte one transmission is ~130 KB,
+which any provider carries. Key IDs are derived from the material rather than
+random, so both ends independently agree on them.
+
+The legs are ordinary `text/plain` messages routed by subject
+(`app/src/core/bb84.ts`), and a sync carries one forward
+(`app/src/state/bb84.ts`), so a link takes three syncs on each side rather than
+any action by the user. `linkStore` keeps one exchange per address in flight.
+
+**This is not secure and not quantum.** The states are bits in an email: anyone
+who reads that email has the bits *and* the bases and leaves no trace in the
+error rate, because what makes real eavesdropping detectable is that a state
+cannot be copied. `bb84_eavesdrop` plays by the protocol's rules so the check
+can be seen working — the one property a real link buys. What is real, and what
+hardware would not change, is everything above the channel.
+
+**Moving to a new phone.** The bank travels in the device-transfer file
+(`core/src/transfer.rs`), because it is state and not a key that can be
+re-derived: a phone that left it behind could open no unread Level 2 or 3
+message and would be unlinked from the other end. It **moves**, like the
+sessions — the old bank is marked handed over and `enc_keys` refuses on it
+(`km-handed-over`), since two ends issuing from one half would hand out the
+same one-time pad twice. `dec_keys` is untouched, so the old phone still opens
+quantum mail already on its way; each phone only ever deletes its own copy of a
+key. *Keep using this phone* takes the bank back with the conversations. A
+transfer written before banks travelled still imports — the field is optional.
+
 ## On the wire
+
+> **Reading one back requires decoding the body's transfer encoding first.**
+> It is sent `7bit`; providers re-encode, and quoted-printable leaves the armor
+> markers intact while rewriting the base64 between them, so the block parses as
+> present and fails to open. See message-format.md §Quantum levels on the wire.
 
 A Level 2/3 email is an ordinary `text/plain` message: one sentence saying what
 it is, then an armor block. Any mail system carries it, any client displays it.
@@ -106,6 +152,18 @@ worthless. Every header line is authenticated — the GCM AAD at Level 2, the
 HMAC at Level 3 — so nobody can swap the level or the key list.
 
 ## In the app
+
+**The chooser is two pairs.** `LEVEL_GROUPS` (`app/src/core/qkd.ts`) groups the
+levels as *Everyday* (4, 1) and *Quantum keys* (2, 3), default first, with a
+divider between them. A flat 1–4 row reads as a security ladder and invites the
+question "why would I ever pick 2 over 4?" — to which the honest answer is
+*with real hardware you would, and without it you would not*. The grouping says
+that without a paragraph.
+
+**An unlinked bank blocks the send.** Levels 2 and 3 never look at the
+recipient's key, so no recipient check can catch a message to someone who
+shares no bank. Compose checks the link instead (`km.peerSaeId === null`) and
+refuses, naming the Key Manager screen.
 
 - **Compose** has a level picker (`L1 · PGP`, `L2 · Q-AES`, `L3 · OTP`,
   `L4 · PQC`). It reads the KM when a quantum level is picked and says how many
@@ -141,8 +199,8 @@ HMAC at Level 3 — so nobody can swap the level or the key list.
 ## Verification
 
 ```bash
-cd core && cargo test                      # 95, incl. tests/qkd.rs
-cd app  && npx tsc --noEmit && npm test -- --ci   # 1,795
+cd core && cargo test                      # 122, incl. tests/qkd.rs, tests/bb84.rs
+cd app  && npx tsc --noEmit && npm test -- --ci   # 1,819
 ```
 
 Next: link two installs and exchange one message each way. That is what

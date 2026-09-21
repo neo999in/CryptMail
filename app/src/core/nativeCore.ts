@@ -50,6 +50,7 @@ import {
   SignatureStatus,
 } from './types';
 import { helloContent } from './handshake';
+import type { Bb84Leg } from './bb84';
 import { buildQkdEnvelope, extractQkdArmor, isQkdMessage } from './qkd';
 
 export const NATIVE_MODULE_NAME = 'CryptMailCore';
@@ -116,6 +117,18 @@ type NativeBridge = {
   kmRegenerate?(email: string): Promise<string>;
   kmExportLink?(email: string, code: string): Promise<string>;
   kmImportLink?(email: string, armored: string, code: string): Promise<string>;
+  /**
+   * BB84 over email (`core/src/bb84.rs`): the three legs of building a bank
+   * with another phone, rather than copying one to it.
+   */
+  bb84Begin?(email: string): Promise<string>;
+  bb84Measure?(email: string, armored: string): Promise<string>;
+  bb84Judge?(email: string, armored: string): Promise<string>;
+  bb84Accept?(email: string, armored: string): Promise<string>;
+  /** → `'photons' | 'measurement' | 'verdict' | null`. */
+  bb84Leg?(text: string): Promise<string | null>;
+  /** Demonstration only: intercept-resend, so the error check can be seen. */
+  bb84Eavesdrop?(armored: string): Promise<string>;
   /** Level 2 or 3 → the armored QKD block. */
   qkdSeal?(email: string, level: number, plaintext: string): Promise<string>;
   /** → `{ plaintext, level, senderSae }`. Opens once: the keys are deleted. */
@@ -418,6 +431,26 @@ export function getNativeCore(
       return { code, blob };
     },
 
+    bb84Begin: async (mailbox) =>
+      call(required(bridge, 'bb84Begin', 'Quantum links')(mailbox), WORDING.bb84),
+
+    bb84Measure: async (mailbox, armored) =>
+      call(required(bridge, 'bb84Measure', 'Quantum links')(mailbox, armored), WORDING.bb84),
+
+    bb84Judge: async (mailbox, armored) =>
+      call(required(bridge, 'bb84Judge', 'Quantum links')(mailbox, armored), WORDING.bb84),
+
+    bb84Accept: async (mailbox, armored) =>
+      JSON.parse(
+        await call(required(bridge, 'bb84Accept', 'Quantum links')(mailbox, armored), WORDING.bb84),
+      ) as KmStatus,
+
+    bb84Leg: async (text) =>
+      (await call(required(bridge, 'bb84Leg', 'Quantum links')(text), WORDING.bb84)) as Bb84Leg | null,
+
+    bb84Eavesdrop: async (armored) =>
+      call(required(bridge, 'bb84Eavesdrop', 'Quantum links')(armored), WORDING.bb84),
+
     kmImportLink: async (mailbox, blob, code) =>
       JSON.parse(
         await call(
@@ -452,7 +485,13 @@ function required<
     | 'kmExportLink'
     | 'kmImportLink'
     | 'qkdSeal'
-    | 'qkdOpen',
+    | 'qkdOpen'
+    | 'bb84Begin'
+    | 'bb84Measure'
+    | 'bb84Judge'
+    | 'bb84Accept'
+    | 'bb84Leg'
+    | 'bb84Eavesdrop',
 >(
   bridge: NativeBridge,
   name: K,
@@ -516,6 +555,15 @@ const WORDING = {
       'That code doesn’t open this transfer. Check each group against the code your old phone showed, in order.',
     malformed:
       'That isn’t a complete CryptMail transfer, or it belongs to another address. Load the file itself rather than pasting it.',
+  },
+  bb84: {
+    'decrypt-failed':
+      'Too many of the checked bits disagreed. On a real quantum link that means someone measured the ' +
+      'states on the way, so no keys were built. Try again, and if it keeps happening, treat the channel ' +
+      'as watched.',
+    unavailable:
+      'This phone has no key exchange waiting. Start the link again from the phone that began it.',
+    malformed: 'That quantum key exchange is damaged or incomplete.',
   },
   seal: {
     'no-key':

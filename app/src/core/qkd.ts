@@ -20,6 +20,7 @@
  * subject is the same placeholder as every encrypted message, so the inbox,
  * rules and notifications already treat it as encrypted without being told.
  */
+import { decodeTransfer } from '../mail/transferEncoding';
 import { autocryptHeaderLine, PLACEHOLDER_SUBJECT } from './mime';
 import type { SecurityLevel } from './types';
 
@@ -27,6 +28,33 @@ export type { SecurityLevel };
 
 /** Level 4 — what this build sends when nothing else is chosen. */
 export const DEFAULT_LEVEL: SecurityLevel = 4;
+
+/**
+ * How compose groups the levels, and the order it offers them in.
+ *
+ * Numbered 1–4 they read as a ladder, which is wrong twice over: Level 4 is
+ * both the default and the strongest thing here, and Level 3's guarantee
+ * depends on a key source this build simulates. They are two pairs — what
+ * protects your mail, and what demonstrates the Key Manager — so the row says
+ * so, and leads with the default.
+ */
+export const LEVEL_GROUPS: { label: string; hint: string; levels: SecurityLevel[] }[] = [
+  {
+    label: 'Everyday',
+    hint: 'Works with anyone who uses CryptMail. No setup, no key bank, signed so they know it is you.',
+    levels: [4, 1],
+  },
+  {
+    label: 'Quantum keys',
+    hint: 'Needs a key bank shared with them (Settings → Quantum Key Manager). Demonstrates the QKD integration.',
+    levels: [2, 3],
+  },
+];
+
+/** Which group a level belongs to. */
+export function groupOf(level: SecurityLevel): (typeof LEVEL_GROUPS)[number] {
+  return LEVEL_GROUPS.find((g) => g.levels.includes(level)) ?? LEVEL_GROUPS[0];
+}
 
 export const LEVELS: Record<SecurityLevel, { short: string; name: string; detail: string }> = {
   1: {
@@ -47,7 +75,7 @@ export const LEVELS: Record<SecurityLevel, { short: string; name: string; detail
   4: {
     short: 'L4 · PQC',
     name: 'Level 4 — Post-quantum per-email keys',
-    detail: 'A new key for every email over ML-KEM-768 + X25519, destroyed once read.',
+    detail: 'A new key for every email over ML-KEM-768 + X25519, destroyed once read. The default.',
   },
 };
 
@@ -57,12 +85,66 @@ export const QKD_END = '-----END CRYPTMAIL QKD MESSAGE-----';
 /** Bytes of one quantum key: 1 Kb. */
 export const QKD_KEY_BYTES = 128;
 
-/** The armored QKD block in a raw message, or null. */
-export function extractQkdArmor(raw: string): string | null {
-  const start = raw.indexOf(QKD_BEGIN);
-  const end = raw.indexOf(QKD_END);
+/** The armored block as it sits in some text, or null. */
+function sliceArmor(text: string): string | null {
+  const start = text.indexOf(QKD_BEGIN);
+  const end = text.indexOf(QKD_END);
   if (start === -1 || end === -1 || end < start) return null;
-  return raw.slice(start, end + QKD_END.length);
+  return text.slice(start, end + QKD_END.length);
+}
+
+/**
+ * The top-level part's transfer encoding and body, for a single-part message.
+ *
+ * `buildQkdEnvelope` sends exactly that shape, so there is no tree to walk —
+ * and deliberately no MIME parser here, since the one that reads inbound mail
+ * lives in `mail/plainBody.ts` and flattens HTML, which would destroy an armor
+ * block rather than decode it.
+ */
+function topLevelPart(raw: string): { encoding?: string; charset?: string; body: string } | null {
+  const blank = raw.search(/\r?\n\r?\n/);
+  if (blank === -1) return null;
+  const headers = raw.slice(0, blank);
+  const body = raw.slice(blank).replace(/^\r?\n\r?\n/, '');
+  // Unfolds a continued header before reading it: a long Content-Type is often
+  // wrapped onto a second line, and `charset` is what tends to sit on it.
+  const header = (name: string): string | undefined =>
+    headers
+      .match(new RegExp(`^${name}:[ \t]*(.*(?:\r?\n[ \t].*)*)$`, 'im'))?.[1]
+      .replace(/\r?\n[ \t]+/g, ' ')
+      .trim();
+  return {
+    encoding: header('content-transfer-encoding'),
+    charset: header('content-type')?.match(/charset="?([^";]+)"?/i)?.[1],
+    body,
+  };
+}
+
+/**
+ * The armored QKD block in a raw message, or null.
+ *
+ * **The body is transfer-decoded first.** `buildQkdEnvelope` declares `7bit`,
+ * but that is a statement about what we send, not a promise about what arrives:
+ * a provider may re-encode the body on delivery, and Gmail does. Quoted-printable
+ * is the case that matters, and it is quietly destructive here — `BEGIN` and
+ * `END` contain no character QP escapes, so the markers survive intact while the
+ * base64 between them is rewritten (`=` padding becomes `=3D`, long lines gain
+ * soft breaks). The block is then found, looks entirely well-formed, and fails
+ * to parse, which surfaces as "damaged or incomplete" on a message that is
+ * perfectly fine at rest on the server.
+ *
+ * Decoding cannot be guessed after the fact: a base64 line ending in `=` and a
+ * QP soft break are the same two bytes. So the part's declared encoding decides,
+ * and the undecoded text is the fallback for anything this does not recognise.
+ */
+export function extractQkdArmor(raw: string): string | null {
+  const part = topLevelPart(raw);
+  const scheme = (part?.encoding ?? '').toLowerCase().trim();
+  if (part && (scheme === 'quoted-printable' || scheme === 'base64')) {
+    const found = sliceArmor(decodeTransfer(part.encoding, part.body, part.charset));
+    if (found) return found;
+  }
+  return sliceArmor(raw);
 }
 
 export const isQkdMessage = (raw: string): boolean => extractQkdArmor(raw) !== null;

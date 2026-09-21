@@ -1,5 +1,6 @@
-//! Device transfer, end to end: a conversation with per-email keys survives a
-//! move to a new phone, and the old phone stops writing into it.
+//! Device transfer, end to end: a conversation with per-email keys — and the
+//! Key Manager's bank of quantum keys — survives a move to a new phone, and the
+//! old phone stops writing into either.
 
 use std::fs;
 
@@ -190,4 +191,85 @@ fn a_transfer_never_used_can_be_taken_back() {
     let (m, fs) = seal(&alice, &bob, "back again");
     assert!(fs);
     assert_eq!(open(&bob, &alice, &m)["plaintext"], "back again");
+}
+
+// --------------------------------------------------- the Key Manager's bank --
+//
+// The bank is state, not a key that can be re-derived: a phone that left it
+// behind could open no unread Level 2 or 3 mail and would be unlinked from the
+// other end. It travels, and it moves rather than copies.
+
+fn km(p: &Phone) -> Value {
+    serde_json::from_str(&p.core.km_status(p.pw, p.email).unwrap()).unwrap()
+}
+
+/// Alice, with her bank linked to Bob's phone.
+fn linked(tag: &str) -> (Phone, Phone) {
+    let (alice, bob) = conversation(tag);
+    let link = alice.core.km_export_link(PW, alice.email, CODE).unwrap();
+    bob.core.km_import_link(PW, bob.email, &link, CODE).unwrap();
+    (alice, bob)
+}
+
+#[test]
+fn the_key_bank_moves_with_the_phone_and_the_link_survives() {
+    let (alice, bob) = linked("bank-moves");
+    // Mail Alice has not opened yet, sealed with keys only her bank holds.
+    let waiting = bob.core.qkd_seal(PW, bob.email, 3, "read me on the new phone").unwrap();
+
+    let file = alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
+    let mut new = new_phone("bank-moves");
+    adopt(&mut new, &file);
+
+    let status = km(&new);
+    assert_eq!(status["role"], "Master", "the new phone is not the end Alice was");
+    assert_eq!(status["peerSaeId"], km(&bob)["saeId"], "the link with Bob did not survive");
+    assert_eq!(status["handedOver"], false);
+
+    let opened: Value = serde_json::from_str(&new.core.qkd_open(NEW_PW, new.email, &waiting).unwrap()).unwrap();
+    assert_eq!(opened["plaintext"], "read me on the new phone");
+
+    // And it still sends to Bob, from the same half as before.
+    let m = new.core.qkd_seal(NEW_PW, new.email, 2, "from the new phone").unwrap();
+    let back: Value = serde_json::from_str(&bob.core.qkd_open(PW, bob.email, &m).unwrap()).unwrap();
+    assert_eq!(back["plaintext"], "from the new phone");
+}
+
+#[test]
+fn the_old_phone_stops_sending_with_the_bank_but_still_reads() {
+    let (alice, bob) = linked("bank-handover");
+    let waiting = bob.core.qkd_seal(PW, bob.email, 2, "sent before the move").unwrap();
+    alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
+
+    // Two phones issuing from one half would hand out the same one-time pad.
+    let err = alice.core.qkd_seal(PW, alice.email, 2, "still sending?").unwrap_err();
+    assert_eq!(err.code(), "no-key");
+    assert!(err.to_string().contains("km-handed-over"), "{err}");
+    assert_eq!(km(&alice)["handedOver"], true);
+
+    // Reading only deletes this phone's own copy, so it is left alone.
+    let opened: Value = serde_json::from_str(&alice.core.qkd_open(PW, alice.email, &waiting).unwrap()).unwrap();
+    assert_eq!(opened["plaintext"], "sent before the move");
+}
+
+#[test]
+fn a_transfer_never_used_gives_the_bank_back_too() {
+    let (alice, bob) = linked("bank-resume");
+    alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
+    alice.core.resume_sessions(PW).unwrap();
+
+    assert_eq!(km(&alice)["handedOver"], false);
+    let m = alice.core.qkd_seal(PW, alice.email, 3, "back again").unwrap();
+    let opened: Value = serde_json::from_str(&bob.core.qkd_open(PW, bob.email, &m).unwrap()).unwrap();
+    assert_eq!(opened["plaintext"], "back again");
+}
+
+#[test]
+fn a_transfer_from_before_banks_travelled_still_imports() {
+    // The bank is optional in the file: an older transfer must not be refused.
+    let (alice, _bob) = conversation("bank-absent");
+    let file = alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
+    let mut new = new_phone("bank-absent");
+    adopt(&mut new, &file);
+    assert_eq!(km(&new)["available"], 100, "the new phone has no bank to send with");
 }

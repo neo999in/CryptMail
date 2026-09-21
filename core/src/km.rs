@@ -49,6 +49,8 @@ use crate::{recovery, CoreError, Result};
 pub const KEY_BYTES: usize = 128;
 /// Keys in a fresh bank.
 pub const BANK_SIZE: usize = 100;
+/// The key material one bank is made of, for whatever produces it.
+pub const MATERIAL_BYTES: usize = BANK_SIZE * KEY_BYTES;
 
 const LINK_BEGIN: &str = "-----BEGIN CRYPTMAIL KM LINK-----";
 const LINK_END: &str = "-----END CRYPTMAIL KM LINK-----";
@@ -84,6 +86,11 @@ struct Bank {
     peer_sae_id: Option<String>,
     role: Role,
     keys: Vec<BankKey>,
+    /// This bank has gone to another phone. It still opens mail — reading only
+    /// deletes keys, and each phone deletes its own copy — but it never issues
+    /// another, because two ends issuing from one half would reuse a pad.
+    #[serde(default)]
+    handed_over: bool,
 }
 
 /// What the app may know about the KM. No key material, ever.
@@ -101,6 +108,8 @@ pub struct Status {
     pub remaining: usize,
     pub bank_size: usize,
     pub key_bits: usize,
+    /// Moved to another phone: it can still read, but not send.
+    pub handed_over: bool,
 }
 
 /// One key as ETSI GS QKD 014 returns it: an ID, and the key itself.
@@ -138,6 +147,75 @@ impl KeyManager {
         Ok(km)
     }
 
+    /// This end's identifier, as ETSI GS QKD 014 uses it.
+    pub fn sae_id(&self) -> Result<String> {
+        Ok(self.read_bank()?.sae_id)
+    }
+
+    /// Build the bank out of key material two ends arrived at together —
+    /// `bb84.rs` — rather than by copying one bank to the other.
+    ///
+    /// Both ends run this on the same material and must land on the same key
+    /// IDs, so the IDs are derived from the material too. The slot still rides
+    /// in the last four hex digits, which is what keeps master's half and
+    /// slave's apart once keys start being deleted.
+    pub fn fill_from(&self, material: &[u8], role: Role, peer_sae_id: &str) -> Result<()> {
+        if material.len() != MATERIAL_BYTES {
+            return Err(CoreError::Malformed(format!(
+                "a bank is {MATERIAL_BYTES} bytes of key material, not {}",
+                material.len()
+            )));
+        }
+        let ids = Hkdf::<Sha256>::new(Some(b"cryptmail/v1/bb84-key-ids"), material);
+        let keys = (0..BANK_SIZE)
+            .map(|slot| {
+                let mut seed = [0u8; 14];
+                ids.expand(&(slot as u32).to_be_bytes(), &mut seed)
+                    .expect("14 bytes is a valid HKDF-SHA256 output length");
+                BankKey {
+                    id: id_from(&seed, slot),
+                    key: material[slot * KEY_BYTES..(slot + 1) * KEY_BYTES].to_vec(),
+                    state: KeyState::Fresh,
+                }
+            })
+            .collect();
+        let sae_id = self.read_bank()?.sae_id;
+        self.write_bank(&Bank {
+            sae_id,
+            peer_sae_id: Some(peer_sae_id.to_string()),
+            role,
+            keys,
+            handed_over: false,
+        })
+    }
+
+    /// Seal `plain` beside the bank under the same key, for a half-finished key
+    /// exchange to be picked up when the other end answers.
+    pub fn keep(&self, name: &str, plain: &[u8]) -> Result<()> {
+        let sealed = seal(&self.key, name.as_bytes(), plain)?;
+        fs::write(self.side_path(name), sealed).map_err(io)
+    }
+
+    /// Take back what `keep` put there, if it is still around.
+    pub fn kept(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
+        match fs::read(self.side_path(name)) {
+            Ok(sealed) => Ok(Some(Zeroizing::new(open(&self.key, name.as_bytes(), &sealed)?))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(io(e)),
+        }
+    }
+
+    pub fn forget(&self, name: &str) -> Result<()> {
+        match fs::remove_file(self.side_path(name)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io(e)),
+            _ => Ok(()),
+        }
+    }
+
+    fn side_path(&self, name: &str) -> PathBuf {
+        self.dir.join(format!("{name}.bin"))
+    }
+
     pub fn status(&self) -> Result<Status> {
         let bank = self.read_bank()?;
         Ok(Status {
@@ -149,6 +227,7 @@ impl KeyManager {
             remaining: bank.keys.len(),
             bank_size: BANK_SIZE,
             key_bits: KEY_BYTES * 8,
+            handed_over: bank.handed_over,
         })
     }
 
@@ -162,6 +241,11 @@ impl KeyManager {
     /// marked issued. Refuses rather than hand out fewer than asked.
     pub fn enc_keys(&self, number: usize) -> Result<(String, Vec<QKey>)> {
         let mut bank = self.read_bank()?;
+        if bank.handed_over {
+            return Err(CoreError::NoKey(
+                "km-handed-over: this key bank was moved to another phone, which now sends with it".into(),
+            ));
+        }
         let picked: Vec<usize> = own_fresh(&bank).take(number).collect();
         if picked.len() < number {
             return Err(CoreError::NoKey(format!(
@@ -211,6 +295,7 @@ impl KeyManager {
             peer_sae_id: Some(bank.sae_id.clone()),
             role: Role::Slave,
             keys: bank.keys.clone(),
+            handed_over: false,
         };
         bank.peer_sae_id = Some(peer.sae_id.clone());
         // Keys this end already issued are its own; the other end never sends with them.
@@ -243,10 +328,66 @@ impl KeyManager {
         let sealed = B64.decode(body).map_err(|_| not_a_link())?;
         let plain =
             Zeroizing::new(open(&link_key(&code), b"cryptmail/v1/km-link", &sealed).map_err(|_| wrong_link_code())?);
-        let bank: Bank = serde_json::from_slice(&plain).map_err(|_| not_a_link())?;
+        let mut bank: Bank = serde_json::from_slice(&plain).map_err(|_| not_a_link())?;
         if bank.role != Role::Slave || bank.keys.iter().any(|k| k.key.len() != KEY_BYTES) {
             return Err(not_a_link());
         }
+        bank.handed_over = false;
+        self.write_bank(&bank)
+    }
+
+    // ------------------------------------------------- device transfer --
+    //
+    // A bank is state, not a key that can be re-derived, so a phone that leaves
+    // it behind loses every quantum message it had not yet opened and its link
+    // with the other end. It travels in the transfer file (`transfer.rs`),
+    // moved rather than copied for the same reason the sessions are.
+
+    /// This bank as plain JSON, for the transfer file to seal. `None` if this
+    /// mailbox has no bank — nothing to carry.
+    pub fn export_bank(&self) -> Result<Option<Zeroizing<Vec<u8>>>> {
+        if !self.bank_path().exists() {
+            return Ok(None);
+        }
+        Ok(Some(Zeroizing::new(serde_json::to_vec(&self.read_bank()?).map_err(json)?)))
+    }
+
+    /// Would `adopt_bank` take this? Lets a caller find out before it changes
+    /// anything else.
+    pub fn check_bank(plain: &[u8]) -> Result<()> {
+        let bank: Bank = serde_json::from_slice(plain).map_err(|_| damaged_bank())?;
+        if bank.keys.iter().any(|k| k.key.len() != KEY_BYTES) {
+            return Err(damaged_bank());
+        }
+        Ok(())
+    }
+
+    /// Adopt a bank from another phone, replacing whatever this mailbox held.
+    /// It arrives ready to send: the phone it came from is the one that stopped.
+    pub fn adopt_bank(&self, plain: &[u8]) -> Result<()> {
+        Self::check_bank(plain)?;
+        let mut bank: Bank = serde_json::from_slice(plain).map_err(|_| damaged_bank())?;
+        bank.handed_over = false;
+        self.write_bank(&bank)
+    }
+
+    /// Stop issuing keys: another phone sends with this bank now. Reading is
+    /// untouched, so mail already on the way still opens here.
+    pub fn hand_over(&self) -> Result<()> {
+        self.set_handed_over(true)
+    }
+
+    /// Take the bank back after a transfer that was never used.
+    pub fn resume(&self) -> Result<()> {
+        self.set_handed_over(false)
+    }
+
+    fn set_handed_over(&self, value: bool) -> Result<()> {
+        if !self.bank_path().exists() {
+            return Ok(());
+        }
+        let mut bank = self.read_bank()?;
+        bank.handed_over = value;
         self.write_bank(&bank)
     }
 
@@ -290,7 +431,7 @@ fn fresh_bank(sae_id: String) -> Bank {
     let keys: Vec<BankKey> = (0..BANK_SIZE)
         .map(|slot| BankKey { id: key_id(slot), key: random(KEY_BYTES), state: KeyState::Fresh })
         .collect();
-    Bank { sae_id, peer_sae_id: None, role: Role::Solo, keys }
+    Bank { sae_id, peer_sae_id: None, role: Role::Solo, keys, handed_over: false }
 }
 
 fn new_sae_id() -> String {
@@ -301,7 +442,12 @@ fn new_sae_id() -> String {
 /// record the key's slot in the original bank, so the halves survive keys
 /// being deleted.
 fn key_id(slot: usize) -> String {
-    let r = hex::encode(random(14));
+    id_from(&random(14), slot)
+}
+
+/// A UUID-shaped ID from 14 bytes, with the slot in the last four digits.
+fn id_from(seed: &[u8], slot: usize) -> String {
+    let r = hex::encode(seed);
     format!("{}-{}-4{}-{}-{}{:04x}", &r[..8], &r[8..12], &r[12..15], &r[15..19], &r[19..27], slot)
 }
 

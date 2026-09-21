@@ -23,6 +23,7 @@ import { formatBytes } from '../mail/attachment';
 import { back, RootStackParamList } from '../navigation';
 import { SEARCH_INDEX_MAX_BYTES } from '../search/search';
 import { useApp } from '../state/AppState';
+import { KEY_DIRECTORY_ENABLED } from '../config';
 import { ExportProgress, StorageUsage } from '../state/types';
 import { accountLabel, AVATAR_MODES, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
 import { MAX_SIGNATURE_LENGTH } from '../store/accountsStore';
@@ -424,7 +425,12 @@ export function AccountScreen({ navigation, route }: Props) {
                 onPress={() => navigation.navigate('Keys')}
                 value={
                   identity
-                    ? `${shortFingerprint(identity.fingerprint)} · ${PUBLISH_LABEL[publishStatus()]}`
+                    ? // With no directory to be listed in, "not listed" would name an
+                      // absence the user cannot act on and imply a server this build
+                      // never contacts. The fingerprint alone is the whole truth.
+                      KEY_DIRECTORY_ENABLED
+                      ? `${shortFingerprint(identity.fingerprint)} · ${PUBLISH_LABEL[publishStatus()]}`
+                      : shortFingerprint(identity.fingerprint)
                     : 'No key on this device yet'
                 }
               />

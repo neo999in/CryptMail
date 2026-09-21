@@ -150,6 +150,33 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.kmImportLink(email, armored, code) }
     }
 
+    // BB84 over email: three legs, each an armored block in a message body.
+    // `bb84Begin` and `bb84Judge` each touch ~400,000 states, so they belong on
+    // a coroutine like everything else here.
+    AsyncFunction("bb84Begin") Coroutine { email: String ->
+      mapErrors { core.bb84Begin(email) }
+    }
+
+    AsyncFunction("bb84Measure") Coroutine { email: String, armored: String ->
+      mapErrors { core.bb84Measure(email, armored) }
+    }
+
+    AsyncFunction("bb84Judge") Coroutine { email: String, armored: String ->
+      mapErrors { core.bb84Judge(email, armored) }
+    }
+
+    AsyncFunction("bb84Accept") Coroutine { email: String, armored: String ->
+      mapErrors { core.bb84Accept(email, armored) }
+    }
+
+    AsyncFunction("bb84Leg") Coroutine { text: String ->
+      mapErrors { core.bb84Leg(text) }
+    }
+
+    AsyncFunction("bb84Eavesdrop") Coroutine { armored: String ->
+      mapErrors { core.bb84Eavesdrop(armored) }
+    }
+
     AsyncFunction("qkdSeal") Coroutine { email: String, level: Int, plaintext: String ->
       mapErrors { core.qkdSeal(email, level.toUByte(), plaintext) }
     }

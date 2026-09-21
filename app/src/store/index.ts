@@ -19,6 +19,7 @@ import { HANDSHAKE_STORE_KEY } from './handshakeStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
 import { LABELS_STORE_KEY } from './labelsStore';
+import { LINK_STORE_KEY } from './linkStore';
 import { MAIL_CACHE_STORE_KEY } from './mailCacheStore';
 import { MAIL_PREFS_STORE_KEY } from './mailPrefsStore';
 import { NOTIFY_PREFS_STORE_KEY, NOTIFY_STORE_KEY } from './notifyStore';
@@ -47,6 +48,7 @@ export const PER_ACCOUNT_STORE_KEYS = [
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
   HANDSHAKE_STORE_KEY,
+  LINK_STORE_KEY,
   SPAM_STORE_KEY,
   SNOOZE_STORE_KEY,
   MAIL_CACHE_STORE_KEY,

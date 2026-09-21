@@ -175,6 +175,14 @@ export type HandshakeService = {
   answer(messages: InboxItem[]): Promise<void>;
 };
 
+/** Building a quantum link over email — see `state/bb84.ts`. */
+export type Bb84Service = {
+  /** Leg 1 to one address: the states, and a note that an exchange is running. */
+  begin(email: string): Promise<void>;
+  /** Handle whichever legs a sync brought in, and carry the exchange forward. */
+  answer(messages: InboxItem[]): Promise<void>;
+};
+
 export type SendService = {
   canSendEncrypted(): { allowed: boolean; reason?: string };
   /** Encrypt and send, or hold — never plaintext. The whole of rule 1 lives here. */
@@ -394,6 +402,7 @@ export type Services = {
   notify: NotifyService;
   handshake: HandshakeService;
   km: KmService;
+  bb84: Bb84Service;
 };
 
 export type Ctx = {

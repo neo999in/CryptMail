@@ -118,7 +118,7 @@ The numbers here are for `feat/per-email-keys`. The strict branch's are in §8:
 | `seal` → Gmail → `open` round trip (self-sent); offer header survives Gmail; signature verifies | emulator | ✅ |
 | Transfer screen: make a transfer through the native core; code shown; `handed-over.bin` written; banner; *Keep using this phone* removes the marker | emulator | ✅ |
 | **Importing a transfer on a second phone** | Only Rust e2e and TS tests | ⛔ not on a device |
-| **A real per-email-key exchange between two installs over Gmail** | Needs a second device and account | ⛔ |
+| **A real per-email-key exchange between two installs over Gmail** | Levels 1–3 and BB84 done 2026-09-21; Level 4 delivering still not reached | ⛔ |
 | Physical phone | — | ⛔ emulator only this round |
 
 Bugs the emulator found, both fixed and tested:
@@ -176,14 +176,39 @@ Traps hit this session:
 
 ## 6. What's next, in order
 
-1. **Two-device check.** A second emulator image or a phone, signed into a
-   second throwaway Gmail. On the strict branch:
+Since this was written, two more pieces landed: the **key bank now travels in a
+device transfer** (it did not, and moving phones silently lost every unread
+Level 2/3 message and the link with the other end), and **quantum links can be
+built by running BB84 over email** — three ordinary messages, with an error
+check that refuses to build a bank on a channel that looks watched
+(`core/src/bb84.rs`, `app/src/state/bb84.ts`, and the design doc's BB84
+section). All four levels have since been driven on the emulator against real
+Gmail; see [implementation-status.md](implementation-status.md) for what that
+covered and what it could not.
+
+1. **Two-device check** — *mostly done on 2026-09-21* (emulator + a physical
+   phone, two Gmail accounts). Levels **1, 2 and 3** are verified between two
+   installs, and **BB84's legs 2 and 3** completed over Gmail with both banks
+   built. It found two bugs, both fixed and pinned: the QKD envelope was never
+   transfer-decoded, and a message that failed to open was cached anyway. See
+   [implementation-status.md](implementation-status.md).
+
+   **Still open: Level 4 actually delivering**, and `dec_keys` on a receiving
+   phone. The sequence to finish:
    1. A writes to B. A's message waits and B gets a handshake.
    2. B's app answers on its next sync.
    3. A's next sync opens the answer, and the held message goes out.
 
-   Then transfer one side to a third install and keep writing. This is the
-   only unverified path that matters.
+   Two traps cost an evening here and are **not yet fixed** — fix them before
+   the next session or they will cost another:
+   - `handshake.answer` and `bb84.answer` keep an in-memory `seen` set, so a leg
+     that fails once is never retried until the app restarts — including when
+     the failure is "no key for them yet", which resolves by itself. Nothing in
+     the UI says so, and pull-to-refresh will never recover it.
+   - `forgetKey` does not clear the invite (7-day) or handshake (24-hour)
+     windows, so re-testing a contact silently sends nothing at all.
+
+   Then transfer one side to a third install and keep writing.
 2. **Compose knows about sessions.** Compose checks keys only (the
    `resolveRecipients` path). On the strict branch it should also ask
    `sessionStatus`, show per recipient "needs a handshake", and say *queued*

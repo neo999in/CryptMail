@@ -7,14 +7,117 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-19.
+Last updated: 2026-09-20.
 
-> **QKD security levels (2026-09-20, on `main`):** ✅ `cargo test` 95, app suite
-> 1,795; on the emulator a Level 2 and a Level 3 message each went through Gmail
-> and opened with its level named, and the key bank's counts matched. ⛔ opening
+> **Levels 1–3 between two installs, and two bugs found (2026-09-21):** a
+> physical phone and the emulator, on two Gmail accounts.
+>
+> | Claim | Level |
+> |---|---|
+> | **Level 1 delivered and opened between two installs** | ✅ first time outside one mailbox |
+> | **BB84 legs 2 and 3 over Gmail**, both banks built, both ends linked | ✅ first time between real installs |
+> | Level 2 and Level 3 **sent** | ✅ |
+> | Level 2 and Level 3 **opened on the receiving device** | ✅ after the fix below; ⛔ **failed** before it |
+> | Level 4 delivering | ⛔ still not reached |
+>
+> **Bug 1 — the QKD envelope was never transfer-decoded.** Every Level 2 and
+> Level 3 message opened on the sender and failed on the receiver with "damaged
+> or incomplete". `buildQkdEnvelope` declares `7bit`, but that is a claim about
+> what is sent, not what arrives: a provider may re-encode the body, and the
+> failure is silent because `BEGIN`/`END` contain no quoted-printable escapes —
+> the markers survive while the base64 between them is rewritten. `isQkdMessage`
+> therefore said yes and the parse said no. `extractQkdArmor` now decodes the
+> top-level part per its **declared** encoding first; decoding cannot be guessed
+> afterwards, since a base64 line ending in `=` and a QP soft break are the same
+> two bytes. Pinned in `core/__tests__/qkd-test.ts`.
+>
+> **Bug 2 — a message that never opened was cached anyway**, on the strength of
+> `looksEncrypted` alone, before anything tried to decrypt it. One damaged fetch
+> therefore became permanent: the bad copy went to disk and the provider was
+> never asked again. The write now happens after a successful open. Pinned in
+> `state/__tests__/openMessageCache-test.ts`, whose `ENCRYPTED` fixture was
+> itself ciphertext reading `not really` — it could not decrypt, so it had been
+> asserting the buggy behaviour.
+>
+> ✅ `npx tsc --noEmit` clean, app suite **1,826**, and **both fixes confirmed
+> on the devices**: with the rebuilt release installed on each end, fresh Level 2
+> and Level 3 messages sent from one install open on the other. That is also the
+> evidence for the diagnosis itself — the quoted-printable cause was inferred
+> from the symptoms (markers intact, payload unparseable, receiver only, both
+> levels alike) rather than from reading the bytes Gmail stored, and a fresh
+> message opening is what confirms it. ⛔ the messages that failed before the fix
+> may have spent their quantum keys and may never open.
+>
+> **Levels 1, 2 and 3 are now verified end to end between two installs.** Level 4
+> delivering is the last one left.
+>
+> Also noted, **not fixed**: `handshake.answer` and `bb84.answer` keep an
+> in-memory `seen` set, so a leg that fails once is never retried until the app
+> restarts — including when the failure is "no key for them yet", which resolves
+> on its own. This stalled a Level 4 handshake for an evening and is invisible
+> from the UI. `forgetKey` also does not clear the invite (7-day) or handshake
+> (24-hour) windows, so re-testing a contact silently sends nothing.
+
+> **Key directory turned off (2026-09-20):** network key lookup and publishing
+> are disabled — `config.KEY_DIRECTORY_ENABLED` is `false`, `directory` is
+> `keys/noDirectory.ts`, and neither `keys.openpgp.org` nor WKD is contacted.
+> ✅ `npx tsc --noEmit` clean and the app suite at **1,823** (up 4: the
+> noDirectory cases in `keys/__tests__/directory-test.ts`). ⛔ not yet run
+> between two installs — that is the next thing the two-device session checks.
+>
+> Cause, observed on the emulator and a physical phone: `keys.openpgp.org`
+> served a **superseded key** for `neotestmail9@gmail.com`, so the phone sealed
+> its first-contact handshake to a key the emulator no longer held
+> (current: `ACD3·E5C4·D6BC`). The emulator could not open it,
+> `handshake.answer` swallowed the failure as designed, no answer was sent, and
+> the phone's message stayed `awaiting-session` indefinitely. A stale directory
+> answer is indistinguishable from a current one at the point of use.
+>
+> Noted while diagnosing, **not fixed**: `encryptionFor` classifies an inbox row
+> by subject alone (`state/derive.ts`), so a handshake — whose outer subject is
+> `HANDSHAKE_SUBJECT`, not the placeholder — always renders as
+> **"Not encrypted"**. Cosmetic, but it reads as a failure to anyone watching a
+> handshake go by.
+
+> **All four security levels, on the emulator (2026-09-20):** ✅ against a real
+> Gmail account, one install.
+>
+> | Level | What was seen |
+> |---|---|
+> | 4 | Refused a self-only message, naming the reason. |
+> | 1 | Sent, opened, signature valid, "opens again later" banner. |
+> | 2 | Sent, opened, level named; bank 50 → 49 — one key. |
+> | 3 | Sent, opened, level named; bank 49 → 46 — three keys. |
+>
+> The Level 3 size guard counted live as the body grew (5 → 21 → 33 → 45 keys)
+> and then refused at 50 needed against 46 available, with Send reporting
+> `enabled="false"`. Compose's no-link refusal was seen before a link existed
+> and cleared after one was made. BB84 leg 1 went through Gmail at full size
+> (`"n":409600`, ~130 KB) and came back intact, and the app correctly declined
+> to measure its own states.
+>
+> ⛔ Level 4 **delivering** a message, and BB84 legs 2–3, both need a second
+> install — a single mailbox cannot answer itself, by design.
+
+> **Quantum links over email (2026-09-20):** ✅ BB84 in `core/src/bb84.rs` —
+> sift, error check, privacy amplification — with 12 unit and 11 integration
+> tests: three armored blocks leave two `Core`s holding the same bank, master
+> and slave, which then carries Level 2 and 3 mail both ways; an eavesdropper
+> playing by the protocol's rules is caught at ~25% and **neither** end builds
+> anything. The app sends and answers the legs during a sync
+> (`state/bb84.ts`, 12 tests). ⛔ never run between two real installs, and the
+> channel is simulated: the states are bits in an email, so this demonstrates
+> the protocol, not quantum security.
+>
+> **QKD security levels (2026-09-20, on `main`):** ✅ `cargo test` 122, app suite
+> 1,819; on the emulator a Level 2 and a Level 3 message each went through Gmail
+> and opened with its level named, and the key bank's counts matched. The key
+> bank now travels in a device transfer and is handed over with the sessions
+> (`tests/transfer.rs`) — before that fix, moving phones silently lost every
+> unread Level 2/3 message and the link with the other end. ⛔ opening
 > through the Key Manager rather than the archive (needs two linked installs),
-> and no real KM hardware — the Key Manager is **simulated**, so it is not
-> quantum security. See
+> the transfer of a bank on real devices, and no real KM hardware — the Key
+> Manager is **simulated**, so it is not quantum security. See
 > [the design](superpowers/specs/2026-09-20-qkd-levels-design.md).
 >
 > **Per-email keys only (`feat/per-email-keys-only`, 2026-09-19):** ✅ `cargo

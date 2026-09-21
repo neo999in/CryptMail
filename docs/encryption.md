@@ -94,20 +94,24 @@ Autocrypt is opportunistic and deliberately low-friction; for stronger
 guarantees we layer keyserver discovery and optional manual verification (see
 [key-management.md](key-management.md)).
 
-**Security levels.** On `feat/qkd` the user picks a level per message
+**Security levels.** The user picks a level per message
 ([design](superpowers/specs/2026-09-20-qkd-levels-design.md)): 1 OpenPGP to
 long-term keys, 2 AES seeded by a quantum key, 3 a one-time pad from quantum
-keys, 4 per-email keys (the default). Levels 2 and 3 take their keys from a
-simulated Key Manager, so they need no recipient public key; the table below is
-levels 1 and 4.
+keys, 4 per-email keys (the default). Compose offers them as two pairs rather
+than a 1–4 ladder — *Everyday* (4, 1) and *Quantum keys* (2, 3) — because the
+default is also the strongest option in this build.
+
+Levels 2 and 3 take their keys from a simulated Key Manager and need no
+recipient public key at all, so no recipient check can catch a message to
+someone who shares no bank: compose refuses those sends while this mailbox has
+no quantum link. The table below is levels 1 and 4.
 
 ## Encryption decision at send time
 
 When the user hits Send, the app resolves a key for **each** recipient — local
 keyring, then Autocrypt cache, then the directory
-([key-management.md](key-management.md) §Discovery). With per-email keys only
-(branch `feat/per-email-keys-only`) it then asks the core whether each
-recipient has a session. The outcome is one of the rows below. Plaintext is not
+([key-management.md](key-management.md) §Discovery). It then asks the core
+whether each recipient has a per-email-key session. The outcome is one of the rows below. Plaintext is not
 among them unless the user chose it up front.
 
 | Situation | Outcome | UX |
@@ -206,8 +210,8 @@ therefore says *queued*, never *sent*.
 
 ## Tradeoffs and honest limits
 
-- **Forward secrecy on everything the user writes.** On
-  `feat/per-email-keys-only` every message the user writes uses a new key,
+- **Forward secrecy on everything the user writes.** Every message the user
+  writes uses a new key,
   destroyed once used, so a later-compromised private key opens none of it — see
   [per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). It
   rides inside ordinary OpenPGP (a signed SEIPDv2 message with no key packets;

@@ -14,6 +14,9 @@ import { confirmDialog } from '../ui/dialog';
 import { RecoveryCodeField, RecoveryCodeGrid } from '../ui/recoveryCode';
 import {
   Banner,
+  Field,
+  Input,
+  useFocus,
   Callout,
   Group,
   GroupHeading,
@@ -35,12 +38,20 @@ type Props = NativeStackScreenProps<RootStackParamList, 'KeyManager'>;
  * says so, because the keys are random rather than quantum.
  *
  * One login: the Key Manager's account is the mailbox you are signed in to, so
- * there is nothing separate to sign in to here. Two phones share keys by
- * linking — one makes a sealed link file and a code, the other loads both —
- * which stands in for the quantum link between two real Key Managers.
+ * there is nothing separate to sign in to here.
+ *
+ * Two phones come to hold the same keys one of two ways, and the screen offers
+ * them in this order:
+ *
+ *  · **Over email** — BB84, run in three messages (`state/bb84.ts`). Nothing is
+ *    copied: both ends measure, compare a sample, and derive the same bank. It
+ *    needs no second phone in the room and takes as long as three syncs.
+ *  · **By file** — this bank, sealed under a one-time code, adopted by the
+ *    other phone. Instant, manual, and plainly a copy. Kept for when the two
+ *    phones are on one table.
  */
 export function KeyManagerScreen({ navigation }: Props) {
-  const { kmStatus, kmRegenerate, kmExportLink, kmImportLink } = useApp();
+  const { kmStatus, kmRegenerate, kmExportLink, kmImportLink, beginQuantumLink } = useApp();
   const insets = useSafeAreaInsets();
 
   const [status, setStatus] = useState<KmStatus | null>(null);
@@ -49,6 +60,18 @@ export function KeyManagerScreen({ navigation }: Props) {
   const [link, setLink] = useState<KmLink | null>(null);
   const [linkBlob, setLinkBlob] = useState<string | null>(null);
   const [linkCode, setLinkCode] = useState('');
+  /** The address a quantum link is being set up with, and whether it has gone. */
+  const [peer, setPeer] = useState('');
+  const [started, setStarted] = useState<string | null>(null);
+  const peerFocus = useFocus();
+
+  const startLink = () =>
+    void run(async () => {
+      const to = peer.trim();
+      await beginQuantumLink(to);
+      setStarted(to);
+      setPeer('');
+    });
 
   const refresh = useCallback(() => {
     kmStatus()
@@ -159,7 +182,14 @@ export function KeyManagerScreen({ navigation }: Props) {
         <GroupHeading>Key bank</GroupHeading>
         <Group>
           <View style={s.pad}>
-            <Row label="Keys to send with" value={status ? `${status.available}` : '—'} />
+            {status?.handedOver ? (
+              <Banner tone="note" icon="forward">
+                This key bank moved to another phone. It still opens quantum mail that was already on its way,
+                but the other phone sends with it now — two phones sending from one bank would use the same
+                one-time pad twice.
+              </Banner>
+            ) : null}
+            <Row label="Keys to send with" value={status ? (status.handedOver ? '—' : `${status.available}`) : '—'} />
             <Row label="Keys in the bank" value={status ? `${status.remaining} of ${status.bankSize}` : '—'} />
             <Row label="Key size" value={status ? `${status.keyBits} bits (1 Kb)` : '—'} />
             <Text style={s.hint}>
@@ -170,14 +200,61 @@ export function KeyManagerScreen({ navigation }: Props) {
           </View>
         </Group>
 
-        <GroupHeading>Link another phone</GroupHeading>
+        <GroupHeading>Set up a quantum link</GroupHeading>
+        <Group>
+          <View style={s.pad}>
+            {started ? (
+              <>
+                <Banner tone="note" icon="forward">
+                  Setting up a quantum link with {started}. It takes three messages and a few minutes — longer
+                  if their phone is not open. The keys appear here when it finishes.
+                </Banner>
+                <SecondaryButton title="Set up another" icon="close" onPress={() => setStarted(null)} />
+              </>
+            ) : (
+              <>
+                <Text style={s.body}>
+                  Both ends run the key exchange over email: this phone sends the states, theirs measures them,
+                  and a sample is compared to prove nobody read them on the way. Neither phone sends the keys —
+                  both work them out. If too much of that sample disagrees, no keys are built and CryptMail
+                  says so.
+                </Text>
+                <Field focused={peerFocus.focused} label="THEIR ADDRESS">
+                  <Input
+                    {...peerFocus.bind}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    inputMode="email"
+                    onChangeText={setPeer}
+                    placeholder="them@example.com"
+                    returnKeyType="send"
+                    value={peer}
+                  />
+                </Field>
+                <PrimaryButton
+                  title="Send the states"
+                  icon="forward"
+                  busy={busy}
+                  disabled={!peer.includes('@')}
+                  onPress={startLink}
+                />
+                <Text style={s.hint}>
+                  This replaces whatever bank this mailbox holds now, on both phones, once it finishes.
+                </Text>
+              </>
+            )}
+          </View>
+        </Group>
+
+        <GroupHeading>Link another phone by file</GroupHeading>
         <Group>
           <View style={s.pad}>
             {!link ? (
               <>
                 <Text style={s.body}>
-                  Both ends of a quantum link hold the same keys. Here, one phone makes a link file and a code;
-                  the other loads them. After that, either can send Level 2 and 3 mail the other can open.
+                  The quicker way when both phones are here: this one makes a link file and a code, the other
+                  loads them. It copies the bank rather than agreeing on one, so prefer the exchange above
+                  where there is time for it.
                 </Text>
                 <PrimaryButton title="Make a link" icon="forward" busy={busy} onPress={makeLink} />
               </>

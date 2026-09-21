@@ -15,7 +15,11 @@
 //!   contact's offer — opened from this install's key and resealed under the
 //!   new one's on arrival;
 //! - the archive, which the TypeScript side hands in as an opaque string: the
-//!   decrypted copies of forward-secret mail are the only copies there are.
+//!   decrypted copies of forward-secret mail are the only copies there are;
+//! - the Key Manager's bank of quantum keys (`km.rs`), which is state and not a
+//!   key that can be re-derived: a phone that left it behind could not open a
+//!   single unread Level 2 or 3 message, and would have to link with the other
+//!   end all over again.
 //!
 //! # Moved, never copied
 //!
@@ -26,6 +30,11 @@
 //! receive step is deterministic, so both copies arrive at the same state from
 //! the same message — which is what lets the user keep using it until the new
 //! phone is set up.
+//!
+//! The bank is handed over on the same terms and for a sharper reason: two ends
+//! issuing from one half would hand out the same key twice, and a one-time pad
+//! used twice is no cipher at all. Reading is safe to leave alone, since
+//! `dec_keys` only deletes each phone's own copy.
 //!
 //! # The code, and why HKDF rather than Argon2
 //!
@@ -45,6 +54,7 @@ use std::path::Path;
 use zeroize::Zeroizing;
 
 use crate::identity::Identity;
+use crate::km::KeyManager;
 use crate::session_store::SessionStore;
 use crate::{recovery, CoreError, Result};
 
@@ -66,6 +76,10 @@ struct Bundle {
     sessions: Vec<(String, String)>,
     /// Opaque to the core — the app's archive.
     archive: String,
+    /// The Key Manager's bank, as JSON, base64. Absent in a transfer written
+    /// before banks travelled, and by a mailbox that has none.
+    #[serde(default)]
+    bank: Option<String>,
 }
 
 /// What an import hands back to the app.
@@ -87,7 +101,17 @@ pub(crate) fn export(dir: &Path, email: &str, passphrase: &str, code: &str, arch
         .map(|(name, plain)| (name, B64.encode(&*plain)))
         .collect();
 
-    let bundle = Bundle { email: email.trim().to_lowercase(), created: now, key, sessions, archive: archive.to_string() };
+    let km = KeyManager::for_account(dir, passphrase, email)?;
+    let bank = km.export_bank()?.map(|plain| B64.encode(&*plain));
+
+    let bundle = Bundle {
+        email: email.trim().to_lowercase(),
+        created: now,
+        key,
+        sessions,
+        archive: archive.to_string(),
+        bank,
+    };
     let plain = Zeroizing::new(serde_json::to_vec(&bundle).map_err(|e| CoreError::Unavailable(e.to_string()))?);
 
     let mut rng = thread_rng();
@@ -110,6 +134,7 @@ pub(crate) fn export(dir: &Path, email: &str, passphrase: &str, code: &str, arch
 
     // Only once the file exists: a failure above leaves this phone as it was.
     store.hand_over(now)?;
+    km.hand_over()?;
     Ok(armored)
 }
 
@@ -147,11 +172,24 @@ pub(crate) fn import(dir: &Path, passphrase: &str, armored: &str, code: &str, ex
             .map_err(|_| CoreError::Malformed(format!("a transfer record is damaged ({name})")))?;
         records.push((name.clone(), plain));
     }
+    let bank = match &bundle.bank {
+        Some(encoded) => Some(Zeroizing::new(
+            B64.decode(encoded).map_err(|_| CoreError::Malformed("the key bank in this transfer is damaged".into()))?,
+        )),
+        None => None,
+    };
+    if let Some(bank) = &bank {
+        KeyManager::check_bank(bank)?;
+    }
+
     let store = SessionStore::open(dir, passphrase)?;
     store.check_records(&records)?;
 
     let identity = recovery::import(dir, passphrase, &bundle.key, &code)?;
     store.replace_records(&records)?;
+    if let Some(bank) = &bank {
+        KeyManager::for_account(dir, passphrase, &bundle.email)?.adopt_bank(bank)?;
+    }
     for (_, plain) in &mut records {
         zeroize::Zeroize::zeroize(plain);
     }

@@ -59,7 +59,7 @@ each test-driven and verified in the running app. Knowing this is what makes
 | QKD security levels 1–3 + simulated Key Manager ([design](superpowers/specs/2026-09-20-qkd-levels-design.md)) | [`core/src/km.rs`](../core/src/km.rs), [`core/src/qkd.rs`](../core/src/qkd.rs), [`core/qkd.ts`](../app/src/core/qkd.ts) | Compose level picker, `Settings → Quantum Key Manager`, `MessageScreen` badge | 13 Rust + 12 |
 | App lock — PIN + fingerprint ([app-lock.md](app-lock.md)) | [`applock/appLock.ts`](../app/src/applock/appLock.ts), [`store/appLockStore.ts`](../app/src/store/appLockStore.ts), [`lib/biometrics.ts`](../app/src/lib/biometrics.ts) | `Settings → App lock`, the lock screen | 17 |
 
-1783 tests across 105 suites (2026-09-19, `feat/per-email-keys-only`). Run with `npm test` (jest-expo). Convention: pure logic lives
+1,819 tests across 109 suites (2026-09-20, `main`). Run with `npm test` (jest-expo). Convention: pure logic lives
 in a framework-free module with a `__tests__/*-test.ts` sibling; persistence
 lives in `store/*`; `state/*` orchestrates (a React end in `AppState.tsx`, the
 work in plain service modules).
@@ -69,7 +69,8 @@ work in plain service modules).
 - `core/demoCore.ts` **base64-encodes; it does not encrypt.** Every send path
   gates on `core.kind`, so the app can never present encoded bytes as encrypted.
 - No backend at all, and none planned — no CryptMail key directory, no push, no
-  secure links. Key discovery goes to `keys.openpgp.org` and WKD from the client
+  secure links. Key discovery is Autocrypt-only — network lookup is off
+  (`config.KEY_DIRECTORY_ENABLED`); with it on it goes to `keys.openpgp.org` and WKD from the client
   ([key-management.md](key-management.md) §Discovery).
 - Local storage is no longer plaintext — every store is sealed with
   XChaCha20-Poly1305 under a device key (⚫ Debt 1) — but **web has no keychain**,
@@ -958,7 +959,7 @@ now against the demo core, with the crypto swapped in later.
 | **Key rotation, expiry, revocation** | M | M | Keyring already records `firstSeen`/`lastSeen`/`changed`; needs real key material to act on. |
 | **Fingerprint / QR safety-number verification** | L | M | The durable defence against key substitution. Fingerprints render today; the *comparison ceremony* is the feature. QR "add me" cards are a cheaper sibling. |
 | **Multiple identities / send-as aliases** | S–M | M | Data model already allows N identity keys per account. |
-| ~~**Publish own key via WKD / keyserver**~~ | — | — | ✅ **Built** ([`keys/discovery.ts`](../app/src/keys/discovery.ts)). Upload to `keys.openpgp.org` behind an explicit consent step, with the confirmation state tracked. Needs no core: it is public key material. |
+| ~~**Publish own key via WKD / keyserver**~~ | — | — | ✅ **Built**, ⛔ **turned off** ([`keys/discovery.ts`](../app/src/keys/discovery.ts)). Upload to `keys.openpgp.org` behind an explicit consent step, with the confirmation state tracked. Disabled by `config.KEY_DIRECTORY_ENABLED` after a stale directory answer broke first contact between two installs (2026-09-20); the Keys screen says the build lists nothing. Needs no core: it is public key material. |
 | **Sign / verify / encrypt arbitrary files** | S | S | Pure reuse of the core; a cheap power-user surface. |
 | **Message size padding** | S | S | Pad ciphertext to buckets to blunt size fingerprinting — [security.md](security.md) admits size leaks. |
 | **Header minimisation on send** | S | S | Strip `User-Agent`/`X-Mailer` and other client fingerprints. |

@@ -31,13 +31,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Transfer'>;
  * A recovery backup brings the key back, and with it every message sent the
  * ordinary way. It cannot bring back mail read with per-email keys — those keys
  * are gone by design — or carry on the conversations that use them. A transfer
- * does both: it seals the key, the conversations and the archive of what was
- * read, under a code shown once.
+ * does both: it seals the key, the conversations, the Key Manager's bank of
+ * quantum keys and the archive of what was read, under a code shown once.
  *
  * The part the copy must carry is that this is a *move*. Once the file exists
  * this phone stops sending with per-email keys, because two phones writing into
- * one conversation would leave the contact unable to follow either. It can
- * still read. The new phone's half is the ordinary restore field, which takes a
+ * one conversation would leave the contact unable to follow either — and stops
+ * sending with quantum keys, because two phones drawing from one bank would use
+ * the same one-time pad twice. It can still read, at every level. The new phone's half is the ordinary restore field, which takes a
  * transfer file as readily as a backup.
  */
 export function TransferScreen({ navigation }: Props) {
@@ -130,8 +131,8 @@ export function TransferScreen({ navigation }: Props) {
         {handedOverAt && !made ? (
           <View style={s.gutter}>
             <Banner tone="note" icon="forward">
-              This phone handed its conversations to another on {handedOverAt.toLocaleDateString()}. It still
-              reads your mail, but sends with your long-term key.
+              This phone handed its conversations and its quantum key bank to another on{' '}
+              {handedOverAt.toLocaleDateString()}. It still reads your mail, but sends with your long-term key.
             </Banner>
           </View>
         ) : null}
@@ -149,6 +150,10 @@ export function TransferScreen({ navigation }: Props) {
               Those messages can’t be decrypted again — the copy on this phone is the only one — so it moves
               too.
             </Point>
+            <Point title="Your quantum key bank">
+              The keys Levels 2 and 3 send with, and the link to the other phone that shares them. Without
+              them the new phone could open no quantum mail still on its way, and would have to link again.
+            </Point>
           </View>
         </Group>
 
@@ -161,7 +166,7 @@ export function TransferScreen({ navigation }: Props) {
               <>
                 <Text style={s.body}>
                   You get a file and a code. The file is sealed; only the code opens it. Once it is made, this
-                  phone stops sending with per-email keys.
+                  phone stops sending with per-email keys and with quantum keys.
                 </Text>
                 {error ? <Callout>{error}</Callout> : null}
                 <PrimaryButton
@@ -220,7 +225,8 @@ export function TransferScreen({ navigation }: Props) {
             <Group>
               <View style={s.pad}>
                 <Text style={s.body}>
-                  If the new phone never used the transfer, this phone can take its conversations back.
+                  If the new phone never used the transfer, this phone can take its conversations and its key
+                  bank back.
                 </Text>
                 <SecondaryButton title="Keep using this phone" icon="back" onPress={confirmResume} />
               </View>

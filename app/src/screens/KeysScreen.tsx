@@ -29,6 +29,7 @@ import {
   useFocus,
 } from '../ui/primitives';
 import { userMessage } from '../lib/errors';
+import { KEY_DIRECTORY_ENABLED } from '../config';
 
 /**
  * Keys — the prototype's replacement for the whole key directory: show mine,
@@ -260,7 +261,33 @@ export function KeysScreen({ navigation }: Props) {
           thing that lets a stranger's first message to this address be encrypted.
           Both halves of that are said out loud rather than one of them buried.
         */}
-        {identity ? (
+        {identity && !KEY_DIRECTORY_ENABLED ? (
+          <>
+            <GroupHeading>Key directory</GroupHeading>
+            <Group>
+              <View style={s.pad}>
+                {/*
+                  Said rather than hidden. Someone who has read that publishing
+                  is what lets a stranger write to them encrypted will come
+                  looking for it, and a section that silently vanished would
+                  read as a bug — or worse, as a listing they already have.
+                */}
+                <Text style={s.body}>
+                  This build does not use a key directory. It never asks a server which key belongs to an
+                  address, and never lists yours.
+                </Text>
+                <Callout>
+                  Keys reach this device by mail: when someone writes to you, their key travels with the
+                  message. Someone who has never written to you cannot encrypt to you on their first try —
+                  they get an invite, and their message waits until a key exists. Nothing is ever sent
+                  unencrypted because of this.
+                </Callout>
+              </View>
+            </Group>
+          </>
+        ) : null}
+
+        {identity && KEY_DIRECTORY_ENABLED ? (
           <>
             <GroupHeading>Key directory</GroupHeading>
             <Group>

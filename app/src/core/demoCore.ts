@@ -228,6 +228,26 @@ export const demoCore: CryptCore = {
     throw noKm();
   },
 
+  /** Nor does the protocol that fills it: `core/src/bb84.rs` is the real core. */
+  async bb84Begin() {
+    throw noKm();
+  },
+  async bb84Measure() {
+    throw noKm();
+  },
+  async bb84Judge() {
+    throw noKm();
+  },
+  async bb84Accept() {
+    throw noKm();
+  },
+  async bb84Leg() {
+    return null;
+  },
+  async bb84Eavesdrop() {
+    throw noKm();
+  },
+
   /** Nothing to hand over: the demo core has no conversations. */
   async transferStatus() {
     return { handedOverAt: null };

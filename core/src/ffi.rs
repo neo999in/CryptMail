@@ -186,6 +186,39 @@ impl CryptMailCore {
         Ok(self.core.km_import_link(&self.passphrase, &email, &armored, &code)?)
     }
 
+    /// BB84 leg 1 → the armored states, for the other phone's mailbox.
+    pub fn bb84_begin(&self, email: String) -> FfiResult<String> {
+        Ok(self.core.bb84_begin(&self.passphrase, &email)?)
+    }
+
+    /// Leg 2 → the armored measurement. Nothing is built yet.
+    pub fn bb84_measure(&self, email: String, armored: String) -> FfiResult<String> {
+        Ok(self.core.bb84_measure(&self.passphrase, &email, &armored)?)
+    }
+
+    /// Leg 3 → the armored verdict, and this end's half of the bank. Errs with
+    /// `bb84-eavesdropper` rather than build one over a noisy channel.
+    pub fn bb84_judge(&self, email: String, armored: String) -> FfiResult<String> {
+        Ok(self.core.bb84_judge(&self.passphrase, &email, &armored)?)
+    }
+
+    /// → KM status, once the other half of the bank is built.
+    pub fn bb84_accept(&self, email: String, armored: String) -> FfiResult<String> {
+        Ok(self.core.bb84_accept(&self.passphrase, &email, &armored)?)
+    }
+
+    /// `"photons" | "measurement" | "verdict" | null` — which leg this text
+    /// carries, so a sync can route it without parsing it.
+    pub fn bb84_leg(&self, text: String) -> FfiResult<Option<String>> {
+        Ok(self.core.bb84_leg(&text))
+    }
+
+    /// **Demonstration only**: stand between the phones as an eavesdropper who
+    /// plays by the protocol's rules, so the error check can be seen working.
+    pub fn bb84_eavesdrop(&self, armored: String) -> FfiResult<String> {
+        Ok(self.core.bb84_eavesdrop(&armored)?)
+    }
+
     /// Level 2 or 3 → the armored QKD block. The keys never leave the core.
     pub fn qkd_seal(&self, email: String, level: u8, plaintext: String) -> FfiResult<String> {
         Ok(self.core.qkd_seal(&self.passphrase, &email, level, &plaintext)?)

@@ -36,6 +36,27 @@ that can decrypt mail.
 
 ## Discovery: finding recipients' public keys
 
+> **Network lookup is off in this build.** `config.KEY_DIRECTORY_ENABLED` is
+> `false`, so sources 3 and 4 below are not consulted and nothing is published:
+> the app talks to `keys/noDirectory.ts`, which answers every address with "no
+> key published". Discovery is sources 1, 2 and 5 — the keyring, Autocrypt and
+> manual import — which means **a key reaches a device because someone wrote to
+> it**, never because a server was asked about an address.
+>
+> Why: a directory can serve a key the address owner no longer holds, and at the
+> point of use a stale answer is indistinguishable from a current one. Observed
+> on 2026-09-20 between two test installs — `keys.openpgp.org` served a
+> superseded key for the receiving account, so first contact was sealed to a key
+> that account no longer had. It could not be opened, and the handshake that
+> depends on it was dropped silently, leaving the sender's message held forever.
+>
+> The cost is that a stranger cannot encrypt to an address on their first try.
+> They are invited and the message waits — the `awaiting-key` path, which
+> existed anyway. Rule 1 is untouched: nothing goes out in the clear.
+>
+> The rest of this section describes the behaviour with the flag on, which is
+> one line in `config.ts`; `keys/vksDirectory.ts` and its tests are unchanged.
+
 Resolved in priority order at send time. All four sources are built
 ([`app/src/keys/`](../app/src/keys/)):
 
@@ -375,9 +396,40 @@ Each device is also its own participant: a device that has never written to a
 contact cannot open forward-secret mail that contact sends. Carrying history
 and sessions to a replacement phone is the job of **device transfer**
 (Settings → Move to a new phone): a sealed file and a one-time code that move
-the key, the sessions and the archive together. Sessions are *moved*, not
-copied — the old phone stops sending with per-email keys the moment the file
-is made. See [the design](superpowers/specs/2026-09-19-per-email-keys-design.md#device-transfer).
+the key, the sessions, the Key Manager's bank and the archive together.
+Sessions and the bank are *moved*, not copied — the old phone stops sending
+with per-email keys and with quantum keys the moment the file is made, and
+keeps reading with both. See [the design](superpowers/specs/2026-09-19-per-email-keys-design.md#device-transfer).
+
+## Quantum keys, and how two phones come to share them
+
+Levels 2 and 3 do not use public keys at all: what makes a message readable is
+that both ends hold the same bank of 100 × 1 Kb symmetric keys
+(`core/src/km.rs`). The bank belongs to the signed-in mailbox — the Key
+Manager's login *is* the mail login — and is sealed under a key derived from
+this install's Keystore passphrase and the address, so it opens only on this
+phone and only for that mailbox.
+
+Two routes put the same bank on two phones, and both end in the same state
+(master and slave, 50 keys each, so the two can never issue the same key):
+
+- **Over email, by running BB84** (`core/src/bb84.rs`, `app/src/state/bb84.ts`)
+  — three messages, sifting, an error check and privacy amplification, after
+  which both ends *derive* the same keys and neither ever sent them. If too
+  much of the checked sample disagrees, neither end builds a bank. This is the
+  path the Key Manager screen offers first.
+- **By file and code** — this bank sealed under a one-time code for the other
+  phone to adopt. Instant and manual, and plainly a copy. Kept for when both
+  phones are in one room.
+
+Keys are issued once (`enc_keys`) and deleted as the message they sealed is
+opened (`dec_keys`), so a bank only drains: *Refill the bank* replaces it
+outright and **unlinks** the other phone, and any unopened quantum mail becomes
+unreadable. Running the exchange again is the non-destructive way to top up.
+The channel is simulated, so this demonstrates the protocol and the key
+lifecycle, not quantum security —
+[the design](superpowers/specs/2026-09-20-qkd-levels-design.md) says where the
+line falls.
 
 ## Key rotation and expiry
 

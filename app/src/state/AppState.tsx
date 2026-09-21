@@ -190,6 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       kmRegenerate: services.km.regenerate,
       kmExportLink: services.km.exportLink,
       kmImportLink: services.km.importLink,
+      beginQuantumLink: services.bb84.begin,
       sendEncrypted: services.send.sendEncrypted,
       sendPlain: services.send.sendPlain,
       canSendEncrypted: services.send.canSendEncrypted,

@@ -24,7 +24,7 @@ import {
 } from '../compose/richText';
 import { cryptoMode } from '../config';
 import { KmStatus } from '../core';
-import { DEFAULT_LEVEL, LEVELS, otpKeysNeeded, SecurityLevel } from '../core/qkd';
+import { DEFAULT_LEVEL, LEVEL_GROUPS, LEVELS, otpKeysNeeded, SecurityLevel } from '../core/qkd';
 import { Contact, searchContacts } from '../contacts/contacts';
 import { useContacts } from '../contacts/useContacts';
 import { isDraftEmpty } from '../drafts/drafts';
@@ -408,7 +408,15 @@ export function ComposeScreen({ route, navigation }: Props) {
     subject.length + body.length + (html?.length ?? 0) + attachments.reduce((n, a) => n + a.data.length, 0) + 400;
   const otpKeys = otpKeysNeeded(sealedBytes);
   const otpTooBig = level === 3 && km !== null && otpKeys > km.available;
-  const kmBlocked = quantum && (km === null || kmError !== null || otpTooBig || km.available === 0);
+  /**
+   * A bank nobody else shares. Levels 2 and 3 would seal happily against it and
+   * the recipient could never open the result — there is no key state on a
+   * contact to warn about, because these levels do not use their key at all.
+   * So the link, not the recipient, is what compose checks.
+   */
+  const noLink = quantum && km !== null && km.peerSaeId === null;
+  const kmBlocked =
+    quantum && (km === null || kmError !== null || otpTooBig || noLink || km.available === 0);
 
   // A missing key no longer blocks: the message is held and an invite goes out.
   // A *changed* key still does — waiting cannot resolve a possible substitution.
@@ -1011,8 +1019,9 @@ export function ComposeScreen({ route, navigation }: Props) {
         </View>
       )}
       {queued || plain ? null : (
-        /* The security level, for encrypted mail: the problem statement's
-           three levels plus the post-quantum one this app sends by default. */
+        /* The security level, in the two groups of `LEVEL_GROUPS` rather than
+           as 1–4: numbered in a row they read as a ladder, and the default sits
+           at the top of it. Everyday first, the Key Manager's pair after. */
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1020,23 +1029,35 @@ export function ComposeScreen({ route, navigation }: Props) {
           contentContainerStyle={s.levels}
           accessibilityLabel="Security level"
         >
-          {([1, 2, 3, 4] as SecurityLevel[]).map((l) => (
-            <Pressable
-              key={l}
-              accessibilityRole="button"
-              accessibilityLabel={LEVELS[l].name}
-              accessibilityState={{ selected: level === l }}
-              onPress={() => setLevel(l)}
-              style={({ pressed }) => [
-                s.mode,
-                level === l && s.modeActive,
-                pressed && level !== l && { backgroundColor: color.rowPress },
-              ]}
-            >
-              <Text style={[s.modeText, { color: level === l ? color.ground : color.inkDim }, level === l && s.modeTextActive]}>
-                {LEVELS[l].short}
-              </Text>
-            </Pressable>
+          {LEVEL_GROUPS.map((group, i) => (
+            <React.Fragment key={group.label}>
+              {i > 0 ? <View style={s.levelsDivider} /> : null}
+              <Text style={s.levelsGroup}>{group.label}</Text>
+              {group.levels.map((l) => (
+                <Pressable
+                  key={l}
+                  accessibilityRole="button"
+                  accessibilityLabel={LEVELS[l].name}
+                  accessibilityState={{ selected: level === l }}
+                  onPress={() => setLevel(l)}
+                  style={({ pressed }) => [
+                    s.mode,
+                    level === l && s.modeActive,
+                    pressed && level !== l && { backgroundColor: color.rowPress },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      s.modeText,
+                      { color: level === l ? color.ground : color.inkDim },
+                      level === l && s.modeTextActive,
+                    ]}
+                  >
+                    {LEVELS[l].short}
+                  </Text>
+                </Pressable>
+              ))}
+            </React.Fragment>
           ))}
         </ScrollView>
       )}
@@ -1464,6 +1485,9 @@ export function ComposeScreen({ route, navigation }: Props) {
     if (quantum) {
       if (kmError) return kmError;
       if (!km) return 'Opening your Key Manager…';
+      if (km.peerSaeId === null) {
+        return `${LEVELS[level].name} needs a key bank shared with them — this phone has not set up a quantum link yet, so nobody else could open this. Settings → Quantum Key Manager.`;
+      }
       const bank = `${km.available} quantum key${km.available === 1 ? '' : 's'} left in the Key Manager for ${km.account}`;
       if (km.available === 0) return `${LEVELS[level].name}: no quantum keys left to send with. Refill or relink the bank under Settings → Quantum Key Manager.`;
       if (level === 2) return `${LEVELS[2].name}. One 1 Kb quantum key seeds AES-256-GCM for this message · ${bank}.`;
@@ -1735,6 +1759,8 @@ const s = StyleSheet.create({
   // `flexGrow: 0`: a horizontal ScrollView otherwise takes the free height and
   // stretches every chip in it into a column.
   levelsBar: { flexGrow: 0 },
+  levelsGroup: { ...type.eyebrow, color: color.inkFaint },
+  levelsDivider: { backgroundColor: color.border, height: 18, marginHorizontal: 3, width: 1 },
   levels: { alignItems: 'center', flexDirection: 'row', gap: 7, paddingHorizontal: 16, paddingBottom: 11 },
   mode: {
     alignItems: 'center',

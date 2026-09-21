@@ -491,6 +491,12 @@ export type Actions = {
   kmExportLink(): Promise<KmLink>;
   kmImportLink(blob: string, code: string): Promise<KmStatus>;
   /**
+   * Start a quantum link with an address by running BB84 over email
+   * (`state/bb84.ts`). Three messages and as many syncs on each side; the bank
+   * appears when the last one lands, and nothing is copied.
+   */
+  beginQuantumLink(email: string): Promise<void>;
+  /**
    * Encrypt and send. Never sends anything unencrypted: a recipient with no key
    * yet gets an invite and the message waits — see `SendOutcome`.
    */

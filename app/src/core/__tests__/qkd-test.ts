@@ -33,6 +33,43 @@ describe('the Level 2/3 email', () => {
     expect(isQkdMessage('Subject: hi\n\nplain')).toBe(false);
   });
 
+  /**
+   * Observed between two installs on 2026-09-20: every Level 2 and Level 3
+   * message opened on the sending device and failed on the receiving one with
+   * "damaged or incomplete". Gmail had re-encoded the body it was handed as
+   * `7bit`, which is its right — and the failure is silent, because the markers
+   * survive QP untouched while the base64 between them does not.
+   */
+  it('reads the block out of a body a provider re-encoded as quoted-printable', () => {
+    // What Gmail stores: soft breaks at the line limit, and `=` written `=3D`.
+    const qp = buildQkdEnvelope({ from: 'a@x.com', to: ['b@x.com'], armored: `${QKD_BEGIN}
+Level: 2
+
+QUJDRA=
+${QKD_END}
+`, level: 2 })
+      .replace('Content-Transfer-Encoding: 7bit', 'Content-Transfer-Encoding: quoted-printable')
+      .replace('QUJDRA=', 'QUJDRA=3D');
+
+    // The markers alone would have found it before this decoded anything, and
+    // handed back a block whose payload had been rewritten.
+    expect(extractQkdArmor(qp)).toContain('QUJDRA=');
+    expect(extractQkdArmor(qp)).not.toContain('=3D');
+    expect(qkdLevelOf(qp)).toBe(2);
+  });
+
+  it('leaves a 7bit body exactly as it found it', () => {
+    // Decoding cannot be guessed: a base64 line ending in `=` and a QP soft
+    // break are the same two bytes, so only the declared encoding may decide.
+    const padded = buildQkdEnvelope({ from: 'a@x.com', to: ['b@x.com'], armored: `${QKD_BEGIN}
+Level: 2
+
+QUJDRA=
+${QKD_END}
+`, level: 2 });
+    expect(extractQkdArmor(padded)).toContain('QUJDRA=');
+  });
+
   it('prices a one-time pad at one 1 Kb key per 128 bytes, plus the MAC key', () => {
     expect(otpKeysNeeded(1)).toBe(2);
     expect(otpKeysNeeded(128)).toBe(2);

@@ -91,7 +91,7 @@ which must stay **last** in the plugin array for Reanimated 4 to work.
 screens/  ──▶  state/           ──▶  core/    (crypto + PGP/MIME)
                                 ──▶  mail/    (Gmail REST | Microsoft Graph | IMAP/SMTP)
                                 ──▶  auth/    (Google via Play services | Microsoft via PKCE in the browser | IMAP password in the keystore)
-                                ──▶  keys/    (Autocrypt harvest, keys.openpgp.org | demo directory)
+                                ──▶  keys/    (Autocrypt harvest; network lookup OFF — see noDirectory.ts)
                                 ──▶  store/   (AsyncStorage: keyring, drafts, outbox, index, publish, invites)
 ```
 
@@ -139,7 +139,7 @@ and `degradedReason()` explains a downgrade to the user rather than hiding it.
 | Trigger | no OAuth client and no socket module, **or** no native core | both present |
 | Mail | **none** — sign-in is disabled and says why | Gmail REST and/or Microsoft Graph, per client id set; IMAP/SMTP wherever the socket module is linked (a dev build) |
 | Crypto | `demoCore` (encoded, **not** encrypted) | Rust core |
-| Key directory | in-memory `demoDirectory` (no network) | `keys.openpgp.org`, then WKD |
+| Key directory | **none** — `KEY_DIRECTORY_ENABLED` is off, so both columns get `noDirectory` (every address answers "no key published") | same |
 
 There is deliberately no fake mailbox. The crypto stand-in stays because it is
 reported as insecure on every screen and still drives the real send path; a
@@ -232,7 +232,10 @@ using the signature and the keyring. Decrypted subjects/bodies are indexed into
 `searchIndex` so encrypted mail is searchable — only content decrypted on this
 device is ever stored. Opening encrypted mail also caches the provider's raw
 bytes in [app/src/store/rawCache.ts](app/src/store/rawCache.ts), so reopening it
-skips the network. That cache is **ciphertext only**, one sealed file per
+skips the network — but **only once it has actually opened**. Caching on the
+strength of `looksEncrypted` alone made one damaged fetch permanent: the bad
+copy went to disk and the provider was never asked again. Looking encrypted is
+not evidence that the bytes are sound. That cache is **ciphertext only**, one sealed file per
 message rather than AsyncStorage, and it is not in `PER_ACCOUNT_STORE_KEYS`, so
 removing or resetting an account clears it explicitly. Never cache the
 decrypted tree there.
@@ -252,21 +255,62 @@ the core and writes it (awaited) the moment one opens; `deliver` writes it
 it, but resetting cached content must **never** touch it. Normal mail is still
 never archived — `searchIndex` stays its only decrypted trace. Moving to a new
 phone ([TransferScreen](app/src/screens/TransferScreen.tsx), `core/src/transfer.rs`)
-seals the key, the sessions and the archive into one file under a code shown
-once, and **hands the old phone's sessions over** — it stops sending by session,
-because two phones writing into one conversation breaks it. The new phone's
-restore field takes that file as it takes a backup.
+seals the key, the sessions, the Key Manager's bank and the archive into one
+file under a code shown once, and **hands the old phone's sessions and bank
+over** — it stops sending by session, because two phones writing into one
+conversation breaks it, and stops issuing quantum keys, because two ends drawing
+from one half would reuse a one-time pad. Reading is left alone at every level.
+The new phone's restore field takes that file as it takes a backup.
+
+**Quantum links** (`core/src/bb84.rs`, [app/src/state/bb84.ts](app/src/state/bb84.ts)):
+two phones come to hold the same bank either by **running BB84 over email** —
+three messages (`core/bb84.ts` is the envelope), sifting, an error check, and
+privacy amplification, after which both derive the same keys and neither sent
+them — or by the older **link file and code**, which copies one bank to the
+other and is kept for when both phones are in one room. A sync carries whichever
+leg arrived (`services.bb84.answer`, beside the handshake). If too much of the
+checked sample disagrees the core refuses (`bb84-eavesdropper`) and **no bank is
+built on either side**; `Core::bb84_eavesdrop` exists to demonstrate that and is
+documented as demonstration-only. The channel is simulated — the states are
+bits in an email, so a real attacker reading it leaves no trace — but everything
+above the channel is the protocol.
 
 **Security levels** ([docs/superpowers/specs/2026-09-20-qkd-levels-design.md](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)):
 compose picks one per message. **1** OpenPGP to long-term keys (the explicit
 "no quantum security" choice); **2** AES-256-GCM seeded by one 1 Kb key from
 the Key Manager; **3** a one-time pad from those keys, one per 128 bytes plus
-one for the HMAC; **4** per-email keys, the default. Levels 2 and 3 need no
+one for the HMAC; **4** per-email keys, the default.
+
+They are offered as **two pairs, not a ladder** (`LEVEL_GROUPS` in
+[app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 4 then 1, which work
+with anyone, need no setup and are signed — and *Quantum keys* — 2 and 3, which
+need a bank shared with the recipient. Numbered 1–4 in a row they read as
+increasing security, which is wrong twice over: 4 is both the default and the
+strongest thing in this build, and 3's guarantee rests on a key source that is
+simulated. Don't reintroduce a single 1→4 row.
+
+Compose refuses a Level 2 or 3 send when this mailbox has **no quantum link**
+(`km.peerSaeId === null`): those levels do not consult the recipient's key, so
+nothing else would catch it, and the message would be one nobody but the sender
+could ever open. Levels 2 and 3 need no
 recipient key at all — holding the same bank is what makes a message readable —
 and their keys are deleted as the message opens, so they are archived exactly
 as per-email-key mail is. `deliver` branches on the level and a held message
 carries it. The bank never leaves the core; the app sees only status and
 ciphertext.
+
+**Key discovery does not use the network.** `KEY_DIRECTORY_ENABLED` in
+[app/src/config.ts](app/src/config.ts) is `false`, so `directory` is
+[noDirectory](app/src/keys/noDirectory.ts) and neither `keys.openpgp.org` nor
+WKD is contacted, in any build. A key reaches a device only by Autocrypt — from
+someone who wrote to it — or by manual import. It was turned off because a
+directory served a superseded key for a test account, so first contact was
+sealed to a key the recipient no longer held; that message could not be opened
+and the handshake depending on it was dropped without a word, which is the
+silent failure this codebase exists to avoid. A lookup returns `null` ("no key
+published"), never an error, so first contact takes the existing `awaiting-key`
+path: invite, hold, deliver once a key arrives. Rule 1 is untouched. The VKS
+code and its tests stay; the flag is one line to flip back.
 
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))

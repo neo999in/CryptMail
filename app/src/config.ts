@@ -142,6 +142,30 @@ export const appMode: AppMode = mailMode === 'real' && cryptoMode === 'real' ? '
 export const canConnectMailbox = mailMode === 'real';
 
 /**
+ * Whether this build looks keys up on a network key directory, and offers to
+ * list its own there.
+ *
+ * **Off.** Discovery is Autocrypt-only: a key reaches this device because
+ * someone wrote to it, never because a server was asked about an address.
+ *
+ * Turned off because a directory is a party that can hand out the wrong key,
+ * and the failure is silent in exactly the way that matters — `keys.openpgp.org`
+ * kept serving a superseded key for a test account, so first contact was sealed
+ * to a key the recipient no longer held, could not be opened, and the handshake
+ * that depends on it was dropped without a word. A stale answer from a
+ * directory is indistinguishable from a current one at the point of use.
+ *
+ * What this costs is real and is the reason the seam stays rather than the code
+ * being deleted: a stranger cannot encrypt to this address on their first try.
+ * They get an invite and the message waits — the `awaiting-key` path, which is
+ * exercised either way. Nothing is ever sent in the clear because of this.
+ *
+ * Flip to `true` to restore `keys.openpgp.org` and WKD; `keys/vksDirectory.ts`
+ * and its tests are untouched.
+ */
+export const KEY_DIRECTORY_ENABLED = false;
+
+/**
  * Why local data is not fully protected at rest, or null when it is.
  *
  * Separate from `degradedReason()` because the two are independent: real
