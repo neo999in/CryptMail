@@ -28,6 +28,7 @@ almost always.** Level 2 exists to demonstrate the quantum Key Manager.
 - [Level 3 — quantum secure, one-time pad (switched off)](#level-3--quantum-secure-one-time-pad-switched-off)
 - [Comparisons](#comparisons)
 - [Choosing: a short decision guide](#choosing-a-short-decision-guide)
+- [Is it quantum safe?](#is-it-quantum-safe)
 - [Things true at every level](#things-true-at-every-level)
 - [Honest limitations](#honest-limitations)
 - [Glossary](#glossary)
@@ -264,6 +265,47 @@ caveat in mind.
 
 ---
 
+## Is it quantum safe?
+
+Short answer: **Levels 1 and 2 are safe against a future quantum computer
+reading mail recorded today, as long as ML-KEM-768 holds.** Neither gives
+"quantum security" in the QKD sense.
+
+**Level 1 — yes, when the recipient's key is a CryptMail key.**
+
+- A CryptMail key encrypts with ML-KEM-768 + X25519 together, and the message
+  itself with AES-256. A recording stays sealed if either key algorithm holds.
+- A key from another PGP client (GnuPG, Proton, …) is usually classical only.
+  Level 1 mail sealed to it can be broken by a large quantum computer.
+- Signatures are classical Ed25519. A quantum computer could forge them, but
+  that does not help it read past mail.
+- No forward secrecy: whoever later steals the long-term private key opens
+  every Level 1 message sealed to it.
+
+**Level 2 — yes, in the post-quantum sense.**
+
+- Each message is AES-256-GCM under a key derived by HKDF from one bank key. A
+  quantum computer at best halves AES-256's strength, to about 128 bits, which
+  is still safe.
+- So Level 2 is exactly as safe as the bank is secret. A bank built by **BB84
+  over email** is protected as well as ML-KEM is, because every leg is sealed
+  to ML-KEM-768 + X25519 and signed. A bank copied by **link file** is sealed
+  with AES under a random 160-bit code — quantum-resistant, provided the code
+  itself travels safely.
+- The Key Manager is **simulated**: random keys, and a BB84 "channel" that is
+  ordinary email. That is post-quantum security, not the physics-based
+  guarantee real QKD hardware would give.
+- Keys are deleted as mail opens, so a stolen phone cannot reopen what it
+  already read, except through the local archive.
+
+**What both rest on.** ML-KEM-768 is NIST's standard (FIPS 203) and no quantum
+or classical attack on it is known — but that is a well-studied assumption, not
+a proof, and it is younger than the algorithms it replaces. Pairing it with
+X25519 means an attacker has to break both. The detail is in
+[post-quantum.md](post-quantum.md#what-ml-kem-768-rests-on).
+
+---
+
 ## Things true at every level
 
 **1. Your mail is never sent in the clear.** Covered above — hold, block, or
@@ -333,7 +375,7 @@ These are stated plainly in the app too, not just here.
 | **Forward secrecy** | Stealing today's key does not open yesterday's messages. |
 | **Harvest-now-decrypt-later** | Record encrypted traffic now, break it when the hardware catches up. |
 | **Post-quantum** | Designed to survive a large quantum computer. |
-| **ML-KEM-768** | A standardised post-quantum key-agreement algorithm. |
+| **ML-KEM-768** | NIST's standardised post-quantum key-agreement algorithm (FIPS 203), built on a lattice problem. |
 | **X25519** | The well-tested classical key-agreement algorithm it is paired with. |
 | **AES-256-GCM** | Standard strong cipher that also detects tampering. |
 | **HKDF** | Turns one secret into other well-shaped keys. |

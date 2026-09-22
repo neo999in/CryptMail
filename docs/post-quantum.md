@@ -15,6 +15,35 @@ compounding problem, existed briefly between CryptMail users as
 removed on 2026-09-22, so it is again absent. This document was written before
 any of that and its body is kept as the reasoning.
 
+## What ML-KEM-768 rests on
+
+Added 2026-09-22, so the "quantum-safe" claims elsewhere in `docs/` have one
+place that states their footing.
+
+- **What it is.** ML-KEM is NIST FIPS 203 (August 2024), standardised from
+  Kyber. Its security rests on Module Learning With Errors, a lattice problem.
+  The 768 parameter set is NIST security category 3 (at least as hard to break
+  as AES-192). CNSA 2.0 requires ML-KEM-1024 for US national-security systems;
+  768 is the common default elsewhere.
+- **Why it counts as quantum-safe.** Shor's algorithm, which breaks RSA,
+  elliptic curves and X25519, does not apply to lattice problems, and the best
+  known quantum attacks give only small speedups that the parameters already
+  allow for. The design went through NIST's public process for about 8 years.
+- **An assumption, not a proof.** Nobody has proven these problems hard for a
+  quantum or a classical computer. Another candidate in the same process, SIKE,
+  fell in 2022 to a classical attack. ML-KEM has no comparable break, but it is
+  younger than the classical algorithms it replaces.
+- **Implementations can leak.** The 2023–24 "KyberSlash" timing leaks hit
+  several Kyber libraries, not the design. CryptMail uses rPGP's
+  implementation, which this project has not audited.
+- **Why the hybrid.** RFC 9980 derives the key from ML-KEM-768 *and* X25519, so
+  an attacker has to break both. If ML-KEM proves weak, X25519 still holds
+  against today's computers; if a quantum computer arrives, ML-KEM still holds.
+  Chrome, Cloudflare and Signal hedge the same way.
+
+What that means per security level is in
+[security-levels-explained.md](security-levels-explained.md#is-it-quantum-safe).
+
 > **Headline finding:** of the three candidate libraries, only **rPGP**
 > implements RFC 9980. OpenPGP.js and Bouncy Castle do not. If CryptMail wants
 > post-quantum encryption, the Rust core is not a preference — it is the only
