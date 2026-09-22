@@ -181,8 +181,11 @@ refuses, naming the Key Manager screen.
   `L4 · PQC`). It reads the KM when a quantum level is picked and says how many
   keys the message will spend of how many are left. Level 3 blocks Send when
   the message needs more keys than the bank has, and says so.
-- **`deliver`** branches on the level: 2/3 need no recipient key at all, so the
-  key checks are skipped; 1 keeps the key checks but no session check; 4 is the
+- **`deliver`** branches on the level: 2/3 need no recipient key at all, so a
+  missing key neither holds nor blocks them — but when every recipient's key
+  is held and unchanged, the quantum block is sealed to those keys too
+  (added 2026-09-22; see `message-format.md`, "Sealed to recipient keys as
+  well"), so reading it takes the bank *and* the private key; 1 keeps the key checks but no session check; 4 is the
   per-email-key path with its handshake. The chosen level rides with a held
   message so a drain sends it the way it was written.
 - **Opening** — `looksEncrypted` recognises the QKD block, and `parseEncrypted`

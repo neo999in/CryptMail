@@ -296,6 +296,9 @@ Compose refuses a Level 2 or 3 send when this mailbox has **no quantum link**
 nothing else would catch it, and the message would be one nobody but the sender
 could ever open. Levels 2 and 3 need no
 recipient key at all — holding the same bank is what makes a message readable —
+though when every recipient's key is held and unchanged, `deliver` also seals
+the quantum block to those keys (an L1 PGP/MIME envelope around it; see
+`docs/message-format.md`), so the bank alone opens nothing;
 and their keys are deleted as the message opens, so they are archived. `deliver` branches on the level and a held message
 carries it. The bank never leaves the core; the app sees only status and
 ciphertext.

@@ -105,7 +105,9 @@ export type BuildRequest = {
   /**
    * Which security level seals it (`core/qkd.ts`). Defaults to 1, OpenPGP to
    * long-term keys. 2 and 3 take keys from the Key Manager and need no
-   * recipient keys.
+   * recipient keys — but given them (every recipient's, and the sender's),
+   * the quantum block is sealed to those keys as well, in a PGP/MIME
+   * envelope, so opening it needs both the bank and the private key.
    */
   level?: SecurityLevel;
   /**
@@ -184,6 +186,12 @@ export type DecryptedMessage = {
   forwardSecret?: boolean;
   /** The level it was sealed at. 2 and 3 open once. */
   securityLevel?: SecurityLevel;
+  /**
+   * A Level 2 or 3 message that was also sealed to this device's long-term
+   * key (ML-KEM-768 + X25519) and signed — so reading it took the bank *and*
+   * the private key. Absent on a bank-only one.
+   */
+  sealedToKey?: boolean;
 };
 
 export interface CryptCore {

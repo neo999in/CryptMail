@@ -631,6 +631,9 @@ export function MessageScreen({ route, navigation }: Props) {
                       <Banner tone="ok" icon="lock">
                         {LEVELS[opened.decrypted.securityLevel].name}. Opened with quantum keys from your Key
                         Manager, which are now deleted — this copy on the phone is the only one.
+                        {opened.decrypted.sealedToKey
+                          ? ' It was also sealed to your ML-KEM-768 + X25519 key, so the key bank alone could not open it.'
+                          : ''}
                       </Banner>
                     </View>
                   ) : null}

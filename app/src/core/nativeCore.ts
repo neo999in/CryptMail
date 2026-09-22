@@ -47,7 +47,7 @@ import {
   SignatureStatus,
 } from './types';
 import type { Bb84Leg } from './bb84';
-import { buildQkdEnvelope, extractQkdArmor, isQkdMessage } from './qkd';
+import { buildQkdEnvelope, extractQkdArmor, isQkdMessage, QKD_BEGIN } from './qkd';
 
 export const NATIVE_MODULE_NAME = 'CryptMailCore';
 
@@ -260,6 +260,24 @@ export function getNativeCore(
           required(bridge, 'qkdSeal', 'Quantum encryption')(request.from, level, inner),
           WORDING.qkdSeal,
         );
+        // With recipient keys, the quantum block is sealed again to them —
+        // ML-KEM-768 + X25519, signed — and travels as an ordinary PGP/MIME
+        // message. Reading it then takes the bank *and* the private key, so a
+        // bank that leaked some other way (a link file, a copied phone) is not
+        // enough on its own. `parseEncrypted` peels the two layers in turn.
+        if (request.recipientKeys.length > 0) {
+          return buildEncryptedEnvelope({
+            from: request.from,
+            to: request.to,
+            armored: await call(
+              bridge.encryptSign(request.from, armored, JSON.stringify(request.recipientKeys)),
+              WORDING.encryptSign,
+            ),
+            autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
+            inReplyTo: request.inReplyTo,
+            references: request.references,
+          });
+        }
         return buildQkdEnvelope({
           from: request.from,
           to: request.to,
@@ -323,6 +341,29 @@ export function getNativeCore(
       const decrypted = JSON.parse(
         await call(bridge.decryptVerify(block, senderKeysJson), WORDING.decryptVerify),
       ) as NativeDecrypted;
+
+      // A Level 2 or 3 block sealed again to our long-term key: the outer
+      // layer is open, so now the quantum keys. The signature is the outer
+      // layer's, and the level is the inner one's.
+      const wrapped = extractQkdArmor(decrypted.plaintext);
+      if (wrapped && decrypted.plaintext.trimStart().startsWith(QKD_BEGIN)) {
+        const opened = JSON.parse(
+          await call(
+            required(bridge, 'qkdOpen', 'Opening quantum-encrypted mail')(mailbox ?? '', wrapped),
+            WORDING.qkdOpen,
+          ),
+        ) as { plaintext: string; level: 2 | 3 };
+        const inner = parseProtectedInner(opened.plaintext);
+        return {
+          ...inner,
+          signature: decrypted.signature,
+          signerFingerprint: decrypted.signerFingerprint,
+          autocryptKey,
+          forwardSecret: true,
+          securityLevel: opened.level,
+          sealedToKey: true,
+        };
+      }
 
       const { subject, body, html, attachments } = parseProtectedInner(decrypted.plaintext);
       return {

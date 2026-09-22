@@ -213,6 +213,26 @@ base64 of (ciphertext ‖ tag)
 - Written and read by `core/src/qkd.rs`; the envelope is
   `app/src/core/qkd.ts`. Change them and this section together.
 
+### Sealed to recipient keys as well
+
+When every recipient's key is held and none has changed fingerprint, the block
+above is not sent as it stands. It becomes the **plaintext of an ordinary
+Level 1 message**: signed, encrypted to every recipient's key and the sender's
+(ML-KEM-768 + X25519), and carried in the same PGP/MIME envelope as any other
+encrypted mail. On the wire it cannot be told from Level 1; the level is known
+only once the outer layer is open.
+
+- The decrypted plaintext **begins** with `-----BEGIN CRYPTMAIL QKD MESSAGE-----`
+  — not the protected-headers tree. That is how the reader knows to open a
+  second layer; a Level 1 message whose text merely quotes such a block does
+  not start with it.
+- The outer signature is the message's signature; the level is the inner
+  block's.
+- The archive key is the outer PGP block, as for any PGP/MIME message.
+- Otherwise, with a missing or changed key, the bare text envelope above goes
+  as before. Built in `app/src/core/nativeCore.ts`, chosen in `deliver`
+  (`app/src/state/send.ts`).
+
 ## Quantum link setup on the wire (BB84)
 
 Three PGP/MIME messages — the same envelope as Level 1, sealed to the

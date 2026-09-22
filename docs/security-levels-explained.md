@@ -125,6 +125,14 @@ except its ID, and an ID without the bank is worthless. So Level 2 is exactly as
 safe as the bank is secret, which is why the messages that build it are sealed
 with post-quantum encryption (below).
 
+There is one extra layer when it can be had: if CryptMail already holds the
+public key of **everyone** you are writing to, and none of them changed, the
+Level 2 or 3 message is also sealed to those keys (ML-KEM-768 + X25519) and
+signed. Then the bank alone opens nothing — a reader needs the bank *and* the
+recipient's private key. Without those keys, the message goes sealed by the
+bank only, as before; it is never held waiting for one. The opened message
+says which it was.
+
 You establish a shared bank in **Settings → Quantum Key Manager**, two ways:
 
 1. **BB84 over email** — runs the actual quantum-key-distribution protocol
@@ -297,6 +305,11 @@ reading mail recorded today, as long as ML-KEM-768 holds.** Neither gives
   guarantee real QKD hardware would give.
 - Keys are deleted as mail opens, so a stolen phone cannot reopen what it
   already read, except through the local archive.
+- When the recipients' keys are held, the message is also sealed to them with
+  ML-KEM-768 + X25519. That does not add a *different* kind of quantum safety
+  — a BB84 bank already rests on ML-KEM — but it means a bank that leaked some
+  other way (a link file whose code was overheard, a copied phone) is not
+  enough to read it.
 
 **What both rest on.** ML-KEM-768 is NIST's standard (FIPS 203) and no quantum
 or classical attack on it is known — but that is a well-studied assumption, not

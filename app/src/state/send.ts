@@ -101,7 +101,8 @@ export function createSend(ctx: Ctx): SendService {
      *
      * That is Level 1, the default: OpenPGP to long-term keys. The user may
      * choose another level up front (`core/qkd.ts`): Levels 2 and 3 take keys
-     * from the Key Manager, so no recipient key is needed at all.
+     * from the Key Manager, so no recipient key is needed — though one held
+     * for everyone adds a second, ML-KEM layer.
      */
     async deliver({ id, to, subject, body, html, inReplyTo, references, attachments, level }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
@@ -120,24 +121,34 @@ export function createSend(ctx: Ctx): SendService {
       }
 
       // Levels 2 and 3: the quantum keys come from this mailbox's Key Manager,
-      // and the recipient's KM holds the same ones — nothing about their public
-      // key matters. It opens once, so it is kept first.
+      // and the recipient's KM holds the same ones — their public key is not
+      // what makes it readable. It opens once, so it is kept first.
+      //
+      // When every recipient's key is held and unchanged, the quantum block is
+      // sealed to those keys too (ML-KEM-768 + X25519, signed), so a bank that
+      // leaked on its own opens nothing. Otherwise it goes bank-only, exactly
+      // as before: a missing key is no reason to hold a message these levels
+      // never needed a key for, and a changed one must not be sealed to.
       if (chosen === 2 || chosen === 3) {
         if (to.length === 0) throw new CoreError('Add a recipient first.', 'no-key');
+        const recipients = await ctx.services.contacts.discoverRecipients(to);
+        const wrap = recipients.every((r) => (r.status === 'ok' || r.status === 'verified') && r.key);
         const rfc822 = await core.buildEncrypted({
           from: session.email,
           to,
           subject,
           body,
           html,
-          recipientKeys: [],
+          recipientKeys: wrap
+            ? [...new Set([...recipients.map((r) => r.key!.armored), identity.publicKeyArmored])]
+            : [],
           autocryptKey: identity.publicKeyArmored,
           inReplyTo,
           references,
           attachments,
           level: chosen,
         });
-        if (!isQkdMessage(rfc822)) {
+        if (wrap ? !isPgpMime(rfc822) : !isQkdMessage(rfc822)) {
           throw new CoreError('Refusing to send a message that is not sealed with quantum keys.', 'unavailable');
         }
         await archive(ctx.services.accounts.requireActive(), rfc822, {
@@ -148,6 +159,7 @@ export function createSend(ctx: Ctx): SendService {
           signature: 'none',
           forwardSecret: true,
           securityLevel: chosen,
+          sealedToKey: wrap || undefined,
         });
         await mail.current.send(rfc822);
         return { status: 'sent' };

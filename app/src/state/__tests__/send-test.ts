@@ -494,3 +494,86 @@ describe('deliver — level 1 and the removed level 4', () => {
     expect(events).toEqual([]);
   });
 });
+
+/**
+ * Levels 2 and 3 sealed again to the recipients' long-term keys. The demo core
+ * has no Key Manager, so the build is stubbed: what is under test is which keys
+ * `deliver` hands over, and that it refuses a result not sealed the way it asked.
+ */
+describe('deliver — a quantum message sealed to recipient keys too', () => {
+  const archiveStore = jest.requireActual('../../store/archiveStore') as typeof import('../../store/archiveStore');
+  const coreModule = jest.requireActual('../../core') as typeof import('../../core');
+  const qkd = jest.requireActual('../../core/qkd') as typeof import('../../core/qkd');
+  const QKD_BLOCK = `${qkd.QKD_BEGIN}\nLevel: 2\nSAE: sae-test\nKey-ID: k1\n\nAAAA\n${qkd.QKD_END}`;
+
+  let requests: import('../../core/types').BuildRequest[];
+  let build: jest.SpyInstance;
+  const realBuild = coreModule.core.buildEncrypted.bind(coreModule.core);
+
+  beforeEach(async () => {
+    requests = [];
+    // The archive seals what it keeps with the device key.
+    const localCrypto = jest.requireActual('../../store/localCrypto') as typeof import('../../store/localCrypto');
+    localCrypto.resetLocalCryptoForTests();
+    const secrets: Record<string, string> = {};
+    await localCrypto.initLocalCrypto(
+      { getItem: async (k) => secrets[k] ?? null, setItem: async (k, v) => void (secrets[k] = v) },
+      'keystore',
+    );
+    const files = new Map<string, string>();
+    archiveStore.setArchiveBackendForTests({
+      read: async (_dir, name) => files.get(name) ?? null,
+      write: async (_dir, name, value) => {
+        files.set(name, value);
+      },
+      clear: async () => files.clear(),
+      list: async () => [...files.keys()],
+    });
+    // Wrapped → an ordinary PGP/MIME message; bank-only → the QKD text email.
+    build = jest.spyOn(coreModule.core, 'buildEncrypted').mockImplementation(async (request) => {
+      requests.push(request);
+      if (request.recipientKeys.length > 0) return realBuild({ ...request, level: 1 });
+      return qkd.buildQkdEnvelope({ from: request.from, to: request.to, armored: QKD_BLOCK, level: 2 });
+    });
+  });
+
+  afterEach(() => {
+    build.mockRestore();
+    archiveStore.setArchiveBackendForTests(undefined);
+  });
+
+  it('seals to every recipient and the sender when all keys are held', async () => {
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await expect(services.send.deliver({ ...MESSAGE, level: 2 })).resolves.toEqual({ status: 'sent' });
+    expect(requests[0].level).toBe(2);
+    expect(requests[0].recipientKeys).toEqual([contact().armored, IDENTITY.publicKeyArmored]);
+    expect(wire[0]).toContain('multipart/encrypted');
+    expect(wire[0]).not.toContain(MESSAGE.body);
+  });
+
+  it('goes bank-only, and is not held, when a recipient has no key', async () => {
+    const { services, wire } = harness();
+
+    await expect(services.send.deliver({ ...MESSAGE, level: 2 })).resolves.toEqual({ status: 'sent' });
+    expect(requests[0].recipientKeys).toEqual([]);
+    expect(qkd.isQkdMessage(wire[0])).toBe(true);
+  });
+
+  it('never seals to a key that changed fingerprint', async () => {
+    const { services } = harness({ keyring: { 'ada@example.com': contact({ trust: 'changed' }) } });
+
+    await services.send.deliver({ ...MESSAGE, level: 2 });
+    expect(requests[0].recipientKeys).toEqual([]);
+  });
+
+  it('refuses a wrapped build that came back as something else', async () => {
+    build.mockImplementation(async (request) =>
+      qkd.buildQkdEnvelope({ from: request.from, to: request.to, armored: QKD_BLOCK, level: 2 }),
+    );
+    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
+
+    await expect(services.send.deliver({ ...MESSAGE, level: 2 })).rejects.toThrow(/not sealed/);
+    expect(wire).toHaveLength(0);
+  });
+});
