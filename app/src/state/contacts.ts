@@ -2,15 +2,53 @@
  * The keyring: learning contact keys, discovering them, and verifying them.
  */
 import { core, CoreError } from '../core';
-import { directory } from '../keys';
+import { directory, harvestAutocrypt } from '../keys';
 import { addressesInKey, userIdDisplayName } from '../pgp/parseArmoredKey';
 import { normaliseFingerprint, safetyNumber } from '../pgp/safetyNumber';
-import { findKey, Keyring, removeKey, saveKeyring, upsertKey } from '../store/keyring';
+import { chooseKey, ContactKey, findKey, Keyring, removeKey, saveKeyring, upsertKey } from '../store/keyring';
 import { ContactsService, Ctx } from './contracts';
 import { resolveRecipientStates } from './recipients';
 
+/** How many of a sender's most recent messages, per mailbox, are searched for a key. */
+const SENDER_SEARCH_LIMIT = 5;
+
+/**
+ * Where a sender's key is looked for: the inbox, then archived mail. Never
+ * junk — a key is a lasting statement about who someone is, and the inbox sync
+ * refuses plaintext junk for the same reason (`state/mailbox.ts`).
+ */
+const SENDER_SEARCH_BOXES = ['inbox', 'archive'] as const;
+
 export function createContacts(ctx: Ctx): ContactsService {
-  const { store } = ctx;
+  const { store, mail } = ctx;
+
+  /**
+   * Learn `email`'s key from the `Autocrypt` header of mail they sent us.
+   *
+   * The same harvest as the sync, on the same terms: the header must name the
+   * sender it arrived from, and only a message whose `From` is exactly this
+   * address counts — a provider's sender search can match more loosely. It
+   * lands as `autocrypt`, i.e. `seen`, never `verified`. `failed` says the
+   * mailbox could not be searched, which is not evidence of anything.
+   */
+  async function harvestFromSender(keyring: Keyring, email: string): Promise<{ keyring: Keyring; failed: boolean }> {
+    const client = mail.current;
+    if (!client) return { keyring, failed: false };
+    let failed = false;
+    for (const box of SENDER_SEARCH_BOXES) {
+      try {
+        const page = await client.list(box, { from: email, limit: SENDER_SEARCH_LIMIT });
+        for (const summary of page.messages) {
+          if (!summary.autocrypt || summary.from.address.trim().toLowerCase() !== email) continue;
+          keyring = await harvestAutocrypt(keyring, summary.from.address, summary.autocrypt, summary.from.name);
+          if (findKey(keyring, email)) return { keyring, failed: false };
+        }
+      } catch {
+        failed = true;
+      }
+    }
+    return { keyring, failed };
+  }
 
   const service: ContactsService = {
     /** Persist a new keyring and make it visible to concurrent async work at once. */
@@ -23,6 +61,9 @@ export function createContacts(ctx: Ctx): ContactsService {
 
     /**
      * Fetch keys for addresses we do not already hold one for.
+     *
+     * Two sources, in order: the `Autocrypt` headers on mail they already sent
+     * us (searched in the mailbox, newest first), then the key directory.
      *
      * This is the step that makes the first message to a stranger encrypt. It runs
      * *before* `resolveRecipientStates` rather than inside it, because that
@@ -50,8 +91,20 @@ export function createContacts(ctx: Ctx): ContactsService {
       const unresolved: string[] = [];
       try {
         for (const email of unknown) {
+          // Their own mail first. Autocrypt is harvested as the inbox syncs,
+          // but only from what that sync lists — someone who last wrote before
+          // it would read as having no key and be sent an invite. So ask the
+          // mailbox for their mail directly, before the directory.
+          const fromMail = await harvestFromSender(keyring, email);
+          keyring = fromMail.keyring;
+          if (findKey(keyring, email)) continue;
           try {
             const found = await directory.lookup(email);
+            if (!found && fromMail.failed) {
+              // Not "they have no key": their mail could not be searched.
+              unresolved.push(email);
+              continue;
+            }
             if (!found) continue;
             const info = await core.importPublicKey(found.armored);
             // The directory answering an address with a key that does not claim
@@ -121,6 +174,10 @@ export function createContacts(ctx: Ctx): ContactsService {
      *    longer matches what is stored, and verification fails instead of
      *    marking the *new* key verified on the strength of the old one's check.
      *  · `verified` always means a specific key was checked, not an address.
+     *
+     * When the address has more than one key, the fingerprint may name any of
+     * them: the one compared becomes the one in use, and the rest are set aside
+     * (`chooseKey` in `store/keyring.ts`).
      */
     async markVerified(email: string, confirmedFingerprint: string) {
       const existing = findKey(store.get().keyring, email);
@@ -128,31 +185,39 @@ export function createContacts(ctx: Ctx): ContactsService {
         throw new CoreError(`No key stored for ${email}.`, 'no-key');
       }
 
-      if (normaliseFingerprint(existing.fingerprint) !== normaliseFingerprint(confirmedFingerprint)) {
+      const next = chooseKey(store.get().keyring, email, knownFingerprint(existing, confirmedFingerprint) ?? '');
+      if (!next) {
         throw new CoreError(
           `${email}'s key changed while you were verifying it. Compare the new safety number before trusting it.`,
           'malformed',
         );
       }
-
-      await service.commitKeyring({
-        ...store.get().keyring,
-        [existing.email]: { ...existing, trust: 'verified' as const, verifiedAt: new Date().toISOString() },
-      });
+      await service.commitKeyring(next);
     },
 
     /**
      * The digits both people compare. Needs our identity, so it lives here rather
      * than in the screen.
      */
-    async safetyNumberFor(email: string) {
+    async safetyNumberFor(email: string, fingerprint?: string) {
       const { keyring, identity } = store.get();
       const contact = findKey(keyring, email);
       if (!contact) throw new CoreError(`No key stored for ${email}.`, 'no-key');
       if (!identity) throw new CoreError('This device has no identity key yet.', 'no-key');
-      return safetyNumber(identity.fingerprint, contact.fingerprint);
+      // Any key the address has, not only the one in use — comparing each is
+      // how the user tells which of several keys is really theirs.
+      const which = fingerprint === undefined ? contact.fingerprint : knownFingerprint(contact, fingerprint);
+      if (!which) throw new CoreError(`That key is no longer on file for ${email}.`, 'no-key');
+      return safetyNumber(identity.fingerprint, which);
     },
   };
 
   return service;
+}
+
+/** The stored spelling of `fingerprint` if it is one of this contact's keys, else null. */
+function knownFingerprint(contact: ContactKey, fingerprint: string): string | null {
+  const want = normaliseFingerprint(fingerprint);
+  const all = [contact.fingerprint, ...(contact.otherKeys ?? []).map((k) => k.fingerprint)];
+  return all.find((fp) => normaliseFingerprint(fp) === want) ?? null;
 }

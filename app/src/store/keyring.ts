@@ -38,7 +38,52 @@ export type ContactKey = PublicKeyInfo & {
   changedAt?: string;
   /** The fingerprint that was replaced at `changedAt`, so the old one can be shown. */
   previousFingerprint?: string;
+  /**
+   * Every other key that has arrived for this address, newest first.
+   *
+   * One address can carry more than one key at once — a second device, an old
+   * PGP client still in use, or someone substituting theirs. Only `fingerprint`
+   * above is ever encrypted to; these are kept so the user can compare each
+   * one's safety number and choose (`chooseKey`), rather than the ring
+   * flip-flopping to whichever key the last message happened to carry.
+   */
+  otherKeys?: OtherKey[];
 };
+
+/** A key seen for an address that is not the one in use. */
+export type OtherKey = {
+  fingerprint: string;
+  armored: string;
+  userId?: string;
+  source: ContactKey['source'];
+  firstSeen: string;
+  lastSeen: string;
+  /**
+   * The user compared safety numbers and chose a different key over this one.
+   * Seeing it again then changes nothing and blocks nothing: that question has
+   * been answered by a person, which is all a `changed` block ever asks for.
+   */
+  setAside?: boolean;
+};
+
+/** Other keys for this address the user has not yet decided about. */
+export const undecidedKeys = (contact: ContactKey): OtherKey[] =>
+  (contact.otherKeys ?? []).filter((k) => !k.setAside);
+
+const asOther = (key: ContactKey, setAside?: boolean): OtherKey => ({
+  fingerprint: key.fingerprint,
+  armored: key.armored,
+  userId: key.userId,
+  source: key.source,
+  firstSeen: key.firstSeen,
+  lastSeen: key.lastSeen,
+  setAside,
+});
+
+/** `others` with `key` put first, and any older entry for its fingerprint dropped. */
+function withOther(others: OtherKey[] | undefined, key: OtherKey): OtherKey[] {
+  return [key, ...(others ?? []).filter((k) => k.fingerprint !== key.fingerprint)];
+}
 
 /**
  * Whether a key change is demonstrably the contact's own doing.
@@ -85,6 +130,21 @@ export function upsertKey(
   const existing = keyring[key.email];
 
   if (existing && existing.fingerprint !== key.fingerprint) {
+    const known = existing.otherKeys?.find((k) => k.fingerprint === key.fingerprint);
+    // A key the user already compared and chose against. Noted, not adopted:
+    // blocking again would ask a question they have answered.
+    if (known?.setAside) {
+      return {
+        ...keyring,
+        [key.email]: { ...existing, otherKeys: withOther(existing.otherKeys, { ...known, lastSeen: now }) },
+      };
+    }
+    // The key being replaced is kept, not dropped: if this turns out to be a
+    // second device or a substitution, it is the one the user may want back.
+    const otherKeys = withOther(
+      existing.otherKeys?.filter((k) => k.fingerprint !== key.fingerprint),
+      asOther(existing),
+    );
     return {
       ...keyring,
       [key.email]: {
@@ -108,6 +168,8 @@ export function upsertKey(
         // timestamp over would show "verified 3 March" beside a key nobody has
         // ever checked.
         verifiedAt: undefined,
+        firstSeen: known?.firstSeen ?? now,
+        otherKeys,
       },
     };
   }
@@ -129,6 +191,49 @@ export function upsertKey(
       // not erase the record that an earlier one was replaced.
       changedAt: existing?.changedAt,
       previousFingerprint: existing?.previousFingerprint,
+      otherKeys: existing?.otherKeys,
+    },
+  };
+}
+
+/**
+ * Settle which key an address uses, after the user compared its safety number.
+ *
+ * `fingerprint` may be the key in use or any other key seen for the address.
+ * It becomes the one in use, `verified`; every other key is set aside, so it
+ * no longer blocks when it turns up again. Returns null if the fingerprint is
+ * not a key this address has — a stale screen must not certify anything.
+ */
+export function chooseKey(keyring: Keyring, email: string, fingerprint: string, now = new Date()): Keyring | null {
+  const existing = findKey(keyring, email);
+  if (!existing) return null;
+  const at = now.toISOString();
+  const setAside = (others: OtherKey[] | undefined) => (others ?? []).map((k) => ({ ...k, setAside: true }));
+
+  if (existing.fingerprint === fingerprint) {
+    return {
+      ...keyring,
+      [existing.email]: { ...existing, trust: 'verified', verifiedAt: at, otherKeys: setAside(existing.otherKeys) },
+    };
+  }
+
+  const chosen = existing.otherKeys?.find((k) => k.fingerprint === fingerprint);
+  if (!chosen) return null;
+  return {
+    ...keyring,
+    [existing.email]: {
+      ...existing,
+      fingerprint: chosen.fingerprint,
+      armored: chosen.armored,
+      userId: chosen.userId,
+      source: chosen.source,
+      firstSeen: chosen.firstSeen,
+      lastSeen: chosen.lastSeen,
+      trust: 'verified',
+      verifiedAt: at,
+      changedAt: at,
+      previousFingerprint: existing.fingerprint,
+      otherKeys: setAside(withOther(existing.otherKeys?.filter((k) => k !== chosen), asOther(existing))),
     },
   };
 }

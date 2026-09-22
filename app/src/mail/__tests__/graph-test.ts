@@ -61,6 +61,17 @@ describe('the folder per mailbox', () => {
   });
 });
 
+describe('a sender search', () => {
+  it('filters on the sender after the ordered property, escaping a quote', async () => {
+    const asked = stubGraph();
+    await client().list('inbox', { from: "o'brien@example.com" });
+
+    expect(decodeURIComponent(asked[0].url)).toContain(
+      "$filter=receivedDateTime ge 1970-01-01T00:00:00Z and from/emailAddress/address eq 'o''brien@example.com'",
+    );
+  });
+});
+
 describe('every request', () => {
   /**
    * Archive and delete are moves in Exchange, and a move re-mints a message's

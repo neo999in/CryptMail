@@ -270,7 +270,7 @@ export function createImapClient(address: string, credentials: ImapCredentials, 
     kind: 'imap',
     address,
 
-    list(box, { limit = 20, pageToken, newerThanDays } = {}) {
+    list(box, { limit = 20, pageToken, newerThanDays, from } = {}) {
       return exclusive(async (c) => {
         const folder = await folderFor(c, box);
         if (!folder) return { messages: [] };
@@ -294,6 +294,12 @@ export function createImapClient(address: string, credentials: ImapCredentials, 
         if (before) criteria.push(`UID 1:${before - 1}`);
         if (newerThanDays && newerThanDays > 0) {
           criteria.push(`SINCE ${imapDate(new Date(Date.now() - Math.floor(newerThanDays) * 86_400_000))}`);
+        }
+        if (from) {
+          // A quoted string: an address carrying a quote, a backslash or a line
+          // break could otherwise end it and add commands, so none is searched.
+          if (/["\\\r\n]/.test(from)) return { messages: [] };
+          criteria.push(`FROM "${from}"`);
         }
         const { untagged } = await c.run(`UID SEARCH ${criteria.join(' ')}`);
         const uids = untagged

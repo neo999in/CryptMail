@@ -450,7 +450,7 @@ export type Actions = {
   /** Record an out-of-band verification. Fails if the key changed meanwhile. */
   markVerified(email: string, confirmedFingerprint: string): Promise<void>;
   /** The safety number to compare with this contact, out of band. */
-  safetyNumberFor(email: string): Promise<string>;
+  safetyNumberFor(email: string, fingerprint?: string): Promise<string>;
   /**
    * Wrap this device's key under a new recovery code. The code is returned for
    * the user to write down and is deliberately not stored anywhere.

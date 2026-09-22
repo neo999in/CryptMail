@@ -117,6 +117,15 @@ describe('the sync window', () => {
     expect(asked).toContain('newer_than:7d');
   });
 
+  it('narrows to one sender, quoted, beside the box terms and the window', async () => {
+    const urls = stubGmail();
+
+    await client().list('archive', { from: 'bob"@example.com', newerThanDays: 7 });
+
+    const asked = decodeURIComponent(urls[0]);
+    expect(asked).toContain('-in:inbox -in:sent -in:draft from:"bob@example.com" newer_than:7d');
+  });
+
   it('keeps the labels and the junk opt-in beside it', async () => {
     const urls = stubGmail();
 

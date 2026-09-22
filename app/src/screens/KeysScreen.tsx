@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { displayName, groupFingerprint, initials } from '../lib/format';
 import { back, RootStackParamList } from '../navigation';
-import { ContactKey } from '../store/keyring';
+import { ContactKey, undecidedKeys } from '../store/keyring';
 import { needsBackup } from '../store/recoveryStore';
 import { useApp } from '../state/AppState';
 import { color, font, radius, space, type } from '../theme';
@@ -100,23 +100,26 @@ export function KeysScreen({ navigation }: Props) {
     }
   };
 
-  /** The contact currently mid-ceremony, and the digits being compared. */
-  const [verifying, setVerifying] = useState<{ email: string; number: string } | null>(null);
+  /**
+   * The contact currently mid-ceremony, which of its keys, and the digits being
+   * compared. An address can hold several keys; each is compared on its own.
+   */
+  const [verifying, setVerifying] = useState<{ email: string; fingerprint: string; number: string } | null>(null);
 
-  const startVerify = async (contact: ContactKey) => {
+  const startVerify = async (contact: ContactKey, fingerprint = contact.fingerprint) => {
     setError(null);
     try {
-      setVerifying({ email: contact.email, number: await safetyNumberFor(contact.email) });
+      setVerifying({ email: contact.email, fingerprint, number: await safetyNumberFor(contact.email, fingerprint) });
     } catch (e) {
       setError(userMessage(e));
     }
   };
 
-  const confirmVerify = async (contact: ContactKey) => {
+  const confirmVerify = async (contact: ContactKey, fingerprint: string) => {
     try {
       // The fingerprint as it was when the number on screen was derived. If the
-      // key has changed since, AppState refuses rather than certifying the new one.
-      await markVerified(contact.email, contact.fingerprint);
+      // key has gone since, AppState refuses rather than certifying another one.
+      await markVerified(contact.email, fingerprint);
       setVerifying(null);
     } catch (e) {
       setError(userMessage(e));
@@ -421,9 +424,9 @@ export function KeysScreen({ navigation }: Props) {
               <ContactRow
                 key={contact.email}
                 contact={contact}
-                ceremony={verifying?.email === contact.email ? verifying.number : null}
-                onStartVerify={() => void startVerify(contact)}
-                onConfirm={() => void confirmVerify(contact)}
+                ceremony={verifying?.email === contact.email ? verifying : null}
+                onStartVerify={(fingerprint) => void startVerify(contact, fingerprint)}
+                onConfirm={(fingerprint) => void confirmVerify(contact, fingerprint)}
                 onCancel={() => setVerifying(null)}
                 onForget={() =>
                   confirmDialog('Forget key?', `Remove ${contact.email}'s key from this device?`, [
@@ -454,20 +457,50 @@ function ContactRow({
   onForget,
 }: {
   contact: ContactKey;
-  /** The safety number, once the user has asked to verify. */
-  ceremony: string | null;
-  onStartVerify: () => void;
-  onConfirm: () => void;
+  /** The key being compared and its safety number, once the user has asked to verify. */
+  ceremony: { fingerprint: string; number: string } | null;
+  onStartVerify: (fingerprint?: string) => void;
+  onConfirm: (fingerprint: string) => void;
   onCancel: () => void;
   onForget: () => void;
 }) {
   const name = displayName(contact.email, contact.name);
+  const undecided = undecidedKeys(contact);
+  const setAside = (contact.otherKeys?.length ?? 0) - undecided.length;
   const badge =
-    contact.trust === 'verified'
-      ? { tone: 'enc' as const, icon: 'lock' as const, label: 'verified' }
+    undecided.length > 0
+      ? { tone: 'warn' as const, icon: 'alert' as const, label: 'several keys' }
       : contact.trust === 'changed'
         ? { tone: 'warn' as const, icon: 'alert' as const, label: 'key changed' }
-        : { tone: 'plain' as const, label: 'trusted on first use' };
+        : contact.trust === 'verified'
+          ? { tone: 'enc' as const, icon: 'lock' as const, label: 'verified' }
+          : { tone: 'plain' as const, label: 'trusted on first use' };
+
+  /** The comparison, shown under whichever key it is for. */
+  const ceremonyFor = (fingerprint: string) =>
+    ceremony?.fingerprint === fingerprint ? (
+      <View style={s.ceremony}>
+        <Text style={s.hint}>
+          Read these digits to {name} over a channel you already trust — in person, or a call where
+          you recognise their voice. They will see the same number.
+        </Text>
+        <Inset>
+          <Text selectable style={s.safetyNumber}>
+            {ceremony.number}
+          </Text>
+        </Inset>
+        <View style={s.actions}>
+          <View style={{ flex: 1 }}>
+            <PrimaryButton
+              title={fingerprint === contact.fingerprint ? 'They match' : 'They match — use this key'}
+              icon="check"
+              onPress={() => onConfirm(fingerprint)}
+            />
+          </View>
+          <SecondaryButton title="Cancel" onPress={onCancel} />
+        </View>
+      </View>
+    ) : null;
 
   return (
     <View style={s.contact}>
@@ -491,32 +524,45 @@ function ContactRow({
           {groupFingerprint(contact.fingerprint).join(' ')}
         </Text>
         <Text style={s.source}>
-          via {contact.source}
+          {undecided.length > 0 ? 'in use · ' : ''}via {contact.source}
           {contact.verifiedAt ? ` · compared ${new Date(contact.verifiedAt).toLocaleDateString()}` : ''}
+          {setAside > 0 ? ` · ${setAside} other ${setAside === 1 ? 'key' : 'keys'} set aside` : ''}
         </Text>
 
-        {ceremony ? (
-          <View style={s.ceremony}>
-            <Text style={s.hint}>
-              Read these digits to {name} over a channel you already trust — in person, or a call where
-              you recognise their voice. They will see the same number.
-            </Text>
-            <Inset>
-              <Text selectable style={s.safetyNumber}>
-                {ceremony}
-              </Text>
-            </Inset>
-            <View style={s.actions}>
-              <View style={{ flex: 1 }}>
-                <PrimaryButton title="They match" icon="check" onPress={onConfirm} />
+        {undecided.length > 0 ? (
+          <View style={s.others}>
+            <Banner tone="warn" icon="alert">
+              {`${undecided.length + 1} different keys have arrived for this address, and mail is only ever encrypted to one. Compare each key's safety number with ${name} and use the one that matches — the others could be a second device, an old app, or someone else's key.`}
+            </Banner>
+            {undecided.map((other) => (
+              <View key={other.fingerprint} style={s.other}>
+                <Text selectable style={s.fingerprint}>
+                  {groupFingerprint(other.fingerprint).join(' ')}
+                </Text>
+                <Text style={s.source}>
+                  via {other.source} · last seen {new Date(other.lastSeen).toLocaleDateString()}
+                </Text>
+                {ceremonyFor(other.fingerprint) ??
+                  (ceremony ? null : (
+                    <View style={s.actions}>
+                      <SecondaryButton title="Compare…" icon="check" onPress={() => onStartVerify(other.fingerprint)} />
+                    </View>
+                  ))}
               </View>
-              <SecondaryButton title="Cancel" onPress={onCancel} />
-            </View>
+            ))}
           </View>
+        ) : null}
+
+        {ceremony ? (
+          ceremonyFor(contact.fingerprint)
         ) : (
           <View style={s.actions}>
-            {contact.trust !== 'verified' ? (
-              <SecondaryButton title="Verify…" icon="check" onPress={onStartVerify} />
+            {contact.trust !== 'verified' || undecided.length > 0 ? (
+              <SecondaryButton
+                title={undecided.length > 0 ? 'Compare the key in use…' : 'Verify…'}
+                icon="check"
+                onPress={() => onStartVerify()}
+              />
             ) : null}
             <SecondaryButton title="Forget" icon="trash" onPress={onForget} tone="danger" />
           </View>
@@ -603,4 +649,6 @@ const s = StyleSheet.create({
   contactEmail: { ...type.meta, color: color.inkFaint, marginTop: 2 },
   fingerprint: { ...type.meta, color: color.inkDim, lineHeight: 18 },
   source: { ...type.small, color: color.inkFaint, marginTop: -space.xs },
+  others: { gap: space.md, marginVertical: space.xs },
+  other: { borderLeftColor: color.border, borderLeftWidth: 2, gap: space.sm, paddingLeft: space.md },
 });

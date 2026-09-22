@@ -151,6 +151,13 @@ export interface MailClient {
        * anywhere, and widening the window brings the older mail straight back.
        */
       newerThanDays?: number;
+      /**
+       * Only mail from this address. Used to find a sender's `Autocrypt` key
+       * on demand (`state/contacts.ts`), not by any list a screen shows. The
+       * provider's match may be looser than an exact address, so a caller
+       * checks `from.address` on what comes back.
+       */
+      from?: string;
     },
   ): Promise<MailPage>;
   /** Full RFC 5322 source — what the crypto core needs. */

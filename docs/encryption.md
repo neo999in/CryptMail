@@ -86,6 +86,14 @@ Autocrypt: addr=alice@gmail.com; prefer-encrypt=mutual;
   every message, without decrypting anything and without the user opening it.
   A header whose `addr=` is not the message's sender is ignored: otherwise
   anyone could push a key for any address into a recipient's keyring.
+- A sync only sees the mail it lists, so someone who last wrote before that
+  window would still read as "no key". **Before inviting anyone, CryptMail
+  searches this mailbox for their mail** — the newest 5 from that exact
+  address, in the inbox and then archived mail, never junk — and harvests the
+  header the same way (`harvestFromSender` in `app/src/state/contacts.ts`). It
+  is the user's own provider, not a directory, so nothing leaves the account.
+  A mailbox that could not be searched is reported as "could not find out",
+  not "no key".
 - After two people have exchanged **one** message each, both can encrypt to the
   other automatically — no manual step.
 - `prefer-encrypt=mutual` signals the peer also wants encryption by default.

@@ -210,6 +210,26 @@ it for the life of the contact. "This address has swapped keys before" stays
 true after the new one is trusted, and it is the sort of thing a user is
 entitled to see when the same address swaps again.
 
+#### Several keys for one address
+
+An address can present more than one key at once: a second device, an old PGP
+client still in use, or someone substituting theirs. Mail is only ever
+encrypted to **one** key per address — encrypting to all of them would hand a
+substitute a copy — so the keyring keeps every key it has seen (`otherKeys` on
+the entry, newest first) rather than swapping to whichever key the last message
+carried and forgetting the rest.
+
+- A new fingerprint still becomes the key in use and blocks (`changed`), as
+  above; the one it replaced moves to `otherKeys`. Keys that alternate are
+  each listed once.
+- Keys shows a **several keys** badge and each key with its own safety number.
+  The key whose number the user confirms with the contact becomes the one in
+  use, `verified`, and every other key is **set aside** (`chooseKey` in
+  `app/src/store/keyring.ts`).
+- A set-aside key arriving again is noted (its `lastSeen` moves) and changes
+  nothing: a person has already answered that question. A key nobody has
+  looked at still blocks.
+
 A keyserver being honest is a trust assumption, and automatic discovery makes it
 a load-bearing one: once every client fetches every key, a directory that swaps
 one has a much wider reach. Two things bound that. `upsertKey` marks a key that

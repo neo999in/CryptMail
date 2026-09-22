@@ -113,8 +113,8 @@ export function createGraphClient(address: string, getAccessToken: TokenSource):
     kind: 'outlook',
     address,
 
-    async list(box, { limit = 20, pageToken, newerThanDays } = {}) {
-      const page = (await call(pageToken ?? listPath(box, limit, newerThanDays))) as {
+    async list(box, { limit = 20, pageToken, newerThanDays, from } = {}) {
+      const page = (await call(pageToken ?? listPath(box, limit, newerThanDays, from))) as {
         value?: GraphMessage[];
         '@odata.nextLink'?: string;
       };
@@ -181,12 +181,20 @@ function destinationOf(patch: FlagPatch): string | null {
  * The sync window is a `$filter` on the same property the list is ordered by —
  * Graph refuses an `$orderby` whose property does not also lead the filter.
  */
-function listPath(box: Mailbox, limit: number, newerThanDays?: number): string {
+function listPath(box: Mailbox, limit: number, newerThanDays?: number, from?: string): string {
   const params = [`$top=${limit}`, `$select=${SELECT}`, `$orderby=${encodeURIComponent('receivedDateTime desc')}`];
+  const filters: string[] = [];
   if (newerThanDays && newerThanDays > 0) {
     const since = new Date(Date.now() - Math.floor(newerThanDays) * 86_400_000).toISOString();
-    params.push(`$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}`);
+    filters.push(`receivedDateTime ge ${since}`);
+  } else if (from) {
+    // Still leads with the ordered property, which Graph requires; this bound
+    // excludes nothing.
+    filters.push('receivedDateTime ge 1970-01-01T00:00:00Z');
   }
+  // OData string literal: a quote is escaped by doubling it.
+  if (from) filters.push(`from/emailAddress/address eq '${from.replace(/'/g, "''")}'`);
+  if (filters.length > 0) params.push(`$filter=${encodeURIComponent(filters.join(' and '))}`);
   return `/mailFolders/${FOLDER[box]}/messages?${params.join('&')}`;
 }
 

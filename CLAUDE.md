@@ -315,6 +315,10 @@ silent failure this codebase exists to avoid. A lookup returns `null` ("no key
 published"), never an error, so first contact takes the existing `awaiting-key`
 path: invite, hold, deliver once a key arrives. Rule 1 is untouched. The VKS
 code and its tests stay; the flag is one line to flip back.
+Autocrypt is harvested as the inbox syncs **and**, for a recipient still
+without a key, by searching this mailbox for their own mail first
+(`discover` → `harvestFromSender`, `MailClient.list({ from })`): inbox then
+archive, never junk, exact `From` only.
 
 Key discovery runs *before* the pure resolver, never inside it:
 `resolveRecipientStates` ([app/src/state/recipients.ts](app/src/state/recipients.ts))

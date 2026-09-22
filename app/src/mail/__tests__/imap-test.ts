@@ -126,6 +126,17 @@ describe('list', () => {
     expect(imap.log.some((l) => /UID SEARCH UNDELETED SINCE \d{1,2}-[A-Z][a-z]{2}-\d{4}/.test(l))).toBe(true);
   });
 
+  it('asks the server for one sender, and refuses an address that could end the quoted string', async () => {
+    const { imap, client } = setup();
+    imap.addMessage('INBOX', raw(1));
+    await client.list('inbox', { from: 'bob@example.com' });
+    expect(imap.log.some((l) => l.includes('UID SEARCH UNDELETED FROM "bob@example.com"'))).toBe(true);
+
+    const before = imap.log.length;
+    expect(await client.list('inbox', { from: 'x" OR ALL "' })).toEqual({ messages: [] });
+    expect(imap.log.slice(before).some((l) => l.includes('SEARCH'))).toBe(false);
+  });
+
   it('runs overlapping lists one after another on one session', async () => {
     const imap = new FakeImapServer();
     imap.addBox('Junk', ['\\Junk']);

@@ -132,7 +132,8 @@ export type ContactsService = {
   importKey(armored: string, name?: string): Promise<ContactKey>;
   forgetKey(email: string): Promise<void>;
   markVerified(email: string, confirmedFingerprint: string): Promise<void>;
-  safetyNumberFor(email: string): Promise<string>;
+  /** The safety number for the key in use, or for `fingerprint`, another key seen for the address. */
+  safetyNumberFor(email: string, fingerprint?: string): Promise<string>;
 };
 
 export type IdentityService = {

@@ -6,7 +6,7 @@
  * it must not inherit the verification of the key it replaced.
  */
 import { PublicKeyInfo } from '../../core';
-import { findKey, Keyring, removeKey, upsertKey } from '../keyring';
+import { chooseKey, findKey, Keyring, removeKey, undecidedKeys, upsertKey } from '../keyring';
 
 const ANYA: PublicKeyInfo = {
   email: 'anya@partner.com',
@@ -172,5 +172,59 @@ describe('lookup', () => {
 
   it('forgets a key completely', () => {
     expect(findKey(removeKey(keyring, ANYA.email), ANYA.email)).toBeUndefined();
+  });
+});
+
+/**
+ * One address, several keys: a second device, an old client, or a substitute.
+ * The ring keeps every one it has seen, still encrypts to exactly one, and
+ * stops blocking only when a person has compared safety numbers and chosen.
+ */
+describe('several keys for one address', () => {
+  const ANYA_THIRD: PublicKeyInfo = { ...ANYA, fingerprint: '0000111122223333444455556666777788889999' };
+  const both = () => upsertKey(upsertKey({}, ANYA, 'autocrypt'), ANYA_ROTATED, 'autocrypt');
+
+  it('keeps the replaced key as another key, and blocks', () => {
+    const anya = findKey(both(), ANYA.email)!;
+    expect(anya.fingerprint).toBe(ANYA_ROTATED.fingerprint);
+    expect(anya.trust).toBe('changed');
+    expect(undecidedKeys(anya).map((k) => k.fingerprint)).toEqual([ANYA.fingerprint]);
+  });
+
+  it('lists each key once however often they alternate', () => {
+    const ring = upsertKey(upsertKey(both(), ANYA, 'autocrypt'), ANYA_ROTATED, 'autocrypt');
+    const anya = findKey(ring, ANYA.email)!;
+    expect(anya.otherKeys!.map((k) => k.fingerprint)).toEqual([ANYA.fingerprint]);
+  });
+
+  it('adopts another key the user chose, verified, and sets the rest aside', () => {
+    const ring = upsertKey(both(), ANYA_THIRD, 'autocrypt');
+    const chosen = findKey(chooseKey(ring, ANYA.email, ANYA.fingerprint)!, ANYA.email)!;
+    expect(chosen.fingerprint).toBe(ANYA.fingerprint);
+    expect(chosen.armored).toBe(ANYA.armored);
+    expect(chosen.trust).toBe('verified');
+    expect(undecidedKeys(chosen)).toEqual([]);
+    expect(chosen.otherKeys!.map((k) => k.fingerprint).sort()).toEqual(
+      [ANYA_ROTATED.fingerprint, ANYA_THIRD.fingerprint].sort(),
+    );
+  });
+
+  it('does not block again for a key the user set aside', () => {
+    const settled = chooseKey(both(), ANYA.email, ANYA.fingerprint)!;
+    const again = findKey(upsertKey(settled, ANYA_ROTATED, 'autocrypt'), ANYA.email)!;
+    expect(again.fingerprint).toBe(ANYA.fingerprint);
+    expect(again.trust).toBe('verified');
+  });
+
+  it('still blocks for a key nobody has looked at yet', () => {
+    const settled = chooseKey(both(), ANYA.email, ANYA.fingerprint)!;
+    const again = findKey(upsertKey(settled, ANYA_THIRD, 'autocrypt'), ANYA.email)!;
+    expect(again.fingerprint).toBe(ANYA_THIRD.fingerprint);
+    expect(again.trust).toBe('changed');
+  });
+
+  it('refuses to choose a fingerprint the address does not have', () => {
+    expect(chooseKey(both(), ANYA.email, ANYA_THIRD.fingerprint)).toBeNull();
+    expect(chooseKey(both(), 'nobody@example.com', ANYA.fingerprint)).toBeNull();
   });
 });

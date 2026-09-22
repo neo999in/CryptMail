@@ -39,12 +39,12 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
     kind: 'gmail',
     address,
 
-    async list(box, { limit = 20, pageToken, newerThanDays } = {}) {
+    async list(box, { limit = 20, pageToken, newerThanDays, from } = {}) {
       const list = await call<{
         messages?: { id: string; threadId: string }[];
         nextPageToken?: string;
       }>(
-        `/messages?maxResults=${limit}${selector(box, newerThanDays)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
+        `/messages?maxResults=${limit}${selector(box, newerThanDays, from)}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
       );
       const ids = list.messages ?? [];
       // Metadata format is enough for the list; raw is fetched lazily on open.
@@ -156,12 +156,15 @@ export function createGmailClient(address: string, getAccessToken: TokenSource):
  * per box, because a window silently missing from one list is a mailbox that
  * ignores the setting in exactly one place.
  */
-function selector(box: Mailbox, newerThanDays?: number): string {
-  if (box === 'sent') return `&labelIds=SENT${withWindow('', newerThanDays)}`;
-  if (box === 'archive') return withWindow('-in:inbox -in:sent -in:draft', newerThanDays);
-  if (box === 'spam') return `&labelIds=SPAM&includeSpamTrash=true${withWindow('', newerThanDays)}`;
-  if (box === 'trash') return `&labelIds=TRASH&includeSpamTrash=true${withWindow('', newerThanDays)}`;
-  return `&labelIds=INBOX${withWindow('', newerThanDays)}`;
+function selector(box: Mailbox, newerThanDays?: number, from?: string): string {
+  // Quoted, and with any quote in it dropped, so an address cannot add terms.
+  const sender = from ? `from:"${from.replace(/"/g, '')}"` : '';
+  const q = (terms: string) => withWindow([terms, sender].filter(Boolean).join(' '), newerThanDays);
+  if (box === 'sent') return `&labelIds=SENT${q('')}`;
+  if (box === 'archive') return q('-in:inbox -in:sent -in:draft');
+  if (box === 'spam') return `&labelIds=SPAM&includeSpamTrash=true${q('')}`;
+  if (box === 'trash') return `&labelIds=TRASH&includeSpamTrash=true${q('')}`;
+  return `&labelIds=INBOX${q('')}`;
 }
 
 /** `&q=…` for a box's own terms plus its window, or nothing when there are none. */
