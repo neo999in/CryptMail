@@ -1,6 +1,6 @@
-//! Device transfer, end to end: a conversation with per-email keys — and the
-//! Key Manager's bank of quantum keys — survives a move to a new phone, and the
-//! old phone stops writing into either.
+//! Device transfer, end to end: the identity key — and the Key Manager's bank
+//! of quantum keys — survive a move to a new phone, and the old phone stops
+//! issuing quantum keys.
 
 use std::fs;
 
@@ -34,25 +34,19 @@ fn phone(name: &str, email: &'static str, pw: &'static str) -> Phone {
     }
 }
 
-fn seal(from: &Phone, to: &Phone, text: &str) -> (String, bool) {
-    let sealed: Value =
-        serde_json::from_str(&from.core.seal(from.email, from.pw, text, &[to.key.clone()]).unwrap()).unwrap();
-    (sealed["armored"].as_str().unwrap().to_string(), sealed["forwardSecret"].as_bool().unwrap())
+fn send(from: &Phone, to: &Phone, text: &str) -> String {
+    from.core.encrypt_sign(from.email, from.pw, text, &[to.key.clone()]).unwrap()
 }
 
 fn open(reader: &Phone, sender: &Phone, armored: &str) -> Value {
-    serde_json::from_str(&reader.core.open(reader.email, reader.pw, armored, &[sender.key.clone()]).unwrap()).unwrap()
+    serde_json::from_str(&reader.core.decrypt_verify(reader.email, reader.pw, armored, &[sender.key.clone()]).unwrap())
+        .unwrap()
 }
 
-/// Alice and Bob, already writing to each other with per-email keys.
+/// Alice and Bob, each holding the other's key.
 fn conversation(tag: &str) -> (Phone, Phone) {
     let alice = phone(&format!("alice-{tag}"), "alice@example.com", PW);
     let bob = phone(&format!("bob-{tag}"), "bob@example.com", PW);
-    let hello = alice.core.handshake(alice.email, PW, "Subject: handshake\n\n", &[bob.key.clone()]).unwrap();
-    open(&bob, &alice, &hello);
-    let (m, fs) = seal(&bob, &alice, "hi");
-    assert!(fs);
-    open(&alice, &bob, &m);
     (alice, bob)
 }
 
@@ -74,56 +68,32 @@ fn handed_over(p: &Phone) -> Value {
 }
 
 #[test]
-fn the_conversation_carries_on_from_the_new_phone_in_both_directions() {
+fn the_identity_moves_and_mail_flows_both_ways_from_the_new_phone() {
     let (alice, bob) = conversation("carry-on");
+    let before = send(&bob, &alice, "sent before the move");
     let file = alice.core.export_transfer(alice.email, PW, CODE, "the archive").unwrap();
 
     let mut new = new_phone("carry-on");
     let imported = adopt(&mut new, &file);
     assert_eq!(new.fingerprint, alice.fingerprint, "the identity did not move");
     assert_eq!(imported["archive"], "the archive");
+    assert_eq!(open(&new, &bob, &before)["plaintext"], "sent before the move");
 
-    for i in 0..3 {
-        let text = format!("from the new phone {i}");
-        let (m, fs) = seal(&new, &bob, &text);
-        assert!(fs, "the new phone lost the conversation (#{i})");
-        let opened = open(&bob, &new, &m);
-        assert_eq!(opened["plaintext"], text.as_str());
-        assert_eq!(opened["forwardSecret"], true);
-
-        let text = format!("to the new phone {i}");
-        let (m, fs) = seal(&bob, &new, &text);
-        assert!(fs);
-        assert_eq!(open(&new, &bob, &m)["plaintext"], text.as_str());
-    }
+    let m = send(&new, &bob, "from the new phone");
+    let opened = open(&bob, &new, &m);
+    assert_eq!(opened["plaintext"], "from the new phone");
+    assert_eq!(opened["signature"], "valid");
 }
 
 #[test]
-fn the_old_phone_stops_sending_but_still_reads() {
+fn the_old_phone_is_marked_handed_over_and_still_reads() {
     let (alice, bob) = conversation("old-phone");
     assert!(handed_over(&alice).is_null());
-    let file = alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
+    alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
     assert!(handed_over(&alice).is_i64());
 
-    // Per-email keys are the only kind, so a handed-over phone sends nothing
-    // sealed at all — not a message, not a handshake.
-    let refused = alice.core.seal(alice.email, PW, "from the old phone", &[bob.key.clone()]).unwrap_err();
-    assert_eq!(refused.code(), "unavailable");
-    assert!(refused.to_string().contains("handed-over"), "{refused}");
-    assert!(alice.core.handshake(alice.email, PW, "x", &[bob.key.clone()]).is_err());
-    assert!(alice.core.session_status(alice.email, PW, &[bob.key.clone()]).is_err());
-
-    // Bob writes; both phones read it, and arrive at the same state.
-    let mut new = new_phone("old-phone");
-    adopt(&mut new, &file);
-    let (m, fs) = seal(&bob, &new, "to whichever phone");
-    assert!(fs);
+    let m = send(&bob, &alice, "to whichever phone");
     assert_eq!(open(&alice, &bob, &m)["plaintext"], "to whichever phone");
-    assert_eq!(open(&new, &bob, &m)["plaintext"], "to whichever phone");
-
-    let (m, fs) = seal(&new, &bob, "the new phone answers");
-    assert!(fs);
-    assert_eq!(open(&bob, &new, &m)["plaintext"], "the new phone answers");
 }
 
 #[test]
@@ -175,22 +145,19 @@ fn nothing_in_the_file_is_readable_without_the_code() {
     let archive = "Subject: the password is swordfish";
     let file = alice.core.export_transfer(alice.email, PW, CODE, archive).unwrap();
     assert!(file.starts_with("-----BEGIN CRYPTMAIL TRANSFER-----"));
-    for needle in ["swordfish", "alice@example.com", "PRIVATE KEY", "session-"] {
+    for needle in ["swordfish", "alice@example.com", "PRIVATE KEY"] {
         assert!(!file.contains(needle), "{needle} is visible in the transfer file");
     }
 }
 
 #[test]
 fn a_transfer_never_used_can_be_taken_back() {
-    let (alice, bob) = conversation("resume");
+    let (alice, _bob) = conversation("resume");
     alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
-    assert!(alice.core.seal(alice.email, PW, "handed over", &[bob.key.clone()]).is_err());
+    assert!(handed_over(&alice).is_i64());
 
-    alice.core.resume_sessions(PW).unwrap();
+    alice.core.resume_transfer(PW).unwrap();
     assert!(handed_over(&alice).is_null());
-    let (m, fs) = seal(&alice, &bob, "back again");
-    assert!(fs);
-    assert_eq!(open(&bob, &alice, &m)["plaintext"], "back again");
 }
 
 // --------------------------------------------------- the Key Manager's bank --
@@ -256,7 +223,7 @@ fn the_old_phone_stops_sending_with_the_bank_but_still_reads() {
 fn a_transfer_never_used_gives_the_bank_back_too() {
     let (alice, bob) = linked("bank-resume");
     alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
-    alice.core.resume_sessions(PW).unwrap();
+    alice.core.resume_transfer(PW).unwrap();
 
     assert_eq!(km(&alice)["handedOver"], false);
     let m = alice.core.qkd_seal(PW, alice.email, 3, "back again").unwrap();

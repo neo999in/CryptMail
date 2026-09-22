@@ -1,12 +1,11 @@
 /**
- * The four security levels, and the email that carries a Level 2 or 3 message.
+ * The three security levels, and the email that carries a Level 2 or 3 message.
  *
  * | Level | What seals the message | Keys from |
  * |---|---|---|
- * | 1 — No quantum security | OpenPGP to the recipient's long-term key | their public key |
+ * | 1 — No quantum security (default) | OpenPGP to the recipient's long-term key | their public key |
  * | 2 — Quantum | AES-256-GCM, key from HKDF over one 1 Kb quantum key | the Key Manager |
  * | 3 — Quantum secure (OTP) | one-time pad: XOR with quantum keys, HMAC with one more | the Key Manager |
- * | 4 — Post-quantum (default) | a per-email key over ML-KEM-768 + X25519 | the session with them |
  *
  * The Key Manager is simulated inside the core (`core/src/km.rs`) — the keys
  * are random, not quantum — and never leave it: this file only ever sees the
@@ -26,18 +25,9 @@ import type { SecurityLevel } from './types';
 
 export type { SecurityLevel };
 
-/** Level 4 — what this build sends when nothing else is chosen. */
-export const DEFAULT_LEVEL: SecurityLevel = 4;
+/** Level 1 — what this build sends when nothing else is chosen. */
+export const DEFAULT_LEVEL: SecurityLevel = 1;
 
-/**
- * How compose groups the levels, and the order it offers them in.
- *
- * Numbered 1–4 they read as a ladder, which is wrong twice over: Level 4 is
- * both the default and the strongest thing here, and Level 3's guarantee
- * depends on a key source this build simulates. They are two pairs — what
- * protects your mail, and what demonstrates the Key Manager — so the row says
- * so, and leads with the default.
- */
 /**
  * Levels that cannot be chosen or sent in this build. Level 3 is switched off:
  * a one-time pad is only as good as its key source, which here is simulated,
@@ -48,11 +38,19 @@ export const DISABLED_LEVELS: readonly SecurityLevel[] = [3];
 
 export const isLevelEnabled = (level: SecurityLevel): boolean => !DISABLED_LEVELS.includes(level);
 
+/**
+ * How compose groups the levels, and the order it offers them in.
+ *
+ * Numbered 1–3 they read as a ladder, which is wrong: Level 3's guarantee
+ * depends on a key source this build simulates. They are two groups — what
+ * works with anyone, and what demonstrates the Key Manager — so the row says
+ * so, and leads with the default.
+ */
 export const LEVEL_GROUPS: { label: string; hint: string; levels: SecurityLevel[] }[] = [
   {
     label: 'Everyday',
     hint: 'Works with anyone who uses CryptMail. No setup, no key bank, signed so they know it is you.',
-    levels: [4, 1],
+    levels: [1],
   },
   {
     label: 'Quantum keys',
@@ -83,11 +81,6 @@ export const LEVELS: Record<SecurityLevel, { short: string; name: string; detail
     short: 'L3 · OTP',
     name: 'Level 3 — Quantum secure (one-time pad)',
     detail: 'Quantum keys used directly as a one-time pad. One 1 Kb key per 128 bytes — short text only.',
-  },
-  4: {
-    short: 'L4 · PQC',
-    name: 'Level 4 — Post-quantum per-email keys',
-    detail: 'A new key for every email over ML-KEM-768 + X25519, destroyed once read. The default.',
   },
 };
 

@@ -7,7 +7,18 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-21.
+Last updated: 2026-09-22.
+
+> **Per-email keys (Level 4) removed (2026-09-22):** the Rust core's
+> `forward.rs`, `session.rs` and `session_store.rs` are gone, with `seal`,
+> `handshake`, `session_status` and `open`; the app no longer sends
+> handshakes or holds `awaiting-session`; Level 1 is the default. The device
+> transfer now carries the identity, the Key Manager bank and the archive, and
+> the bank alone is handed over (`resume_sessions` → `resume_transfer`).
+> ✅ `cargo test` (core), `npx tsc --noEmit` and `npm test -- --ci` (app) pass.
+> ⛔ Not run: the NDK build, the UniFFI bindgen and a device check — the
+> generated Kotlin bindings must be regenerated before the app links. Every
+> entry below that mentions Level 4, handshakes or sessions is history.
 
 > **Link messages sealed, Level 2 renamed, Level 3 off (2026-09-21, later):**
 >

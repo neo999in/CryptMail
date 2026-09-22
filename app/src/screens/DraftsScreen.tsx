@@ -109,6 +109,9 @@ export function DraftsBody({ navigation, query, clearSearch, composeFold }: Body
               <Text numberOfLines={2} style={s.preview}>
                 {previewOf(d)}
               </Text>
+              {d.sendError ? (
+                <Text style={s.sendError}>{`Not sent — ${d.sendError}`}</Text>
+              ) : null}
               {d.attachments?.length ? (
                 <View style={s.attached}>
                   <Icon name="paperclip" size={12} color={color.inkFaint} />
@@ -169,6 +172,7 @@ const s = StyleSheet.create({
   time: { ...type.meta, color: color.inkFaint, fontSize: 11 },
   recipients: { color: color.inkDim, fontFamily: font.mono, fontSize: 11.5 },
   preview: { ...type.small, color: color.inkFaint, marginTop: 2 },
+  sendError: { ...type.small, color: color.coralInk, marginTop: 4 },
   attached: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 6 },
   attachedText: { color: color.inkFaint, fontFamily: font.mono, fontSize: 11 },
 

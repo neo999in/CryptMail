@@ -96,32 +96,31 @@ guarantees we layer keyserver discovery and optional manual verification (see
 
 **Security levels.** The user picks a level per message
 ([design](superpowers/specs/2026-09-20-qkd-levels-design.md)): 1 OpenPGP to
-long-term keys, 2 (`L2 · Quantum`) AES-256-GCM seeded by a quantum key, 3 a
-one-time pad from quantum keys, 4 per-email keys (the default). **Level 3 is
-switched off for now** (`DISABLED_LEVELS`): hidden from compose and refused by
-`deliver`; received Level 3 mail still opens. Compose offers the rest as two
-pairs rather than a 1–4 ladder — 4 and 1, then 2 after a divider, with no group
-labels — because the default is also the strongest option in this build.
+long-term keys (the default), 2 (`L2 · Quantum`) AES-256-GCM seeded by a
+quantum key, 3 a one-time pad from quantum keys. **Level 3 is switched off for
+now** (`DISABLED_LEVELS`): hidden from compose and refused by `deliver`;
+received Level 3 mail still opens. Compose offers them as two groups rather
+than a ladder — 1, then 2 after a divider, with no group labels. Level 4
+(per-email keys) was removed on 2026-09-22; a message still held at Level 4 is
+refused by `deliver` rather than sealed to a long-term key, and waits in the
+outbox for the user to cancel it to drafts.
 
 Levels 2 and 3 take their keys from a simulated Key Manager and need no
 recipient public key at all, so no recipient check can catch a message to
 someone who shares no bank: compose refuses those sends while this mailbox has
-no quantum link. The table below is levels 1 and 4.
+no quantum link. The table below is Level 1.
 
 ## Encryption decision at send time
 
 When the user hits Send, the app resolves a key for **each** recipient — local
 keyring, then Autocrypt cache, then the directory
-([key-management.md](key-management.md) §Discovery). It then asks the core
-whether each recipient has a per-email-key session. The outcome is one of the rows below. Plaintext is not
-among them unless the user chose it up front.
+([key-management.md](key-management.md) §Discovery). The outcome is one of the
+rows below. Plaintext is not among them unless the user chose it up front.
 
 | Situation | Outcome | UX |
 |-----------|---------|-----|
-| Every recipient has a key **and** a per-email-key session (or their offer) | **Encrypted with per-email keys, sent** | Lock icon, sends normally |
-| A recipient has a key but no session yet | **Held** (`awaiting-session`) | A contentless handshake goes to them; the message sends itself once their CryptMail answers. Never sealed to their long-term key instead |
-| A recipient has no published key | **Held** (`awaiting-key`) | That recipient is invited; once they have a key, a handshake follows as above |
-| The only recipient is the sender | **Refused** | Compose disables Send and says why: a per-email key needs someone else to share it with |
+| Every recipient has a key | **Encrypted to their long-term keys and the sender's, sent** | Lock icon, sends normally |
+| A recipient has no published key | **Held** (`awaiting-key`) | That recipient is invited; the message sends itself once they have a key |
 | A recipient's key **changed** fingerprint | **Blocked** | Nothing is sent and nothing is held — see below |
 | User explicitly chooses a plaintext message | **Plaintext** | A separate action, chosen up front, never a fallback |
 
@@ -212,21 +211,13 @@ therefore says *queued*, never *sent*.
 
 ## Tradeoffs and honest limits
 
-- **Forward secrecy on everything the user writes.** Every message the user
-  writes uses a new key,
-  destroyed once used, so a later-compromised private key opens none of it — see
-  [per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). It
-  rides inside ordinary OpenPGP (a signed SEIPDv2 message with no key packets;
-  the key travels in armor headers), so nothing about SMTP had to change. The
-  only message still sealed to a long-term key is the contentless handshake that
-  sets up first contact. The price: a recipient whose app can't answer a
-  handshake (any client but CryptMail) can't be sent encrypted mail at all.
-  Mail *received* under long-term keys still opens, and a compromised private
-  key still opens that. (`feat/per-email-keys` keeps the long-term-key fallback
-  for first contact and non-CryptMail recipients.)
-  Forward-secret mail cannot be reopened from the provider by anyone, the sender
-  included, so the app keeps a decrypted copy on the device; that copy is
-  exactly as safe as the device.
+- **No forward secrecy at Level 1.** Long-lived keys mean a compromised
+  private key opens every Level 1 message sealed to it, past and future.
+  Per-email keys, which gave CryptMail-to-CryptMail mail forward secrecy, were
+  removed on 2026-09-22. Levels 2 and 3 delete their keys as a message opens,
+  so the app keeps a decrypted copy on the device, and that copy is exactly as
+  safe as the device. Mail sealed with per-email keys before the removal opens
+  only from that archive.
 - **Metadata is not hidden.** Envelope (To/From/Date/Size/Subject-placeholder)
   is visible to the provider.
 - **Endpoint trust.** Encryption protects data in transit and at rest in the

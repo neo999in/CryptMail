@@ -21,7 +21,6 @@ import { FlagPatch, MailClient, MailSummary } from '../mail/types';
 import { Held } from '../outbox/outbox';
 import { Rule } from '../rules/rules';
 import { AccountId, AccountSettings } from '../store/accountScope';
-import { HandshakeEntry } from '../store/handshakeStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { NotificationPrefs } from '../store/notifyStore';
 import { PublishState } from '../store/publishStore';
@@ -146,9 +145,9 @@ export type IdentityService = {
   /** Takes a recovery backup or a device transfer — it tells them apart. */
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
   exportTransfer(): Promise<TransferMade>;
-  /** When this phone handed its conversations to another, or null. */
+  /** When this phone handed its key bank to another, or null. */
   transferStatus(): Promise<Date | null>;
-  resumeSessions(): Promise<void>;
+  resumeTransfer(): Promise<void>;
 };
 
 export type PublishService = {
@@ -166,21 +165,6 @@ export type KmService = {
   regenerate(): Promise<KmStatus>;
   exportLink(): Promise<KmLink>;
   importLink(blob: string, code: string): Promise<KmStatus>;
-};
-
-/** First contact with per-email keys only — see `state/handshake.ts`. */
-export type HandshakeService = {
-  /**
-   * A contentless handshake to each address that is due one: never tried, a
-   * failure more than a few minutes old, or a sent one more than a week old.
-   */
-  send(emails: string[]): Promise<void>;
-  /** What happened to the last handshake to each address — `null` if none was tried. */
-  status(emails: string[]): Promise<Record<string, HandshakeEntry | null>>;
-  /** Send one now regardless of the last, because the user asked. Says how it went. */
-  resend(email: string): Promise<HandshakeEntry | null>;
-  /** Open the handshakes a sync brought in, and answer first contacts. */
-  answer(messages: InboxItem[]): Promise<void>;
 };
 
 /** Building a quantum link over email — see `state/bb84.ts`. */
@@ -410,7 +394,6 @@ export type Services = {
   labels: LabelsService;
   rules: RulesService;
   notify: NotifyService;
-  handshake: HandshakeService;
   km: KmService;
   bb84: Bb84Service;
 };

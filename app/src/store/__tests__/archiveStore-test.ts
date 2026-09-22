@@ -12,7 +12,6 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { isForwardSecret } from '../../core/mime';
 import type { DecryptedMessage } from '../../core/types';
 import { accountIdFor } from '../accountScope';
 import {
@@ -99,21 +98,6 @@ describe('archiveKeyFor', () => {
 
   it('is null for a message with no armored block', () => {
     expect(archiveKeyFor('Subject: hi\n\nplain')).toBeNull();
-  });
-});
-
-describe('isForwardSecret', () => {
-  it('recognises the session header the core puts in the armor', () => {
-    expect(isForwardSecret(sealedMessage('x'))).toBe(true);
-  });
-
-  it('is false for an ordinary encrypted message, even one carrying an offer', () => {
-    const normal = sealedMessage('x').replace('CryptMail-Session: BBBB\n', '');
-    expect(isForwardSecret(normal)).toBe(false);
-  });
-
-  it('ignores the words appearing outside the armor', () => {
-    expect(isForwardSecret('Subject: CryptMail-Session: spoof\n\nhello')).toBe(false);
   });
 });
 

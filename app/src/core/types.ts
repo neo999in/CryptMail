@@ -57,14 +57,13 @@ export type RecoveryBackup = {
 };
 
 /**
- * A device transfer: this phone's identity, its per-email-key conversations and
- * its archive of forward-secret mail, sealed for a replacement phone.
+ * A device transfer: this phone's identity, its Key Manager bank and its
+ * archive of quantum-keyed mail, sealed for a replacement phone.
  *
  * The same two halves as a recovery backup — a code shown once and a file —
  * and the same rule: the code is never stored. Unlike a backup, making one
- * **hands this phone's conversations over**: from then on it sends with
- * long-term keys, because two phones writing into one conversation would break
- * it for the contact.
+ * **hands this phone's bank over**: from then on it issues no quantum keys,
+ * because two ends drawing from one half would reuse a one-time pad.
  */
 export type DeviceTransfer = {
   /** Shown once, as a recovery code is. Never persisted. */
@@ -104,14 +103,9 @@ export type BuildRequest = {
    */
   attachments?: Attachment[];
   /**
-   * The answer to a handshake. Marks the outer subject so the other side's
-   * sync finds it; the caller supplies the fixed text from `core/handshake.ts`.
-   */
-  handshake?: boolean;
-  /**
-   * Which security level seals it (`core/qkd.ts`). Defaults to 4, per-email
-   * keys. 1 is OpenPGP to long-term keys — only ever the user's explicit
-   * choice. 2 and 3 take keys from the Key Manager and need no recipient keys.
+   * Which security level seals it (`core/qkd.ts`). Defaults to 1, OpenPGP to
+   * long-term keys. 2 and 3 take keys from the Key Manager and need no
+   * recipient keys.
    */
   level?: SecurityLevel;
   /**
@@ -124,14 +118,14 @@ export type BuildRequest = {
 
 /**
  * The security levels the user can choose between, in the problem statement's
- * numbering: 1 no quantum security (OpenPGP), 2 quantum-aided AES, 3 quantum
- * one-time pad, 4 post-quantum per-email keys (the default).
+ * numbering: 1 no quantum security (OpenPGP, the default), 2 quantum-aided AES,
+ * 3 quantum one-time pad.
  */
 import type { Bb84Leg } from './bb84';
 
 export type { Bb84Leg };
 
-export type SecurityLevel = 1 | 2 | 3 | 4;
+export type SecurityLevel = 1 | 2 | 3;
 
 /**
  * The simulated QKD Key Manager, as the app may see it — never a key.
@@ -159,21 +153,6 @@ export type KmStatus = {
 /** The simulated QKD link: this bank sealed for the other phone, under a code shown once. */
 export type KmLink = { code: string; blob: string };
 
-/** A first-contact handshake: one recipient, fixed content, see `core/handshake.ts`. */
-export type HandshakeRequest = {
-  from: string;
-  to: string;
-  /** The recipient's armored public key. */
-  recipientKey: string;
-  autocryptKey?: string;
-};
-
-/**
- * Where a recipient stands with per-email keys: our own key, a conversation
- * that exists, an offer we can open one with, or nothing yet — a handshake first.
- */
-export type SessionStatus = 'self' | 'session' | 'offer' | 'none';
-
 /** The result of decrypting a PGP/MIME message: protected headers restored. */
 export type DecryptedMessage = {
   subject: string;
@@ -197,12 +176,13 @@ export type DecryptedMessage = {
   /** Files found in the decrypted tree. Empty for a message that carried none. */
   attachments: Attachment[];
   /**
-   * True when the message was sealed with a per-email key that is now
-   * destroyed. It opens **once**: the caller must archive what was decrypted
-   * (`store/archiveStore.ts`), because no key anywhere can open it again.
+   * True when the keys that sealed the message are now destroyed — a Level 2
+   * or 3 message. It opens **once**: the caller must archive what was
+   * decrypted (`store/archiveStore.ts`), because no key anywhere can open it
+   * again.
    */
   forwardSecret?: boolean;
-  /** The level it was sealed at. 2 and 3 open once, like per-email keys. */
+  /** The level it was sealed at. 2 and 3 open once. */
   securityLevel?: SecurityLevel;
 };
 
@@ -236,46 +216,33 @@ export interface CryptCore {
   importRecoveryBackup(blob: string, code: string): Promise<Identity>;
 
   /**
-   * Seal this phone's identity, conversations and `archive` for a new phone,
-   * and hand the conversations over. `archive` is opaque to the core.
+   * Seal this phone's identity, key bank and `archive` for a new phone, and
+   * hand the bank over. `archive` is opaque to the core.
    */
   exportTransfer(email: string, archive: string): Promise<DeviceTransfer>;
 
   /**
-   * Adopt a transfer, replacing this phone's identity and conversations.
+   * Adopt a transfer, replacing this phone's identity and key bank.
    * `expectedEmail` is the mailbox signed in here; a transfer for any other
    * address is refused (`malformed`) before anything changes. A wrong code is
    * `decrypt-failed`.
    */
   importTransfer(blob: string, code: string, expectedEmail: string): Promise<ImportedTransfer>;
 
-  /** When this phone handed its conversations to another, or null. */
+  /** When this phone handed its key bank to another, or null. */
   transferStatus(): Promise<{ handedOverAt: Date | null }>;
 
   /**
-   * Take the conversations back. Only safe if the other phone never sent a
-   * message with per-email keys — the caller must say so before calling.
+   * Take the key bank back. Only safe if the other phone never sent with a
+   * quantum key — the caller must say so before calling.
    */
-  resumeSessions(): Promise<void>;
+  resumeTransfer(): Promise<void>;
 
   /**
-   * M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message.
-   *
-   * **Per-email keys only.** Refuses (`no-key`) unless every recipient other
-   * than the sender has a session or an offer — check `sessionStatus` first and
-   * hold the message instead. Never falls back to long-term keys.
+   * M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message
+   * (Level 1), or the Key Manager's text envelope (Levels 2 and 3).
    */
   buildEncrypted(request: BuildRequest): Promise<string>;
-
-  /**
-   * A contentless first-contact message carrying this device's offer — the one
-   * thing still sealed to a long-term key. Its text is fixed
-   * (`core/handshake.ts`); nothing the user wrote is an argument.
-   */
-  buildHandshake(request: HandshakeRequest): Promise<string>;
-
-  /** Per recipient key, in order: see `SessionStatus`. */
-  sessionStatus(email: string, recipientKeys: string[]): Promise<SessionStatus[]>;
 
   /**
    * M5 inverse: detect, decrypt, verify, restore the protected subject.

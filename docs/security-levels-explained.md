@@ -1,25 +1,29 @@
-# The four security levels, explained simply
+# The security levels, explained simply
 
-Every email you write in CryptMail goes out at one of four **security levels**.
+Every email you write in CryptMail goes out at one of three **security levels**.
 You choose one in compose, per message. This page explains what each one really
 does, what it costs, and how they compare — in plain language, with the crypto
 jargon translated as it appears.
 
-If you read nothing else: **Level 4 is the default and it is the right answer
-almost always.** The others exist for specific reasons explained below.
+If you read nothing else: **Level 1 is the default and it is the right answer
+almost always.** Level 2 exists to demonstrate the quantum Key Manager.
 
-> **In this build, compose offers three:** `L4 · PQC`, `L1 · PGP` and
-> `L2 · Quantum`. **Level 3 is switched off**: hidden, and refused if a held
-> message still carries it. Level 3 mail you already received still opens.
+> **In this build, compose offers two:** `L1 · PGP` and `L2 · Quantum`.
+> **Level 3 is switched off**: hidden, and refused if a held message still
+> carries it. Level 3 mail you already received still opens.
+>
+> **Level 4 (per-email keys) was removed on 2026-09-22.** Mail sealed with it
+> can no longer be decrypted; copies already in the local archive still open.
+> A message still waiting in the outbox at Level 4 never sends by itself —
+> cancel it to drafts and send it again.
 
 ---
 
 ## Contents
 
 - [The one thing that never happens](#the-one-thing-that-never-happens)
-- [Why they are two pairs, not a ladder](#why-they-are-two-pairs-not-a-ladder)
-- [Level 4 — post-quantum per-email keys](#level-4--post-quantum-per-email-keys-the-default)
-- [Level 1 — no quantum security (standard PGP)](#level-1--no-quantum-security-standard-pgp)
+- [Why they are two groups, not a ladder](#why-they-are-two-groups-not-a-ladder)
+- [Level 1 — no quantum security (standard PGP)](#level-1--no-quantum-security-standard-pgp-the-default)
 - [Level 2 — quantum](#level-2--quantum)
 - [Level 3 — quantum secure, one-time pad (switched off)](#level-3--quantum-secure-one-time-pad-switched-off)
 - [Comparisons](#comparisons)
@@ -34,12 +38,11 @@ almost always.** The others exist for specific reasons explained below.
 
 **CryptMail never sends your mail unencrypted to get a send through.** There is
 no "just this once" button, and no silent fall-back to a weaker level. When
-something is wrong, one of exactly three things happens:
+something is wrong, one of exactly two things happens:
 
 | Situation | What CryptMail does |
 |---|---|
 | The recipient has **no key yet** | Holds the message in the outbox (*awaiting-key*), sends them a contentless invite, and delivers itself once their key arrives. The UI says **queued**, never *sent*. |
-| The recipient has a key but **no session yet** (Level 4) | Holds the message (*awaiting-session*), sends a contentless handshake, delivers once answered. Again: **queued**. |
 | The recipient's key **fingerprint changed** | **Blocks the send outright.** Nothing goes out and nothing is queued — a changed fingerprint may mean someone swapped the key, and waiting cannot resolve that. |
 
 Writing a deliberately unencrypted email is a separate, explicit action. Nothing
@@ -47,111 +50,53 @@ on the encrypted path can wander onto it.
 
 ---
 
-## Why they are two pairs, not a ladder
+## Why they are two groups, not a ladder
 
-Numbered 1–4 in a row, these look like a difficulty slider where bigger is
-better. That reading is wrong in two directions at once:
+Numbered in a row, these look like a difficulty slider where bigger is better.
+That reading is wrong: **Level 3's famous "unbreakable" guarantee rests on a key
+source that is simulated here.** On paper a one-time pad is the strongest
+encryption that can exist. In *this* build the keys come from a software random
+generator, not from quantum hardware, so the paper guarantee does not transfer.
 
-- **Level 4 is both the default and the strongest thing in this build.** It is
-  not the bottom of a ladder; it is the top.
-- **Level 3's famous "unbreakable" guarantee rests on a key source that is
-  simulated here.** On paper a one-time pad is the strongest encryption that can
-  exist. In *this* build the keys come from a software random generator, not
-  from quantum hardware, so the paper guarantee does not transfer.
+So compose groups them, separated by a divider (the group names below are not
+shown on screen):
 
-So compose groups them as two pairs, separated by a divider (the group names
-below are not shown on screen):
-
-**Everyday — 4, then 1.** Works with anyone who uses CryptMail. No setup, no
-shared key bank, and both are **signed** so the recipient knows it was you.
+**Everyday — 1.** Works with anyone whose public key you hold. No shared key
+bank, and it is **signed** so the recipient knows it was you.
 
 **Quantum keys — 2 (and 3, switched off for now).** Need a key bank shared
-with the recipient in advance. These demonstrate how a real Quantum Key Distribution system would plug
-into email.
+with the recipient in advance. These demonstrate how a real Quantum Key
+Distribution system would plug into email.
 
 ---
 
-## Level 4 — post-quantum per-email keys *(the default)*
-
-### What it does
-
-**Every single email gets its own brand-new key, and that key is destroyed the
-moment the message is read.**
-
-Picture a padlock forged for one letter and melted down after it is opened once.
-Steal the recipient's long-term key tomorrow, or the sender's, and you still
-cannot reopen anything already sent — there is no master key that unlocks your
-mail history. In the trade this is called **forward secrecy**, and it is the
-single biggest practical difference between Level 4 and classic PGP.
-
-### The "post-quantum" part
-
-The per-email key is established using **ML-KEM-768 combined with X25519** —
-two independent key-agreement systems layered together.
-
-- **X25519** is the well-tested classical one. Today's computers cannot break it.
-- **ML-KEM-768** is one of the standardised post-quantum algorithms, designed to
-  resist a future large quantum computer.
-
-Using both means the message stays sealed if *either* one holds. You are not
-betting on the new algorithm being right, and you are not betting on quantum
-computers never arriving.
-
-This matters because of **harvest-now-decrypt-later**: an adversary can record
-your encrypted mail today and simply wait for a machine capable of breaking it.
-Level 4 is the level that answers that threat.
-
-### First contact
-
-The first time you write to a new person, there is no shared session yet.
-CryptMail sends a small, **contentless handshake** message — fixed text only, no
-part of your email in it — and holds your actual message until the other side
-answers. Their app answers automatically on its next sync, so this usually
-resolves without anyone doing anything. Your email then delivers itself.
-
-While it waits, the UI says **queued**. It is never quietly sealed to their
-long-term key instead.
-
-### Costs and limits
-
-Essentially none. Any size, attachments fine, no setup, no coordination. The
-only friction is the handshake delay on a genuinely first contact.
-
----
-
-## Level 1 — no quantum security (standard PGP)
+## Level 1 — no quantum security (standard PGP) *(the default)*
 
 ### What it does
 
 **Ordinary OpenPGP encryption to the recipient's long-term public key** — the
-same thing every other PGP mail tool has done for decades.
+same thing every other PGP mail tool has done for decades — and to your own, so
+your Sent folder stays readable.
 
-One key, held for years, encrypts and decrypts everything. That is the whole
-difference from Level 4, and it is a large one:
+One key, held for years, encrypts and decrypts everything:
 
 - **No forward secrecy.** Whoever obtains that long-term private key later can
   open every message ever sealed to it, including ones sent years ago.
-- **No protection against harvest-now-decrypt-later.** Recorded ciphertext can
-  be broken once the key is broken.
+- **Quantum resistance depends on the recipient's key.** A CryptMail key
+  encrypts with **ML-KEM-768 combined with X25519**, so recorded mail stays
+  sealed if *either* algorithm holds — a defence against
+  *harvest-now-decrypt-later*. A key from another PGP client is usually
+  classical only, and mail sealed to it is not protected that way.
 
-This is why it is named *"No quantum security"* in the picker rather than
-something friendlier. It is the honest label.
-
-### Why it exists at all
-
-It is the **explicit escape hatch**. Level 4 needs the other side to complete a
-handshake; if that is not going to happen, Level 1 is the way to still send
-something encrypted rather than sending nothing — or worse, sending plaintext.
-
-CryptMail will never choose it for you. It is the one and only place in the send
-path where a message you wrote is sealed to a long-term key, and it happens only
-because you picked it up front.
+It is named *"No quantum security"* in the picker because no quantum keys are
+involved. That is the honest label.
 
 ### Costs and limits
 
 Needs the recipient's public key (imported manually, or harvested from mail they
-sent you — CryptMail does **not** look keys up on the network). Any size.
-Signed.
+sent you — CryptMail does **not** look keys up on the network). Any size,
+attachments fine. Signed. Opens as often as you like, on any device holding the
+key.
 
 ---
 
@@ -171,7 +116,7 @@ though both came from the same bank.
 
 ### The key bank
 
-Levels 2 and 3 work completely differently from 1 and 4: **they never look at
+Levels 2 and 3 work completely differently from Level 1: **they never look at
 the recipient's public key at all.** Instead, both devices must already hold
 **the same bank of secret keys** — 100 keys of 1 Kb each. Holding that bank is
 what makes the message readable. Nothing about the key travels with the email
@@ -259,40 +204,23 @@ shortcut in this implementation:
 
 ### At a glance
 
-| | **L4 · PQC** | **L1 · PGP** | **L2 · Quantum** | **L3 · One-time pad** *(off)* |
-|---|---|---|---|---|
-| Group | Everyday | Everyday | Quantum keys | Quantum keys |
-| Default | **yes** | no | no | no |
-| What seals it | per-email key, ML-KEM-768 + X25519 | OpenPGP to long-term key | AES-256-GCM seeded by a quantum key | XOR with pad + HMAC-SHA256 |
-| Key comes from | the session with that contact | their public key | the shared bank | the shared bank |
-| Setup needed | none (auto handshake) | their public key | shared key bank | shared key bank |
-| Uses recipient's key | yes | yes | **no** | **no** |
-| Forward secrecy | **yes** | **no** | yes (keys deleted) | yes (keys deleted) |
-| Resists future quantum computers | **yes** | **no** | **yes**: AES-256, bank linked over ML-KEM | in principle yes |
-| Signed | yes | yes | no — bank proves sender | no — bank proves sender |
-| Tamper-evident | yes | yes | yes (GCM) | yes (HMAC) |
-| Message size limit | none | none | none | **very small** — short text |
-| Attachments | yes | yes | yes | **no** |
-| Key cost per message | — | — | 1 key | 1 per 128 bytes + 1 |
-| Opens more than once | no — archived locally | yes | no — archived locally | no — archived locally |
-| Can the sender reread it later | yes, from the local archive | yes | yes, from the local archive | yes, from the local archive |
-
-### Level 4 vs Level 1 — the everyday pair
-
-Both work with anyone, need no coordination, and are signed. The difference is
-entirely about **what a stolen key gets you later**.
-
-| | Level 4 | Level 1 |
-|---|---|---|
-| Key lifetime | one message | years |
-| Steal the private key tomorrow | past mail stays sealed | **all past mail opens** |
-| Quantum computer in 2035 | recorded mail stays sealed | **recorded mail opens** |
-| First message to someone new | brief handshake delay | sends immediately |
-| Interop with other PGP clients | CryptMail to CryptMail | **broad** |
-
-**Pick Level 1 only** when the recipient cannot complete a Level 4 handshake —
-typically because they are on a different PGP client. Otherwise Level 4 wins on
-every axis except that one.
+| | **L1 · PGP** | **L2 · Quantum** | **L3 · One-time pad** *(off)* |
+|---|---|---|---|
+| Group | Everyday | Quantum keys | Quantum keys |
+| Default | **yes** | no | no |
+| What seals it | OpenPGP to long-term key | AES-256-GCM seeded by a quantum key | XOR with pad + HMAC-SHA256 |
+| Key comes from | their public key | the shared bank | the shared bank |
+| Setup needed | their public key | shared key bank | shared key bank |
+| Uses recipient's key | yes | **no** | **no** |
+| Forward secrecy | **no** | yes (keys deleted) | yes (keys deleted) |
+| Resists future quantum computers | to a CryptMail key, yes (ML-KEM-768 + X25519) | **yes**: AES-256, bank linked over ML-KEM | in principle yes |
+| Signed | yes | no — bank proves sender | no — bank proves sender |
+| Tamper-evident | yes | yes (GCM) | yes (HMAC) |
+| Message size limit | none | none | **very small** — short text |
+| Attachments | yes | yes | **no** |
+| Key cost per message | — | 1 key | 1 per 128 bytes + 1 |
+| Opens more than once | yes | no — archived locally | no — archived locally |
+| Can the sender reread it later | yes | yes, from the local archive | yes, from the local archive |
 
 ### Level 2 vs Level 3 — the quantum pair
 
@@ -312,14 +240,14 @@ off in this build; when it returns it is for short, high-stakes text where you
 want the strongest guarantee the protocol can express, bearing the simulation
 caveat in mind.
 
-### Everyday pair vs Quantum pair
+### Everyday vs Quantum keys
 
-| | Everyday (4, 1) | Quantum keys (2, 3) |
+| | Everyday (1) | Quantum keys (2, 3) |
 |---|---|---|
 | Needs advance setup | no | **yes** — a shared bank |
 | Depends on the recipient's public key | yes | no |
 | Signed | yes | no (bank proves the sender) |
-| Fails when | no key / no session yet → queued | no link → **send refused** |
+| Fails when | no key yet → queued | no link → **send refused** |
 | Runs out | never | yes — the bank depletes and needs refilling |
 | Real security today | **yes** | **demonstration** — simulated key source |
 
@@ -327,13 +255,11 @@ caveat in mind.
 
 ## Choosing: a short decision guide
 
-1. **Just writing an email?** → **Level 4.** Stop here. This is the default and
+1. **Just writing an email?** → **Level 1.** Stop here. This is the default and
    it needs no thought.
-2. **Recipient uses a different PGP client and cannot handshake?** → **Level 1**,
-   accepting no forward secrecy and no quantum resistance.
-3. **Want to see the QKD integration work, and you share a bank with them?** →
+2. **Want to see the QKD integration work, and you share a bank with them?** →
    **Level 2** for normal mail.
-4. **Want the one-time pad?** Not available: **Level 3 is switched off** in
+3. **Want the one-time pad?** Not available: **Level 3 is switched off** in
    this build.
 
 ---
@@ -346,15 +272,16 @@ send correctly sealed. There is no fourth option.
 **2. The subject line is always encrypted.** Every level uses the same
 placeholder subject, `[Encrypted message]`. The real subject lives inside the
 encrypted part, along with the body and any attachment filenames. This also
-means your inbox, notification rules and the spam engine treat all four levels
+means your inbox, notification rules and the spam engine treat every level
 identically without being told anything.
 
-**3. Levels 2, 3 and 4 archive locally, because they can only be opened once.**
+**3. Levels 2 and 3 archive locally, because they can only be opened once.**
 Their keys are destroyed as the message opens. Without a local copy, reading an
 email would be the last time you ever saw it. So CryptMail keeps its own
 **sealed** copy on your device, written *before* the message is sent and again
 the moment one is opened. That archive never leaves the phone, never evicts, and
-travels with you when you move to a new device.
+travels with you when you move to a new device. It also keeps mail you read
+with the removed Level 4, which nothing else can open any more.
 
 **4. Key discovery never touches the network.** CryptMail does not query key
 servers or WKD, in any build. A key reaches your device only from someone who
@@ -363,10 +290,9 @@ a superseded key for a test account and the resulting message could not be
 opened by anyone — exactly the kind of silent failure this app exists to avoid.
 
 **5. Moving to a new phone moves everything, and moves it once.** Your key,
-conversations, archive and key bank transfer together under a one-time code. The
-old phone stops sending — two phones writing into one conversation breaks it,
-and two ends drawing from one half of a bank would reuse a one-time pad. The old
-phone can still *read*.
+archive and key bank transfer together under a one-time code. The old phone
+stops sending with quantum keys — two ends drawing from one half of a bank would
+reuse a one-time pad. The old phone can still *read*.
 
 ---
 
@@ -389,6 +315,8 @@ These are stated plainly in the app too, not just here.
   Everything above the channel — sifting, the error check, privacy
   amplification, the refusal when too much of the sample disagrees — is the
   genuine protocol and would not change with hardware.
+- **Level 1 has no forward secrecy.** A stolen long-term key opens every
+  Level 1 message sealed to it. Per-email keys, which closed that, were removed.
 - **Level 3 is small, permanently.** One-time pads consume key equal to the
   message. That is mathematics, not an implementation shortcut.
 - **Levels 2 and 3 authenticate but do not sign.**
@@ -423,6 +351,6 @@ These are stated plainly in the app too, not just here.
 
 *Sources in this repo: [`app/src/core/qkd.ts`](../app/src/core/qkd.ts) ·
 [QKD levels design](superpowers/specs/2026-09-20-qkd-levels-design.md) ·
-[per-email keys design](superpowers/specs/2026-09-19-per-email-keys-design.md) ·
+[per-email keys design](superpowers/specs/2026-09-19-per-email-keys-design.md) (removed) ·
 [encryption.md](encryption.md) · [key-management.md](key-management.md) ·
 [message-format.md](message-format.md)*

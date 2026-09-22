@@ -154,7 +154,7 @@ export function createIdentityService(ctx: Ctx): IdentityService {
      */
     async restoreFromRecovery(blob: string, code: string): Promise<Identity> {
       // A transfer file is restored the same way, with more in it: the
-      // conversations and the archive come along with the key.
+      // key bank and the archive come along with the key.
       if (isTransferFile(blob)) return receiveTransfer(blob, code);
 
       const identity = await core.importRecoveryBackup(blob, code);
@@ -188,10 +188,10 @@ export function createIdentityService(ctx: Ctx): IdentityService {
     },
 
     /**
-     * Seal this phone for a replacement: its key, its per-email-key
-     * conversations and its archive of forward-secret mail, under a code shown
-     * once. The core hands the conversations over as it does, so from here
-     * this phone sends with long-term keys — see `DeviceTransfer`.
+     * Seal this phone for a replacement: its key, its Key Manager bank and its
+     * archive of quantum-keyed mail, under a code shown once. The core hands
+     * the bank over as it does, so from here this phone issues no quantum
+     * keys — see `DeviceTransfer`.
      */
     async exportTransfer(): Promise<TransferMade> {
       const { identity } = store.get();
@@ -205,15 +205,15 @@ export function createIdentityService(ctx: Ctx): IdentityService {
       return (await core.transferStatus()).handedOverAt;
     },
 
-    async resumeSessions(): Promise<void> {
-      await core.resumeSessions();
+    async resumeTransfer(): Promise<void> {
+      await core.resumeTransfer();
     },
   };
 
   /**
    * The new phone's side. The core refuses a transfer for another mailbox
    * before it changes anything, which is the same guard a backup gets below —
-   * but here it has to come first, since adopting also replaces conversations.
+   * but here it has to come first, since adopting also replaces the key bank.
    */
   async function receiveTransfer(blob: string, code: string): Promise<Identity> {
     const { session } = store.get();
@@ -227,10 +227,10 @@ export function createIdentityService(ctx: Ctx): IdentityService {
     try {
       await importArchive(account, archive);
     } catch (e) {
-      // The key and conversations are here; only the archive is not. The file
+      // The key and bank are here; only the archive is not. The file
       // still holds it, and loading it again is safe until this phone sends.
       throw new Error(
-        `Your key and conversations moved, but mail read with per-email keys couldn’t be saved on this phone (${
+        `Your key and key bank moved, but mail already read with quantum keys couldn’t be saved on this phone (${
           e instanceof Error ? e.message : String(e)
         }). Load the transfer file again before sending anything.`,
       );

@@ -1,9 +1,6 @@
 //! Device transfer: moving everything that makes this phone *this* phone to a
-//! replacement — the identity key, the per-email-key conversations, and the
-//! app's archive of forward-secret mail.
-//!
-//! `docs/superpowers/specs/2026-09-19-per-email-keys-design.md`, "Device
-//! transfer".
+//! replacement — the identity key, the Key Manager's bank, and the app's
+//! archive of quantum-keyed mail.
 //!
 //! # What travels
 //!
@@ -11,11 +8,8 @@
 //!
 //! - the identity key, re-locked under the code exactly as a recovery backup is
 //!   (`recovery.rs`), so it is never unlocked outside a core;
-//! - every session-store record — this device's offers, each conversation, each
-//!   contact's offer — opened from this install's key and resealed under the
-//!   new one's on arrival;
 //! - the archive, which the TypeScript side hands in as an opaque string: the
-//!   decrypted copies of forward-secret mail are the only copies there are;
+//!   decrypted copies of Level 2 and 3 mail are the only copies there are;
 //! - the Key Manager's bank of quantum keys (`km.rs`), which is state and not a
 //!   key that can be re-derived: a phone that left it behind could not open a
 //!   single unread Level 2 or 3 message, and would have to link with the other
@@ -23,18 +17,11 @@
 //!
 //! # Moved, never copied
 //!
-//! Two phones sending from one conversation would each derive the same next
-//! keys and advance them differently, and the contact could follow only one of
-//! them. So exporting **hands the store over**: from then on the old phone
-//! sends the old way and never rotates its offers. It can still *read* — a
-//! receive step is deterministic, so both copies arrive at the same state from
-//! the same message — which is what lets the user keep using it until the new
-//! phone is set up.
-//!
-//! The bank is handed over on the same terms and for a sharper reason: two ends
-//! issuing from one half would hand out the same key twice, and a one-time pad
-//! used twice is no cipher at all. Reading is safe to leave alone, since
-//! `dec_keys` only deletes each phone's own copy.
+//! Exporting **hands the bank over**: two ends issuing from one half would hand
+//! out the same key twice, and a one-time pad used twice is no cipher at all.
+//! Reading is safe to leave alone, since `dec_keys` only deletes each phone's
+//! own copy — which is what lets the user keep using the old phone until the
+//! new one is set up.
 //!
 //! # The code, and why HKDF rather than Argon2
 //!
@@ -55,7 +42,6 @@ use zeroize::Zeroizing;
 
 use crate::identity::Identity;
 use crate::km::KeyManager;
-use crate::session_store::SessionStore;
 use crate::{recovery, CoreError, Result};
 
 const BEGIN: &str = "-----BEGIN CRYPTMAIL TRANSFER-----";
@@ -72,8 +58,6 @@ struct Bundle {
     created: i64,
     /// The identity key, armored, locked under the code.
     key: String,
-    /// `(record name, base64 of its JSON)`.
-    sessions: Vec<(String, String)>,
     /// Opaque to the core — the app's archive.
     archive: String,
     /// The Key Manager's bank, as JSON, base64. Absent in a transfer written
@@ -89,18 +73,11 @@ pub struct Imported {
     pub archive: String,
 }
 
-/// Seal this phone's identity, conversations and `archive` under `code`, then
-/// mark the conversations handed over. Returns the armored file.
+/// Seal this phone's identity, bank and `archive` under `code`, then mark the
+/// bank handed over. Returns the armored file.
 pub(crate) fn export(dir: &Path, email: &str, passphrase: &str, code: &str, archive: &str, now: i64) -> Result<String> {
     let code = checked(code)?;
     let key = recovery::export(dir, email, passphrase, &code)?;
-    let store = SessionStore::open(dir, passphrase)?;
-    let sessions = store
-        .export_records()?
-        .into_iter()
-        .map(|(name, plain)| (name, B64.encode(&*plain)))
-        .collect();
-
     let km = KeyManager::for_account(dir, passphrase, email)?;
     let bank = km.export_bank()?.map(|plain| B64.encode(&*plain));
 
@@ -108,7 +85,6 @@ pub(crate) fn export(dir: &Path, email: &str, passphrase: &str, code: &str, arch
         email: email.trim().to_lowercase(),
         created: now,
         key,
-        sessions,
         archive: archive.to_string(),
         bank,
     };
@@ -133,12 +109,11 @@ pub(crate) fn export(dir: &Path, email: &str, passphrase: &str, code: &str, arch
     armored.push('\n');
 
     // Only once the file exists: a failure above leaves this phone as it was.
-    store.hand_over(now)?;
-    km.hand_over()?;
+    km.hand_over(now)?;
     Ok(armored)
 }
 
-/// Adopt a transfer: the identity, then the conversations, replacing whatever
+/// Adopt a transfer: the identity, then the bank, replacing whatever
 /// this phone held. `expected_email`, when not empty, is the mailbox signed in
 /// here — a transfer for another address is refused before anything changes.
 pub(crate) fn import(dir: &Path, passphrase: &str, armored: &str, code: &str, expected_email: &str) -> Result<Imported> {
@@ -165,13 +140,6 @@ pub(crate) fn import(dir: &Path, passphrase: &str, armored: &str, code: &str, ex
         )));
     }
 
-    let mut records = Vec::with_capacity(bundle.sessions.len());
-    for (name, encoded) in &bundle.sessions {
-        let plain = B64
-            .decode(encoded)
-            .map_err(|_| CoreError::Malformed(format!("a transfer record is damaged ({name})")))?;
-        records.push((name.clone(), plain));
-    }
     let bank = match &bundle.bank {
         Some(encoded) => Some(Zeroizing::new(
             B64.decode(encoded).map_err(|_| CoreError::Malformed("the key bank in this transfer is damaged".into()))?,
@@ -182,16 +150,9 @@ pub(crate) fn import(dir: &Path, passphrase: &str, armored: &str, code: &str, ex
         KeyManager::check_bank(bank)?;
     }
 
-    let store = SessionStore::open(dir, passphrase)?;
-    store.check_records(&records)?;
-
     let identity = recovery::import(dir, passphrase, &bundle.key, &code)?;
-    store.replace_records(&records)?;
     if let Some(bank) = &bank {
         KeyManager::for_account(dir, passphrase, &bundle.email)?.adopt_bank(bank)?;
-    }
-    for (_, plain) in &mut records {
-        zeroize::Zeroize::zeroize(plain);
     }
     Ok(Imported { identity, archive: bundle.archive })
 }

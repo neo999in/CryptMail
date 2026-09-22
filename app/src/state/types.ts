@@ -19,7 +19,6 @@ import { SearchIndex } from '../search/search';
 import { SnoozeMap } from '../snooze/snooze';
 import type { LinkPair } from '../spam/spam';
 import { AccountId, AccountRef, AccountSettings } from '../store/accountScope';
-import { HandshakeEntry } from '../store/handshakeStore';
 import { InviteLog } from '../store/inviteStore';
 import { ContactKey, Keyring } from '../store/keyring';
 import { NotificationPrefs } from '../store/notifyStore';
@@ -105,7 +104,7 @@ export type OpenedMessage = {
   error?: string;
   /**
    * The message **was** read, but something about it needs saying — shown above
-   * the body, never instead of it. Used when a forward-secret message decrypted
+   * the body, never instead of it. Used when a Level 2 or 3 message decrypted
    * and could not be saved: this is the last time it can be shown at all.
    */
   notice?: string;
@@ -120,11 +119,8 @@ export type OpenedMessage = {
  */
 export type SendOutcome =
   | { status: 'sent' }
-  /**
-   * Held. `waitingFor` says on what: a key they have not published (`key`, the
-   * default), or per-email keys not yet set up with them (`session`).
-   */
-  | { status: 'queued'; pending: string[]; waitingFor?: 'key' | 'session' };
+  /** Held until each of `pending` has a key. */
+  | { status: 'queued'; pending: string[] };
 
 /** What a send asks for. The same shape a held message is replayed from. */
 export type SendInput = {
@@ -139,7 +135,7 @@ export type SendInput = {
   references?: string[];
   /** Files to seal in alongside the body. Held with the message if it is held. */
   attachments?: Attachment[];
-  /** Which security level seals it (`core/qkd.ts`). Defaults to 4, per-email keys. */
+  /** Which security level seals it (`core/qkd.ts`). Defaults to 1, OpenPGP. */
   level?: SecurityLevel;
 };
 
@@ -472,18 +468,18 @@ export type Actions = {
   waiveRecoveryDrill(): Promise<void>;
   /**
    * Adopt an identity from a backup or a device transfer, replacing whatever key
-   * this device holds. A transfer also brings the conversations and archive.
+   * this device holds. A transfer also brings the key bank and archive.
    */
   restoreFromRecovery(blob: string, code: string): Promise<Identity>;
   /**
-   * Seal this phone for a replacement and hand its conversations over: from
-   * then on it sends with long-term keys. The code is shown once, never stored.
+   * Seal this phone for a replacement and hand its key bank over: from then
+   * on it issues no quantum keys. The code is shown once, never stored.
    */
   exportTransfer(): Promise<TransferMade>;
-  /** When this phone handed its conversations to another, or null. */
+  /** When this phone handed its key bank to another, or null. */
   transferStatus(): Promise<Date | null>;
-  /** Take the conversations back — only safe if the other phone never sent. */
-  resumeSessions(): Promise<void>;
+  /** Take the key bank back — only safe if the other phone never sent. */
+  resumeTransfer(): Promise<void>;
   /** The quantum Key Manager for the signed-in mailbox — the one login. */
   kmStatus(): Promise<KmStatus>;
   /** A fresh bank of 100 × 1 Kb keys. A linked bank must be linked again. */
@@ -535,14 +531,6 @@ export type Actions = {
    * longer in the outbox — and throws when a recipient's key changed.
    */
   sendScheduledNow(id: string): Promise<SendOutcome | null>;
-  /**
-   * What happened to the last per-email-key handshake to each address, so a
-   * message held as `awaiting-session` can say whether one went out, when, or
-   * why it failed. `null` for an address none was tried to.
-   */
-  handshakeStatus(emails: string[]): Promise<Record<string, HandshakeEntry | null>>;
-  /** Send a handshake to this address now, whatever happened last time. */
-  resendHandshake(email: string): Promise<HandshakeEntry | null>;
   /**
    * Move a message to spam, and teach the filter from it.
    *

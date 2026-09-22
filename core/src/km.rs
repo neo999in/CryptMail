@@ -91,6 +91,10 @@ struct Bank {
     /// another, because two ends issuing from one half would reuse a pad.
     #[serde(default)]
     handed_over: bool,
+    /// When it was handed over, in Unix seconds. Absent in a bank handed over
+    /// before this was kept.
+    #[serde(default)]
+    handed_over_at: Option<i64>,
 }
 
 /// What the app may know about the KM. No key material, ever.
@@ -186,6 +190,7 @@ impl KeyManager {
             role,
             keys,
             handed_over: false,
+            handed_over_at: None,
         })
     }
 
@@ -296,6 +301,7 @@ impl KeyManager {
             role: Role::Slave,
             keys: bank.keys.clone(),
             handed_over: false,
+            handed_over_at: None,
         };
         bank.peer_sae_id = Some(peer.sae_id.clone());
         // Keys this end already issued are its own; the other end never sends with them.
@@ -333,6 +339,7 @@ impl KeyManager {
             return Err(not_a_link());
         }
         bank.handed_over = false;
+        bank.handed_over_at = None;
         self.write_bank(&bank)
     }
 
@@ -368,26 +375,38 @@ impl KeyManager {
         Self::check_bank(plain)?;
         let mut bank: Bank = serde_json::from_slice(plain).map_err(|_| damaged_bank())?;
         bank.handed_over = false;
+        bank.handed_over_at = None;
         self.write_bank(&bank)
     }
 
     /// Stop issuing keys: another phone sends with this bank now. Reading is
     /// untouched, so mail already on the way still opens here.
-    pub fn hand_over(&self) -> Result<()> {
-        self.set_handed_over(true)
+    pub fn hand_over(&self, now: i64) -> Result<()> {
+        self.set_handed_over(Some(now))
+    }
+
+    /// When this bank went to another phone, if it did. `Some(0)` for a bank
+    /// handed over before the time was kept.
+    pub fn handed_over_at(&self) -> Result<Option<i64>> {
+        if !self.bank_path().exists() {
+            return Ok(None);
+        }
+        let bank = self.read_bank()?;
+        Ok(bank.handed_over.then(|| bank.handed_over_at.unwrap_or(0)))
     }
 
     /// Take the bank back after a transfer that was never used.
     pub fn resume(&self) -> Result<()> {
-        self.set_handed_over(false)
+        self.set_handed_over(None)
     }
 
-    fn set_handed_over(&self, value: bool) -> Result<()> {
+    fn set_handed_over(&self, at: Option<i64>) -> Result<()> {
         if !self.bank_path().exists() {
             return Ok(());
         }
         let mut bank = self.read_bank()?;
-        bank.handed_over = value;
+        bank.handed_over = at.is_some();
+        bank.handed_over_at = at;
         self.write_bank(&bank)
     }
 
@@ -431,7 +450,7 @@ fn fresh_bank(sae_id: String) -> Bank {
     let keys: Vec<BankKey> = (0..BANK_SIZE)
         .map(|slot| BankKey { id: key_id(slot), key: random(KEY_BYTES), state: KeyState::Fresh })
         .collect();
-    Bank { sae_id, peer_sae_id: None, role: Role::Solo, keys, handed_over: false }
+    Bank { sae_id, peer_sae_id: None, role: Role::Solo, keys, handed_over: false, handed_over_at: None }
 }
 
 fn new_sae_id() -> String {

@@ -46,7 +46,7 @@ jest.mock('../../core', () => {
         return identity;
       },
       transferStatus: async () => ({ handedOverAt: new Date('2026-09-19T10:00:00Z') }),
-      resumeSessions: async () => record('resumeSessions')(),
+      resumeTransfer: async () => record('resumeTransfer')(),
       importPublicKey: async (armored: string) => ({ email: ADDRESS, fingerprint: FINGERPRINT, armored }),
     },
   };
@@ -121,8 +121,8 @@ describe('leaving the old phone', () => {
   it('reports when the phone was handed over, and takes it back on request', async () => {
     const { services } = harness(true);
     expect(await services.identity.transferStatus()).toEqual(new Date('2026-09-19T10:00:00Z'));
-    await services.identity.resumeSessions();
-    expect(methods()).toEqual(['resumeSessions']);
+    await services.identity.resumeTransfer();
+    expect(methods()).toEqual(['resumeTransfer']);
   });
 });
 

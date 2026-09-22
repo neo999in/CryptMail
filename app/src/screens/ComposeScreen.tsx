@@ -239,16 +239,14 @@ export function ComposeScreen({ route, navigation }: Props) {
   /** Set when the message was held for a key rather than delivered. */
   const [queued, setQueued] = useState<string[] | null>(null);
   /**
-   * The security level this message goes at (`core/qkd.ts`). Level 4 — a
-   * per-email key — unless the user picks another for this message.
+   * The security level this message goes at (`core/qkd.ts`). Level 1 —
+   * OpenPGP — unless the user picks another for this message.
    */
   const [level, setLevel] = useState<SecurityLevel>(DEFAULT_LEVEL);
   const quantum = level === 2 || level === 3;
   /** This mailbox's Key Manager, read when a quantum level is chosen. */
   const [km, setKm] = useState<KmStatus | null>(null);
   const [kmError, setKmError] = useState<string | null>(null);
-  /** What a queued message waits on: their key, or per-email keys with them. */
-  const [queuedFor, setQueuedFor] = useState<'key' | 'session'>('key');
   /** The From picker, opened from the address under the title. */
   const [showAccounts, setShowAccounts] = useState(false);
   /** The overflow: schedule and discard, which are not bar icons. */
@@ -393,15 +391,6 @@ export function ComposeScreen({ route, navigation }: Props) {
   const changed = recipients.filter((r) => r.status === 'changed');
   const looking = discovering.length > 0;
   const gate = canSendEncrypted();
-  // Per-email keys only: a message needs someone other than you to hold a key
-  // for it. Caught here so the send button says so, rather than the send failing.
-  // Only Level 4 needs someone else: Level 1 seals to your own key, and Levels
-  // 2 and 3 to your own Key Manager, both of which can read mail to yourself.
-  const onlyMe =
-    level === 4 &&
-    to.length > 0 &&
-    !!session &&
-    to.every((a) => a.trim().toLowerCase() === session.email.toLowerCase());
   // A one-time pad spends one 1 Kb key per 128 bytes of the sealed message —
   // estimated from what it holds, plus the headers the inner tree adds.
   const sealedBytes =
@@ -431,7 +420,7 @@ export function ComposeScreen({ route, navigation }: Props) {
     ? to.length === 0
     : quantum
       ? to.length === 0 || kmBlocked
-      : to.length === 0 || changed.length > 0 || looking || !gate.allowed || onlyMe;
+      : to.length === 0 || changed.length > 0 || looking || !gate.allowed;
   // Only a real problem is coloured like one. Waiting on a lookup, or on a
   // recipient who has yet to install anything, is not a warning — an
   // unencrypted message is, for as long as it is on screen.
@@ -763,7 +752,6 @@ export function ComposeScreen({ route, navigation }: Props) {
         // A held message has *not* been sent, and the screen does not get to
         // close as if it had. It stays put and says what actually happened.
         if (outcome.status === 'queued') {
-          setQueuedFor(outcome.waitingFor ?? 'key');
           setQueued(outcome.pending);
         } else navigation.goBack();
         return;
@@ -1477,9 +1465,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       );
     }
     if (queued) {
-      return queuedFor === 'session'
-        ? `Queued for ${queued.join(', ')}. CryptMail sent them a handshake to set up per-email keys — it carries none of this message — and this sends itself once their CryptMail answers.`
-        : `Queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
+      return `Queued for ${queued.join(', ')}. They have been invited; it sends itself the moment they have a key.`;
     }
     if (to.length === 0) return 'Add a recipient. CryptMail encrypts every message it sends.';
     if (quantum) {
@@ -1495,9 +1481,6 @@ export function ComposeScreen({ route, navigation }: Props) {
         return `${LEVELS[3].name} needs ${otpKeys} keys for a message this size — one per 128 bytes — and there are ${km.available}. Shorten it, drop attachments, or use Level 2.`;
       }
       return `${LEVELS[3].name}. This message uses ${otpKeys} of the ${bank}.`;
-    }
-    if (onlyMe) {
-      return 'Every encrypted message gets its own key, shared only with the people it goes to — so it needs someone other than you. Add a recipient, or switch to Not encrypted.';
     }
     if (looking) return `Looking up keys for ${discovering.join(', ')}…`;
     if (changed.length > 0) {
@@ -1517,7 +1500,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       return `No key published for ${names} yet. CryptMail will invite them and hold this message — encrypted, undelivered — until there is a key to send it to.`;
     }
     if (!gate.allowed) return gate.reason ?? 'Sending is disabled.';
-    if (level === 1) return `${LEVELS[1].name}: standard OpenPGP to their long-term key. No quantum or per-email keys.`;
+    if (level === 1) return `${LEVELS[1].name}: standard OpenPGP to their long-term key. No quantum keys.`;
     const verified = recipients.filter((r) => r.status === 'verified').length;
     return `Encrypted for ${recipients.length} recipient${recipients.length > 1 ? 's' : ''}${
       verified ? ` · ${verified} verified` : ''

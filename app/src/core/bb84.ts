@@ -12,9 +12,8 @@
  * the core decides from the block inside it (`core.bb84Leg`). A forged subject
  * costs one fetch and nothing else.
  *
- * Nothing a user wrote is ever an argument to any of these — like the
- * handshake in `core/handshake.ts`, the text is fixed here so the promise is
- * something a test can read.
+ * Nothing a user wrote is ever an argument to any of these — the text is
+ * fixed here so the promise is something a test can read.
  */
 
 export type Bb84Leg = 'photons' | 'measurement' | 'verdict';

@@ -48,8 +48,15 @@ export type DraftFields = {
   references?: string[];
 };
 
-/** A stored draft: content plus identity and last-edited time. */
-export type Draft = DraftFields & { id: string; updatedAt: string };
+/**
+ * A stored draft: content plus identity and last-edited time.
+ *
+ * `sendError` is set only when the scheduler tried to send this message and
+ * put it back here instead: why, in words, so the draft itself says what went
+ * wrong rather than a banner on another screen that the next sync clears.
+ * It is not one of the editable fields, so saving from compose drops it.
+ */
+export type Draft = DraftFields & { id: string; updatedAt: string; sendError?: string };
 
 /** All drafts, keyed by id. */
 export type Drafts = Record<string, Draft>;

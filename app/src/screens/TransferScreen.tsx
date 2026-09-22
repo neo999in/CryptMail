@@ -28,21 +28,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Transfer'>;
 /**
  * The old phone's half of moving to a new one.
  *
- * A recovery backup brings the key back, and with it every message sent the
- * ordinary way. It cannot bring back mail read with per-email keys — those keys
- * are gone by design — or carry on the conversations that use them. A transfer
- * does both: it seals the key, the conversations, the Key Manager's bank of
- * quantum keys and the archive of what was read, under a code shown once.
+ * A recovery backup brings the key back, and with it every message sealed to
+ * it. It cannot bring back mail read with quantum keys — those keys are gone by
+ * design — or the Key Manager's bank. A transfer does both: it seals the key,
+ * the bank and the archive of what was read, under a code shown once.
  *
  * The part the copy must carry is that this is a *move*. Once the file exists
- * this phone stops sending with per-email keys, because two phones writing into
- * one conversation would leave the contact unable to follow either — and stops
- * sending with quantum keys, because two phones drawing from one bank would use
- * the same one-time pad twice. It can still read, at every level. The new phone's half is the ordinary restore field, which takes a
+ * this phone stops sending with quantum keys, because two phones drawing from
+ * one bank would use the same one-time pad twice. It can still read, at every
+ * level. The new phone's half is the ordinary restore field, which takes a
  * transfer file as readily as a backup.
  */
 export function TransferScreen({ navigation }: Props) {
-  const { identity, exportTransfer, transferStatus, resumeSessions } = useApp();
+  const { identity, exportTransfer, transferStatus, resumeTransfer } = useApp();
   const insets = useSafeAreaInsets();
 
   /** `undefined` while asking the core. */
@@ -80,7 +78,7 @@ export function TransferScreen({ navigation }: Props) {
   const confirmMake = () =>
     confirmDialog(
       'Move to a new phone?',
-      'This phone will stop sending with per-email keys as soon as the transfer is made — your conversations carry on from the new phone. It will still read your mail.',
+      'This phone will stop sending with quantum keys as soon as the transfer is made — the key bank carries on from the new phone. It will still read your mail.',
       [
         { label: 'Cancel' },
         { label: 'Make transfer', onPress: () => void make() },
@@ -100,14 +98,14 @@ export function TransferScreen({ navigation }: Props) {
   const confirmResume = () =>
     confirmDialog(
       'Keep using this phone?',
-      'Only if the new phone has not sent anything yet. If both phones send in the same conversation, your contacts won’t be able to open messages from one of them.',
+      'Only if the new phone has not sent anything with quantum keys yet. If both phones draw from the same key bank, the same key is used twice.',
       [
         { label: 'Cancel' },
         {
           label: 'Keep using this phone',
           tone: 'destructive',
           onPress: () =>
-            void resumeSessions()
+            void resumeTransfer()
               .then(() => {
                 setHandedOverAt(null);
                 setMade(null);
@@ -131,8 +129,8 @@ export function TransferScreen({ navigation }: Props) {
         {handedOverAt && !made ? (
           <View style={s.gutter}>
             <Banner tone="note" icon="forward">
-              This phone handed its conversations and its quantum key bank to another on{' '}
-              {handedOverAt.toLocaleDateString()}. It still reads your mail, but sends with your long-term key.
+              This phone handed its quantum key bank to another on {handedOverAt.toLocaleDateString()}. It
+              still reads your mail, but no longer sends at Levels 2 or 3.
             </Banner>
           </View>
         ) : null}
@@ -143,10 +141,7 @@ export function TransferScreen({ navigation }: Props) {
             <Point title="Your key">
               The same fingerprint, so nobody who writes to you has to change anything.
             </Point>
-            <Point title="Your conversations with per-email keys">
-              They carry on from the new phone, without starting over.
-            </Point>
-            <Point title="Mail you read with per-email keys">
+            <Point title="Mail you read with quantum keys">
               Those messages can’t be decrypted again — the copy on this phone is the only one — so it moves
               too.
             </Point>
@@ -166,7 +161,7 @@ export function TransferScreen({ navigation }: Props) {
               <>
                 <Text style={s.body}>
                   You get a file and a code. The file is sealed; only the code opens it. Once it is made, this
-                  phone stops sending with per-email keys and with quantum keys.
+                  phone stops sending with quantum keys.
                 </Text>
                 {error ? <Callout>{error}</Callout> : null}
                 <PrimaryButton
@@ -177,7 +172,7 @@ export function TransferScreen({ navigation }: Props) {
                 />
                 {handedOverAt ? (
                   <Text style={s.hint}>
-                    A new transfer carries this phone’s conversations as they are now. Don’t load it on a phone
+                    A new transfer carries this phone’s key bank as it is now. Don’t load it on a phone
                     that has already sent with the earlier one.
                   </Text>
                 ) : null}
@@ -190,7 +185,7 @@ export function TransferScreen({ navigation }: Props) {
                   Any way you like — a drive, a cable, an email to yourself. Send the code a different way, or
                   just read it off this screen.
                   {made.archived > 0
-                    ? ` It holds ${made.archived} ${made.archived === 1 ? 'message' : 'messages'} read with per-email keys.`
+                    ? ` It holds ${made.archived} ${made.archived === 1 ? 'message' : 'messages'} read with quantum keys.`
                     : ''}
                 </Text>
                 {made.unreadable > 0 ? (
@@ -225,8 +220,7 @@ export function TransferScreen({ navigation }: Props) {
             <Group>
               <View style={s.pad}>
                 <Text style={s.body}>
-                  If the new phone never used the transfer, this phone can take its conversations and its key
-                  bank back.
+                  If the new phone never used the transfer, this phone can take its key bank back.
                 </Text>
                 <SecondaryButton title="Keep using this phone" icon="back" onPress={confirmResume} />
               </View>

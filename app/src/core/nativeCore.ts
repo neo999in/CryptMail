@@ -26,7 +26,6 @@ import {
   buildEncryptedEnvelope,
   buildProtectedInner,
   extractArmor,
-  isForwardSecret,
   isPgpMime,
   parseProtectedInner,
   parseRfc822,
@@ -39,17 +38,14 @@ import {
   CryptCore,
   DecryptedMessage,
   DeviceTransfer,
-  HandshakeRequest,
   Identity,
   ImportedTransfer,
   KmLink,
   KmStatus,
   PublicKeyInfo,
   RecoveryBackup,
-  SessionStatus,
   SignatureStatus,
 } from './types';
-import { helloContent } from './handshake';
 import type { Bb84Leg } from './bb84';
 import { buildQkdEnvelope, extractQkdArmor, isQkdMessage } from './qkd';
 
@@ -95,21 +91,6 @@ type NativeBridge = {
    */
   decryptVerify(armored: string, senderKeysJson: string): Promise<string>;
   /**
-   * → `{ armored, forwardSecret }`. A new, destroyable key per email when every
-   * recipient can take one, otherwise exactly `encryptSign`.
-   *
-   * Optional for the same reason as the recovery pair: a JS bundle can be newer
-   * than the installed `.so`. Without it, sending falls back to `encryptSign`,
-   * which is what every message was before per-email keys existed.
-   */
-  seal?(email: string, plaintext: string, recipientKeysJson: string): Promise<string>;
-  /** → the `decryptVerify` document plus `forwardSecret`. Opens either kind. */
-  open?(armored: string, senderKeysJson: string): Promise<string>;
-  /** → armored handshake: a caller-fixed plaintext plus this device's offer, to long-term keys. */
-  handshake?(email: string, plaintext: string, recipientKeysJson: string): Promise<string>;
-  /** → JSON array of `SessionStatus`, in key order. */
-  sessionStatus?(email: string, recipientKeysJson: string): Promise<string>;
-  /**
    * The simulated QKD Key Manager. Every call names the signed-in mailbox —
    * the KM login is the mail login. The keys themselves stay in the core.
    */
@@ -134,7 +115,7 @@ type NativeBridge = {
   /** → `{ plaintext, level, senderSae }`. Opens once: the keys are deleted. */
   qkdOpen?(email: string, armored: string): Promise<string>;
   /**
-   * → the armored transfer file. Hands this phone's conversations over. The
+   * → the armored transfer file. Hands this phone's key bank over. The
    * code is generated here, as a recovery code is. Optional, like the rest.
    */
   exportTransfer?(email: string, code: string, archive: string): Promise<string>;
@@ -142,14 +123,13 @@ type NativeBridge = {
   importTransfer?(armored: string, code: string, expectedEmail: string): Promise<string>;
   /** → `{ handedOverAt }` JSON, Unix seconds or null. */
   transferStatus?(): Promise<string>;
-  resumeSessions?(): Promise<void>;
+  resumeTransfer?(): Promise<void>;
 };
 
 type NativeDecrypted = {
   plaintext: string;
   signature: SignatureStatus;
   signerFingerprint?: string;
-  forwardSecret?: boolean;
 };
 
 /**
@@ -250,8 +230,8 @@ export function getNativeCore(
       return { handedOverAt: handedOverAt === null ? null : new Date(handedOverAt * 1000) };
     },
 
-    resumeSessions: async () => {
-      await call(required(bridge, 'resumeSessions', 'Taking conversations back')());
+    resumeTransfer: async () => {
+      await call(required(bridge, 'resumeTransfer', 'Taking the key bank back')());
     },
 
     /**
@@ -261,8 +241,8 @@ export function getNativeCore(
      * payload differs.
      */
     async buildEncrypted(request: BuildRequest): Promise<string> {
-      const level = request.level ?? 4;
-      if ((level === 1 || level === 4) && request.recipientKeys.length === 0) {
+      const level = request.level ?? 1;
+      if (level === 1 && request.recipientKeys.length === 0) {
         throw new CoreError('Refusing to build a message with no recipient keys.', 'no-key');
       }
       const inner = buildProtectedInner({
@@ -291,65 +271,19 @@ export function getNativeCore(
         });
       }
 
+      // Level 1: standard OpenPGP to the recipients' long-term keys, no quantum
+      // keys anywhere.
       const keysJson = JSON.stringify(request.recipientKeys);
-      // Level 1, only ever the user's explicit choice: standard OpenPGP to the
-      // recipients' long-term keys, no quantum keys anywhere.
-      if (level === 1) {
-        return buildEncryptedEnvelope({
-          from: request.from,
-          to: request.to,
-          armored: await call(bridge.encryptSign(request.from, inner, keysJson), WORDING.encryptSign),
-          autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
-          inReplyTo: request.inReplyTo,
-          references: request.references,
-          linkLeg: request.linkLeg,
-        });
-      }
-
-      // Per-email keys only: `seal` refuses anyone without a session, and there
-      // is no `encryptSign` fallback — a core too old to seal cannot send. It
-      // drops the sender's own key itself (a copy under our long-term key would
-      // reopen the message); the send path archives what was sent instead.
-      const { armored } = JSON.parse(
-        await call(required(bridge, 'seal', 'Sending with per-email keys')(request.from, inner, keysJson), WORDING.seal),
-      ) as { armored: string };
       return buildEncryptedEnvelope({
         from: request.from,
         to: request.to,
-        armored,
+        armored: await call(bridge.encryptSign(request.from, inner, keysJson), WORDING.encryptSign),
         autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
         inReplyTo: request.inReplyTo,
         references: request.references,
-        handshake: request.handshake,
+        linkLeg: request.linkLeg,
       });
     },
-
-    async buildHandshake(request: HandshakeRequest): Promise<string> {
-      const inner = buildProtectedInner({ from: request.from, to: [request.to], ...helloContent(request.from) });
-      const armored = await call(
-        required(bridge, 'handshake', 'Setting up per-email keys')(
-          request.from,
-          inner,
-          JSON.stringify([request.recipientKey]),
-        ),
-        WORDING.encryptSign,
-      );
-      return buildEncryptedEnvelope({
-        from: request.from,
-        to: [request.to],
-        armored,
-        autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
-        handshake: true,
-      });
-    },
-
-    sessionStatus: async (email, recipientKeys) =>
-      JSON.parse(
-        await call(
-          required(bridge, 'sessionStatus', 'Sending with per-email keys')(email, JSON.stringify(recipientKeys)),
-          WORDING.sessionStatus,
-        ),
-      ) as SessionStatus[],
 
     /**
      * The inverse. The sender's Autocrypt key, when present, is handed to the
@@ -374,7 +308,7 @@ export function getNativeCore(
           // Authenticated by the quantum key (GCM tag or HMAC), which only the
           // linked Key Managers hold — not by a signature.
           signature: 'none',
-          // Its keys are deleted as it opens, so it opens once, like per-email keys.
+          // Its keys are deleted as it opens, so it opens once.
           forwardSecret: true,
           securityLevel: opened.level,
         };
@@ -386,15 +320,8 @@ export function getNativeCore(
       const autocryptKey = autocryptKeyOf(parseRfc822(rfc822).headers['autocrypt']);
 
       const senderKeysJson = JSON.stringify(autocryptKey ? [autocryptKey] : []);
-      // The one-time-key explanation is only true of a message that carries
-      // per-email keys. An ordinary message that fails through `open` fails for
-      // the ordinary reason — usually that it was sealed to an older key — and
-      // saying otherwise sends the user looking for a second device they don't have.
-      const wording = isForwardSecret(block) ? WORDING.open : WORDING.decryptVerify;
       const decrypted = JSON.parse(
-        bridge.open
-          ? await call(bridge.open(block, senderKeysJson), wording)
-          : await call(bridge.decryptVerify(block, senderKeysJson), wording),
+        await call(bridge.decryptVerify(block, senderKeysJson), WORDING.decryptVerify),
       ) as NativeDecrypted;
 
       const { subject, body, html, attachments } = parseProtectedInner(decrypted.plaintext);
@@ -406,8 +333,7 @@ export function getNativeCore(
         signature: decrypted.signature,
         signerFingerprint: decrypted.signerFingerprint,
         autocryptKey,
-        forwardSecret: decrypted.forwardSecret === true,
-        securityLevel: decrypted.forwardSecret === true ? 4 : 1,
+        securityLevel: 1,
       };
     },
 
@@ -477,10 +403,7 @@ function required<
     | 'importRecoveryBackup'
     | 'exportTransfer'
     | 'importTransfer'
-    | 'resumeSessions'
-    | 'seal'
-    | 'handshake'
-    | 'sessionStatus'
+    | 'resumeTransfer'
     | 'kmStatus'
     | 'kmRegenerate'
     | 'kmExportLink'
@@ -566,13 +489,6 @@ const WORDING = {
       'This phone has no key exchange waiting. Start the link again from the phone that began it.',
     malformed: 'That quantum key exchange is damaged or incomplete.',
   },
-  seal: {
-    'no-key':
-      'Per-email keys aren’t set up with everyone on this message yet, so it can’t be sealed. It waits while CryptMail sets them up.',
-    malformed: 'A recipient’s key can’t be used for encryption. Check their key in Contacts.',
-    unavailable:
-      'This phone handed its conversations to another phone, so it can’t send encrypted mail. Settings → Move to a new phone can take them back.',
-  },
   qkdSeal: {
     'no-key':
       'The Key Manager doesn’t have enough quantum keys left for this. A one-time pad needs one 1 Kb key per 128 bytes — shorten it, use Level 2, or refill the bank.',
@@ -590,10 +506,6 @@ const WORDING = {
     'decrypt-failed': 'That code doesn’t open this link. Check each group against the code the other phone showed.',
     malformed: 'That isn’t a Key Manager link file, or it is damaged.',
   },
-  sessionStatus: {
-    unavailable:
-      'This phone handed its conversations to another phone, so it can’t send encrypted mail. Settings → Move to a new phone can take them back.',
-  },
   encryptSign: {
     'no-key': 'There is no key on this device to sign with. Set up your key first.',
     malformed: 'A recipient’s key can’t be used for encryption. Check their key in Contacts.',
@@ -601,14 +513,6 @@ const WORDING = {
   decryptVerify: {
     'decrypt-failed':
       'This message wasn’t encrypted to the key on this device, so it can’t be opened here. It may have been sent to an older key.',
-    malformed: 'This message is damaged or incomplete, so it can’t be decrypted.',
-    'no-key': 'There is no key on this device to open encrypted mail with.',
-  },
-  // `open` reaches the same failures as `decryptVerify`, plus one it alone can:
-  // a message sealed with a per-email key that this device has already used.
-  open: {
-    'decrypt-failed':
-      'This message can’t be opened on this device. It was sealed with a one-time key that no longer exists here — it was already opened, or it was sent to your other device.',
     malformed: 'This message is damaged or incomplete, so it can’t be decrypted.',
     'no-key': 'There is no key on this device to open encrypted mail with.',
   },

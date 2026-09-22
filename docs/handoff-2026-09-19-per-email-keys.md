@@ -1,5 +1,8 @@
 # Handoff — per-email keys and device transfer (2026-09-19)
 
+> **Superseded on 2026-09-22:** per-email keys were removed. See the note at
+> the top of `docs/implementation-status.md`. Kept as history.
+
 Read this first if you are picking up the encryption work in a new session.
 This file says what state the work is in, what was decided, how to build and
 check it, and what is next. The design itself — protocol, wire format, threat

@@ -50,41 +50,14 @@ hQIMA4z7... (base64 ciphertext: encrypted session key + AEAD payload) ...==
 - **Second part** is the ASCII-armored `-----BEGIN PGP MESSAGE-----` block — the
   encrypted session key(s) + the AEAD-encrypted MIME tree.
 
-### Armor headers (per-email keys)
+### Armor headers from removed per-email keys
 
-The armored block may open with armor headers, which OpenPGP clients ignore and
-`mime.ts` passes through untouched. Each value is base64 split into 64-character
-lines under one repeated key, since armor headers cannot fold:
-
-```
------BEGIN PGP MESSAGE-----
-CryptMail-Offer: AQAAAAAAAAAA…          ← every message CryptMail sends
-CryptMail-Offer: …
-CryptMail-Session: AQEAAAAA…            ← forward-secret messages only
-CryptMail-Session: …
-
-wcBMA…
------END PGP MESSAGE-----
-```
-
-- **`CryptMail-Offer`** — the sending device's offer key, signed by the sender's
-  identity. How a contact learns this device can receive per-email keys.
-- **`CryptMail-Session`** — one entry per recipient device, each carrying the
-  message's content key wrapped under a one-time key. A message with this header
-  has **no key packets**: no long-term key, the sender's included, can open it.
-
-A message carrying `CryptMail-Session` is otherwise the same PGP/MIME envelope.
-
-**Handshakes** (per-email keys only; `feat/per-email-keys-only`) use the same
-envelope with one difference: the outer subject is `[CryptMail] Setting up
-per-email keys` instead of the placeholder. That covers a first-contact
-handshake (sealed to the recipient's long-term key, `CryptMail-Offer` only,
-fixed text) and its answer (`CryptMail-Session`, fixed text). The subject lets a
-receiving CryptMail find handshakes from headers alone. It reveals nothing a
-reader of the raw armor could not already see, and a handshake has no content
-to reveal.
-Layout of both values:
-[per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md#on-the-wire).
+Builds from 2026-09-19 to 2026-09-22 added `CryptMail-Offer` and
+`CryptMail-Session` armor headers for per-email keys, and sent handshakes under
+the subject `[CryptMail] Setting up per-email keys`. That feature was removed;
+this build writes neither header. OpenPGP clients ignore armor headers, so such
+mail still parses. A message carrying `CryptMail-Session` has no key packets
+and can no longer be decrypted anywhere — only an archived copy opens.
 
 ## The encrypted inner MIME tree (after decryption)
 

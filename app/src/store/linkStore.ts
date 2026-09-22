@@ -8,8 +8,7 @@
  * gives up after `LINK_WINDOW_MS` so a lost message is not permanent.
  *
  * Addresses and timestamps only, sealed like every other store — who someone
- * is setting up a link with is metadata, the same argument as `inviteStore`
- * and `handshakeStore`.
+ * is setting up a link with is metadata, the same argument as `inviteStore`.
  */
 import { AccountId } from './accountScope';
 import { loadScopedJson, saveScopedJson } from './secureJson';

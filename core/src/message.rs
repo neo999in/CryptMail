@@ -8,32 +8,15 @@
 //! sign-then-encrypt), because the trust states the UI shows are derived from
 //! signature verification, not from the fact that something decrypted.
 
-use pgp::armor::Headers;
-use pgp::composed::{
-    ArmorOptions, Deserializable, DetachedSignature, Message, MessageBuilder, PlainSessionKey, RawSessionKey,
-    SignedPublicKey, SignedSecretKey,
-};
+use pgp::composed::{ArmorOptions, Deserializable, Message, MessageBuilder, SignedPublicKey, SignedSecretKey};
 use pgp::crypto::aead::{AeadAlgorithm, ChunkSize};
 use pgp::crypto::hash::HashAlgorithm;
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
-use pgp::ser::Serialize as _;
 use pgp::types::{KeyDetails, Password};
 use rand::thread_rng;
 use serde::Serialize;
 
 use crate::{CoreError, Result};
-
-/// How a message's content key reaches its readers.
-pub enum KeyTransport<'a> {
-    /// Wrapped to each recipient's long-term encryption subkey — a PKESK each.
-    /// Readable by any OpenPGP client, and by anyone who later holds one of
-    /// those long-term keys.
-    ToKeys(&'a [String]),
-    /// Supplied by the caller, who delivers it some other way (the session
-    /// entries in the armor headers). The message carries no key packets at
-    /// all, so no long-term key anywhere can open it.
-    Supplied(&'a [u8]),
-}
 
 /// Mirrors the crypto half of `DecryptedMessage` in `app/src/core/types.ts`.
 /// The TypeScript side turns `plaintext` back into subject + body.
@@ -52,17 +35,6 @@ pub fn encrypt_sign(
     plaintext: &str,
     recipient_keys: &[String],
 ) -> Result<String> {
-    build(secret, passphrase, plaintext, KeyTransport::ToKeys(recipient_keys), &Headers::new())
-}
-
-/// Sign, encrypt, and armor with `headers` — the general form of `encrypt_sign`.
-pub fn build(
-    secret: &SignedSecretKey,
-    passphrase: &str,
-    plaintext: &str,
-    transport: KeyTransport<'_>,
-    headers: &Headers,
-) -> Result<String> {
     let mut rng = thread_rng();
     let password = Password::from(passphrase.to_string());
 
@@ -73,79 +45,24 @@ pub fn build(
         ChunkSize::default(),
     );
 
-    match transport {
-        KeyTransport::ToKeys(recipient_keys) => {
-            for armored in recipient_keys {
-                let cert = parse_public(armored)?;
-                let subkey = encryption_subkey(&cert)?;
-                builder
-                    .encrypt_to_key(&mut rng, &subkey)
-                    .map_err(|e| CoreError::Unavailable(format!("could not encrypt to a recipient: {e}")))?;
-            }
-        }
-        // Set before signing and before any key packet, as rPGP requires. The
-        // key is 32 uniformly random bytes, which is what AES-256 needs.
-        KeyTransport::Supplied(content_key) => {
-            builder
-                .set_session_key(RawSessionKey::from(content_key.to_vec()))
-                .map_err(|e| CoreError::Unavailable(format!("could not set the message key: {e}")))?;
-        }
+    for armored in recipient_keys {
+        let cert = parse_public(armored)?;
+        let subkey = encryption_subkey(&cert)?;
+        builder
+            .encrypt_to_key(&mut rng, &subkey)
+            .map_err(|e| CoreError::Unavailable(format!("could not encrypt to a recipient: {e}")))?;
     }
     builder.sign(&secret.primary_key, password, HashAlgorithm::Sha256);
 
-    let options = ArmorOptions {
-        headers: (!headers.is_empty()).then_some(headers),
-        ..Default::default()
-    };
     builder
-        .to_armored_string(&mut rng, options)
+        .to_armored_string(&mut rng, ArmorOptions::default())
         .map_err(|e| CoreError::Unavailable(format!("could not serialise message: {e}")))
 }
 
-/// Parse an armored message, keeping its armor headers.
-pub fn parse(armored: &str) -> Result<(Message<'_>, Headers)> {
+/// Parse an armored message.
+fn parse(armored: &str) -> Result<(Message<'_>, pgp::armor::Headers)> {
     Message::from_armor(armored.as_bytes())
         .map_err(|e| CoreError::Malformed(format!("not a readable OpenPGP message: {e}")))
-}
-
-/// Decrypt with a content key obtained from a session rather than a key packet.
-pub fn decrypt_with_key(message: Message<'_>, content_key: &[u8], sender_keys: &[String]) -> Result<Decrypted> {
-    let key = PlainSessionKey::V6 { key: RawSessionKey::from(content_key.to_vec()) };
-    let decrypted = message
-        .decrypt_with_session_key(key)
-        .map_err(|e| CoreError::DecryptFailed(format!("could not decrypt: {e}")))?;
-    finish(decrypted, sender_keys)
-}
-
-/// Sign `data` with this identity, detached — how an offer proves who made it.
-pub fn sign_detached(secret: &SignedSecretKey, passphrase: &str, data: &[u8]) -> Result<Vec<u8>> {
-    DetachedSignature::sign_binary_data(
-        thread_rng(),
-        &secret.primary_key,
-        &Password::from(passphrase.to_string()),
-        HashAlgorithm::Sha256,
-        data,
-    )
-    .and_then(|sig| sig.to_bytes())
-    .map_err(|e| CoreError::Unavailable(format!("could not sign: {e}")))
-}
-
-/// The fingerprint of whichever of `sender_keys` made `signature` over `data`.
-pub fn verify_detached(signature: &[u8], data: &[u8], sender_keys: &[String]) -> Option<String> {
-    let sig = DetachedSignature::from_bytes(signature).ok()?;
-    sender_keys.iter().filter_map(|armored| parse_public(armored).ok()).find_map(|cert| {
-        sig.verify(&cert, data)
-            .ok()
-            .map(|_| hex::encode_upper(cert.fingerprint().as_bytes()))
-    })
-}
-
-pub fn fingerprint(secret: &SignedSecretKey) -> String {
-    hex::encode_upper(secret.fingerprint().as_bytes())
-}
-
-pub fn public_fingerprint(armored: &str) -> Result<String> {
-    Ok(hex::encode_upper(parse_public(armored)?.fingerprint().as_bytes()))
 }
 
 pub fn decrypt_verify(

@@ -1,7 +1,8 @@
 # Handoff — what is left
 
 > **Latest handoff:** [handoff-2026-09-19-per-email-keys.md](handoff-2026-09-19-per-email-keys.md)
-> (per-email keys and device transfer, uncommitted).
+> (per-email keys and device transfer). Per-email keys were removed on
+> 2026-09-22; Level 1 is now the default.
 >
 > **Snapshot, not current state.** This was written on 2026-08-08, and its counts
 > and "next" items are as of then. Much of §2 has since shipped, including Google

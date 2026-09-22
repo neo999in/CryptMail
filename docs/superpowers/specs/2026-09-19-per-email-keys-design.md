@@ -1,5 +1,10 @@
 # Per-email keys — design
 
+> **Removed on 2026-09-22.** Per-email keys (Level 4) are no longer in the core
+> or the app, and Level 1 is the default. Only the device-transfer part still
+> applies, minus the sessions: it now moves the identity, the Key Manager bank
+> and the archive. Kept as history.
+
 Written 2026-09-19. Adds forward secrecy between CryptMail users: each message
 gets its own key, destroyed once used, so no long-term key — stolen, seized, or
 broken by a future quantum computer — can reopen it.

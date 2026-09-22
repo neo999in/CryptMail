@@ -622,15 +622,15 @@ export function MessageScreen({ route, navigation }: Props) {
                       <Banner tone="warn" icon="alert">{opened.notice}</Banner>
                     </View>
                   ) : null}
-                  {/* Which security level sealed it. Level 4 is the default and
-                      goes unsaid; the others were someone's deliberate choice. */}
-                  {opened.decrypted?.securityLevel && opened.decrypted.securityLevel !== 4 ? (
+                  {/* Which security level sealed it. Level 1 is the default and
+                      goes unsaid; the quantum levels were someone's deliberate
+                      choice. An archived copy may carry the removed Level 4,
+                      which has no entry in LEVELS, so only 2 and 3 are named. */}
+                  {opened.decrypted?.securityLevel === 2 || opened.decrypted?.securityLevel === 3 ? (
                     <View style={{ marginBottom: 14 }}>
-                      <Banner tone={opened.decrypted.securityLevel === 1 ? 'note' : 'ok'} icon="lock">
-                        {LEVELS[opened.decrypted.securityLevel].name}.{' '}
-                        {opened.decrypted.securityLevel === 1
-                          ? 'Sealed to a long-term key, so it opens again later.'
-                          : 'Opened with quantum keys from your Key Manager, which are now deleted — this copy on the phone is the only one.'}
+                      <Banner tone="ok" icon="lock">
+                        {LEVELS[opened.decrypted.securityLevel].name}. Opened with quantum keys from your Key
+                        Manager, which are now deleted — this copy on the phone is the only one.
                       </Banner>
                     </View>
                   ) : null}

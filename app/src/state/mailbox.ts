@@ -379,11 +379,8 @@ export function createMailbox(ctx: Ctx): MailboxService {
         // same as a Gmail filter that skips the inbox. Never throws.
         await ctx.services.notify.observe(store.get().messages);
         await harvestFrom(messages);
-        // After the harvest, so a handshake's sender key is already known.
-        // Answering one — or opening the answer to ours — is what lets a
-        // message held for per-email keys go, so it comes before the drain.
-        await ctx.services.handshake.answer(messages);
-        // And a quantum link under way: one leg per sync, each an ordinary
+        // After the harvest, so a leg's sender key is already known: a quantum
+        // link under way advances one leg per sync, each an ordinary
         // message this sync just fetched (`state/bb84.ts`).
         await ctx.services.bb84.answer(messages);
         // Someone installing CryptMail is an external event with no notification
@@ -559,8 +556,9 @@ export function createMailbox(ctx: Ctx): MailboxService {
       }
 
       try {
-        // A forward-secret message opens once: its key is destroyed as it is
-        // used, so every later open reads the copy kept the first time.
+        // A Level 2 or 3 message opens once: its keys are destroyed as they are
+        // used, so every later open reads the copy kept the first time. So does
+        // per-email-key mail archived before that level was removed.
         const archived = await readArchived(account, raw);
         // The signed-in mailbox names the Key Manager that opens Level 2/3 mail.
         const decrypted = archived ?? (await core.parseEncrypted(raw, store.get().session?.email));

@@ -15,7 +15,6 @@ import { initLocalCrypto, ProtectionLevel, SecretStore } from './localCrypto';
 import { resealPlaintext } from './secureJson';
 import { CANNED_REPLIES_STORE_KEY } from './cannedRepliesStore';
 import { DRAFTS_STORE_KEY } from './draftsStore';
-import { HANDSHAKE_STORE_KEY } from './handshakeStore';
 import { INVITE_STORE_KEY } from './inviteStore';
 import { KEYRING_STORE_KEY } from './keyring';
 import { LABELS_STORE_KEY } from './labelsStore';
@@ -47,7 +46,9 @@ export const PER_ACCOUNT_STORE_KEYS = [
   RECOVERY_STORE_KEY,
   PUBLISH_STORE_KEY,
   INVITE_STORE_KEY,
-  HANDSHAKE_STORE_KEY,
+  // Per-email-key handshakes were removed; an install that ran them may
+  // still hold this log, and removing its account must not leave it behind.
+  'cryptmail.handshakes.v1',
   LINK_STORE_KEY,
   SPAM_STORE_KEY,
   SNOOZE_STORE_KEY,

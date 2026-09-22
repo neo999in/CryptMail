@@ -8,13 +8,13 @@
  * mailbox. That is the promise `core/index.ts` makes when it picks between them.
  */
 import { demoCore } from '../demoCore';
-import { HANDSHAKE_SUBJECT, PLACEHOLDER_SUBJECT, parseRfc822 } from '../mime';
+import { PLACEHOLDER_SUBJECT, parseRfc822 } from '../mime';
 import { getNativeCore, NATIVE_MODULE_NAME } from '../nativeCore';
 import { CoreError, CryptCore } from '../types';
 
 /** Stand-in for Rust: records what it was asked to encrypt, returns fake armor. */
 function fakeBridge() {
-  const calls: { seal?: { email: string; plaintext: string; keys: string[] } } = {};
+  const calls: { encrypt?: { email: string; plaintext: string; keys: string[] } } = {};
   let lastPlaintext = '';
 
   return {
@@ -31,16 +31,10 @@ function fakeBridge() {
     importPublicKey: jest.fn(async (armored: string) =>
       JSON.stringify({ email: 'bob@example.com', fingerprint: 'FFFF', armored }),
     ),
-    // Kept on the bridge so a test can prove it is never used: per-email keys
-    // only, so everything goes through `seal`.
-    encryptSign: jest.fn(async () => `-----BEGIN PGP MESSAGE-----\n\nZmFrZQ==\n=Ab3D\n-----END PGP MESSAGE-----`),
-    seal: jest.fn(async (email: string, plaintext: string, recipientKeysJson: string) => {
-      calls.seal = { email, plaintext, keys: JSON.parse(recipientKeysJson) };
+    encryptSign: jest.fn(async (email: string, plaintext: string, recipientKeysJson: string) => {
+      calls.encrypt = { email, plaintext, keys: JSON.parse(recipientKeysJson) };
       lastPlaintext = plaintext;
-      return JSON.stringify({
-        armored: `-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n\nZmFrZQ==\n=Ab3D\n-----END PGP MESSAGE-----`,
-        forwardSecret: true,
-      });
+      return `-----BEGIN PGP MESSAGE-----\n\nZmFrZQ==\n=Ab3D\n-----END PGP MESSAGE-----`;
     }),
     decryptVerify: jest.fn(async () =>
       JSON.stringify({ plaintext: lastPlaintext, signature: 'valid', signerFingerprint: 'FFFF' }),
@@ -224,21 +218,21 @@ describe('buildEncrypted', () => {
     const { core, bridge } = withBridge();
     await core.buildEncrypted(request);
 
-    expect(bridge.calls.seal?.plaintext).toContain('Subject: Lunch on Friday?');
-    expect(bridge.calls.seal?.plaintext).toContain('protected-headers="v1"');
-    expect(bridge.calls.seal?.email).toBe('alice@example.com');
+    expect(bridge.calls.encrypt?.plaintext).toContain('Subject: Lunch on Friday?');
+    expect(bridge.calls.encrypt?.plaintext).toContain('protected-headers="v1"');
+    expect(bridge.calls.encrypt?.email).toBe('alice@example.com');
   });
 
   it('passes every recipient key through to the core', async () => {
     const { core, bridge } = withBridge();
     await core.buildEncrypted({ ...request, recipientKeys: ['key-a', 'key-b'] });
-    expect(bridge.calls.seal?.keys).toEqual(['key-a', 'key-b']);
+    expect(bridge.calls.encrypt?.keys).toEqual(['key-a', 'key-b']);
   });
 
   it('refuses to build with no recipient keys rather than sending something readable', async () => {
     const { core, bridge } = withBridge();
     await expect(core.buildEncrypted({ ...request, recipientKeys: [] })).rejects.toThrow(/no recipient keys/i);
-    expect(bridge.seal).not.toHaveBeenCalled();
+    expect(bridge.encryptSign).not.toHaveBeenCalled();
   });
 
   it('emits the sender key as an Autocrypt header when given one', async () => {
@@ -376,12 +370,8 @@ describe('looksEncrypted', () => {
   });
 });
 
-/**
- * Per-email keys. The bridge gains `seal`/`open`, but a JS bundle can be newer
- * than the installed `.so`, so both paths have to work: the new methods when
- * present, the old ones exactly as before when not.
- */
-describe('per-email keys', () => {
+/** Level 1, the default: OpenPGP to long-term keys, in and out. */
+describe('level 1', () => {
   const request = {
     from: 'alice@example.com',
     to: ['bob@example.com'],
@@ -390,104 +380,29 @@ describe('per-email keys', () => {
     recipientKeys: ['bob-key', 'alice-key'],
   };
 
-  function withSessions(forwardSecret: boolean) {
-    const bridge = fakeBridge();
-    let sealed = '';
-    const withSeal = {
-      ...bridge,
-      seal: jest.fn(async (_email: string, plaintext: string, _keys: string) => {
-        sealed = plaintext;
-        return JSON.stringify({
-          armored: `-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n\nZmFrZQ==\n-----END PGP MESSAGE-----`,
-          forwardSecret,
-        });
-      }),
-      open: jest.fn(async () =>
-        JSON.stringify({ plaintext: sealed, signature: 'valid', signerFingerprint: 'FFFF', forwardSecret }),
-      ),
-    };
-    const core = getNativeCore(withSeal);
-    if (!core) throw new Error('expected a native core');
-    return { core, bridge: withSeal };
-  }
-
-  it('seals through the new method when the native library has it', async () => {
-    const { core, bridge } = withSessions(true);
-    const rfc822 = await core.buildEncrypted(request);
-
-    expect(bridge.seal).toHaveBeenCalledTimes(1);
-    expect(bridge.encryptSign).not.toHaveBeenCalled();
-    // Every key is handed down, the sender's included: it is the core that
-    // decides whether a long-term copy may exist.
-    expect(JSON.parse(bridge.seal.mock.calls[0][2])).toEqual(['bob-key', 'alice-key']);
-    expect(rfc822).toContain('CryptMail-Session: AAAA');
-  });
-
-  it('opens through the new method and reports forward secrecy', async () => {
-    const { core, bridge } = withSessions(true);
-    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
-
-    expect(bridge.open).toHaveBeenCalledTimes(1);
-    expect(bridge.decryptVerify).not.toHaveBeenCalled();
-    expect(opened.body).toBe('body');
-    expect(opened.forwardSecret).toBe(true);
-  });
-
-  it('reports an ordinary message as not forward-secret', async () => {
-    const { core } = withSessions(false);
-    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
-    expect(opened.forwardSecret).toBe(false);
-  });
-
-  it('refuses to send on a native library that predates them, rather than use long-term keys', async () => {
-    const bridge = fakeBridge();
-    delete (bridge as Partial<typeof bridge>).seal;
-    const core = getNativeCore(bridge)!;
-
-    await expect(core.buildEncrypted(request)).rejects.toMatchObject({ code: 'unavailable' });
-    expect(bridge.encryptSign).not.toHaveBeenCalled();
-  });
-
-  it('never calls the long-term-key method, even when the library has both', async () => {
-    const { core, bridge } = withSessions(true);
+  it('seals to every key handed down, the sender’s included', async () => {
+    const { core, bridge } = withBridge();
     await core.buildEncrypted(request);
-    expect(bridge.encryptSign).not.toHaveBeenCalled();
+    expect(bridge.encryptSign).toHaveBeenCalledTimes(1);
+    expect(bridge.calls.encrypt?.keys).toEqual(['bob-key', 'alice-key']);
   });
 
-  it('explains a refusal for want of a session as something that is being set up', async () => {
-    const { core, bridge } = withSessions(true);
-    bridge.seal.mockRejectedValueOnce(
-      Object.assign(new Error('no-key: no-session: no per-email keys yet'), { code: 'no-key' }),
-    );
-    await expect(core.buildEncrypted(request)).rejects.toThrow(/aren’t set up with everyone/);
+  it('opens through decryptVerify and reports Level 1', async () => {
+    const { core, bridge } = withBridge();
+    const opened = await core.parseEncrypted(await core.buildEncrypted(request));
+    expect(bridge.decryptVerify).toHaveBeenCalledTimes(1);
+    expect(opened.body).toBe('body');
+    expect(opened.securityLevel).toBe(1);
+    expect(opened.forwardSecret).toBeUndefined();
   });
 
-  it('says what happened when a one-time key is already gone', async () => {
-    const { core, bridge } = withSessions(true);
-    // Shaped as Expo delivers a Kotlin CodedException: the code on the error.
-    bridge.open.mockRejectedValueOnce(
-      Object.assign(new Error('decrypt-failed: key no longer exists'), { code: 'decrypt-failed' }),
-    );
-    const rfc822 = await core.buildEncrypted(request);
-
-    await expect(core.parseEncrypted(rfc822)).rejects.toThrow(/one-time key/i);
-  });
-
-  // Found on the emulator: old mail sealed to a previous key was reported as
-  // "sealed with a one-time key", pointing the user at a device that does not exist.
-  it('explains an ordinary message’s failure the ordinary way, not as a one-time key', async () => {
-    const { core, bridge } = withSessions(false);
-    bridge.seal.mockResolvedValueOnce(
-      JSON.stringify({ armored: '-----BEGIN PGP MESSAGE-----\n\nZmFrZQ==\n-----END PGP MESSAGE-----', forwardSecret: false }),
-    );
-    bridge.open.mockRejectedValueOnce(
+  it('explains a failure to open as a key mismatch', async () => {
+    const { core, bridge } = withBridge();
+    bridge.decryptVerify.mockRejectedValueOnce(
       Object.assign(new Error('decrypt-failed: no matching key'), { code: 'decrypt-failed' }),
     );
     const rfc822 = await core.buildEncrypted(request);
-
-    const failure = core.parseEncrypted(rfc822);
-    await expect(failure).rejects.toThrow(/wasn’t encrypted to the key on this device/i);
-    await expect(core.parseEncrypted(rfc822)).resolves.toBeTruthy();
+    await expect(core.parseEncrypted(rfc822)).rejects.toThrow(/wasn’t encrypted to the key on this device/i);
   });
 });
 
@@ -505,7 +420,7 @@ describe('device transfer through the native bridge', () => {
       exportTransfer: jest.fn(async () => '-----BEGIN CRYPTMAIL TRANSFER-----\nx\n-----END CRYPTMAIL TRANSFER-----'),
       importTransfer: jest.fn(async () => JSON.stringify({ identity: IDENTITY, archive: 'ARCHIVE' })),
       transferStatus: jest.fn(async () => JSON.stringify({ handedOverAt: 1_790_000_000 })),
-      resumeSessions: jest.fn(async () => undefined),
+      resumeTransfer: jest.fn(async () => undefined),
     };
     return { core: getNativeCore(bridge)!, bridge };
   }
@@ -558,54 +473,5 @@ describe('device transfer in the demo core', () => {
     });
     const back = await demoCore.importTransfer(made.blob, made.code, me.email);
     expect(back).toEqual({ identity: me, archive: 'ARCHIVE' });
-  });
-});
-
-describe('handshakes through the native bridge', () => {
-  function withHandshake() {
-    const bridge = {
-      ...fakeBridge(),
-      handshake: jest.fn(async () => '-----BEGIN PGP MESSAGE-----\nCryptMail-Offer: AAAA\n\nZmFrZQ==\n-----END PGP MESSAGE-----'),
-      sessionStatus: jest.fn(async () => JSON.stringify(['session', 'none', 'self'])),
-    };
-    return { core: getNativeCore(bridge)!, bridge };
-  }
-
-  it('seals only the fixed text, to the one recipient, and marks the outer subject', async () => {
-    const { core, bridge } = withHandshake();
-    const rfc822 = await core.buildHandshake({
-      from: 'alice@example.com',
-      to: 'bob@example.com',
-      recipientKey: 'bob-key',
-    });
-
-    const [email, plaintext, keys] = bridge.handshake.mock.calls[0] as unknown as [string, string, string];
-    expect(email).toBe('alice@example.com');
-    expect(JSON.parse(keys)).toEqual(['bob-key']);
-    expect(plaintext).toContain('Subject: Setting up per-email keys');
-    expect(parseRfc822(rfc822).headers['subject']).toBe(HANDSHAKE_SUBJECT);
-  });
-
-  it('marks an answer’s outer subject, and only an answer’s', async () => {
-    const { core } = withHandshake();
-    const base = { from: 'a@x', to: ['b@x'], subject: 's', body: 'b', recipientKeys: ['k'] };
-    expect(parseRfc822(await core.buildEncrypted({ ...base, handshake: true })).headers['subject']).toBe(
-      HANDSHAKE_SUBJECT,
-    );
-    expect(parseRfc822(await core.buildEncrypted(base)).headers['subject']).toBe(PLACEHOLDER_SUBJECT);
-  });
-
-  it('reads the session status in key order', async () => {
-    const { core, bridge } = withHandshake();
-    expect(await core.sessionStatus('alice@example.com', ['b', 'c', 'a'])).toEqual(['session', 'none', 'self']);
-    expect(bridge.sessionStatus).toHaveBeenCalledWith('alice@example.com', JSON.stringify(['b', 'c', 'a']));
-  });
-
-  it('says a handed-over phone cannot send, in words', async () => {
-    const { core, bridge } = withHandshake();
-    bridge.sessionStatus.mockRejectedValueOnce(
-      Object.assign(new Error('unavailable: handed-over: this phone handed its conversations'), { code: 'unavailable' }),
-    );
-    await expect(core.sessionStatus('a@x', ['k'])).rejects.toThrow(/handed its conversations to another phone/);
   });
 });

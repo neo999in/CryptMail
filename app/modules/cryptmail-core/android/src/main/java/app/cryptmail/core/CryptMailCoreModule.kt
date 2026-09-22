@@ -110,27 +110,6 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.decryptVerify(armored, senderKeysJson) }
     }
 
-    // Per-email keys. `seal` → { armored, forwardSecret }; `open` → the
-    // decryptVerify document plus forwardSecret. A forward-secret message opens
-    // once, so the JavaScript side must keep what `open` returns.
-    AsyncFunction("seal") Coroutine { email: String, plaintext: String, recipientKeysJson: String ->
-      mapErrors { core.seal(email, plaintext, recipientKeysJson) }
-    }
-
-    AsyncFunction("open") Coroutine { armored: String, senderKeysJson: String ->
-      mapErrors { core.open(armored, senderKeysJson) }
-    }
-
-    // Per-email keys only: `seal` refuses anyone without a session, so first
-    // contact is a contentless `handshake`, and `sessionStatus` says who needs one.
-    AsyncFunction("handshake") Coroutine { email: String, plaintext: String, recipientKeysJson: String ->
-      mapErrors { core.handshake(email, plaintext, recipientKeysJson) }
-    }
-
-    AsyncFunction("sessionStatus") Coroutine { email: String, recipientKeysJson: String ->
-      mapErrors { core.sessionStatus(email, recipientKeysJson) }
-    }
-
     // The simulated QKD Key Manager (Levels 2 and 3). One login: every call
     // names the signed-in mailbox, whose bank the core keeps. The quantum keys
     // themselves never leave Rust — only ciphertext and status cross here.
@@ -185,8 +164,8 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.qkdOpen(email, armored) }
     }
 
-    // Device transfer. Exporting hands this phone's conversations over, so the
-    // old phone stops sending by session; `resumeSessions` takes them back.
+    // Device transfer. Exporting hands this phone's key bank over, so the old
+    // phone stops issuing quantum keys; `resumeTransfer` takes it back.
     // Both directions run Argon2id for the identity key, hence `Coroutine`.
     AsyncFunction("exportTransfer") Coroutine { email: String, code: String, archive: String ->
       mapErrors { core.exportTransfer(email, code, archive) }
@@ -200,8 +179,8 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.transferStatus() }
     }
 
-    AsyncFunction("resumeSessions") Coroutine { ->
-      mapErrors { core.resumeSessions() }
+    AsyncFunction("resumeTransfer") Coroutine { ->
+      mapErrors { core.resumeTransfer() }
     }
   }
 

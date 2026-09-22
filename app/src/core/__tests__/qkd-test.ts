@@ -112,19 +112,15 @@ describe('levels through the native bridge', () => {
     expect(calls.qkdSeal?.[0]).toBe('a@x.com');
     expect(calls.qkdSeal?.[1]).toBe(3);
     expect(String(calls.qkdSeal?.[2])).toContain('Subject: Launch');
-    expect(calls.seal).toBeUndefined();
     expect(calls.encryptSign).toBeUndefined();
     expect(isQkdMessage(rfc822)).toBe(true);
     expect(rfc822).not.toContain('At noon.');
   });
 
-  it('Level 1 is standard OpenPGP to long-term keys, and Level 4 a per-email key', async () => {
+  it('Level 1 — the default — is standard OpenPGP to long-term keys', async () => {
     const { core, calls } = bridge();
-    await core.buildEncrypted({ ...request, level: 1 });
-    expect(calls.encryptSign).toBeDefined();
-    expect(calls.seal).toBeUndefined();
     await core.buildEncrypted(request);
-    expect(calls.seal).toBeDefined();
+    expect(calls.encryptSign).toBeDefined();
   });
 
   it('opens a Level 3 email with the signed-in mailbox’s Key Manager, and reports the level', async () => {
@@ -166,7 +162,7 @@ describe('levels switched off in this build', () => {
   it('Level 3 cannot be picked, and the others can', () => {
     const { LEVEL_GROUPS, isLevelEnabled } = jest.requireActual('../qkd');
     const offered = LEVEL_GROUPS.flatMap((g: { levels: number[] }) => g.levels);
-    expect(offered).toEqual([4, 1, 2]);
+    expect(offered).toEqual([1, 2]);
     expect(isLevelEnabled(3)).toBe(false);
   });
 });

@@ -1,11 +1,13 @@
 /**
- * Decrypted copies of forward-secret mail — the only copy there is.
+ * Decrypted copies of mail that opens once — the only copy there is.
  *
- * A forward-secret message is sealed under a key that is destroyed the moment
- * it is used (`core/src/session.rs`). Gmail keeps the ciphertext forever, but
- * nothing anywhere can open it a second time — not this device, not the
+ * A Level 2 or 3 message is sealed under quantum keys that are deleted the
+ * moment they are used (`core/src/km.rs`). Gmail keeps the ciphertext forever,
+ * but nothing anywhere can open it a second time — not this device, not the
  * sender's. So the first time one is opened, and when one is sent, what it
- * said is kept here, sealed with the device key.
+ * said is kept here, sealed with the device key. Mail sealed with the removed
+ * per-email keys (Level 4) was kept the same way, and its copies stay readable
+ * here: no key anywhere can open those messages any more.
  *
  * ## The trade, stated plainly
  *

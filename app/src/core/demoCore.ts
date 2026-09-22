@@ -34,14 +34,11 @@ import {
   CoreError,
   DecryptedMessage,
   DeviceTransfer,
-  HandshakeRequest,
   Identity,
   ImportedTransfer,
   PublicKeyInfo,
   RecoveryBackup,
-  SessionStatus,
 } from './types';
-import { helloContent } from './handshake';
 
 const IDENTITY_KEY = 'cryptmail.demo.identity';
 const DEMO_ARMOR_TAG = 'CRYPTMAIL-DEMO-V1:';
@@ -162,8 +159,8 @@ export const demoCore: CryptCore = {
 
   /**
    * ⚠️  Encodes; does not seal. A demo recovery backup plus the archive, in a
-   * transfer's armor. The demo core has no per-email keys, so there are no
-   * conversations to hand over and its archive is always empty.
+   * transfer's armor. The demo core has no Key Manager, so there is no bank
+   * to hand over and its archive is always empty.
    */
   async exportTransfer(email: string, archive: string): Promise<DeviceTransfer> {
     const backup = await demoCore.exportRecoveryBackup(email);
@@ -189,29 +186,6 @@ export const demoCore: CryptCore = {
     }
     const identity = await demoCore.importRecoveryBackup(inner.backup, code);
     return { identity, archive: inner.archive };
-  },
-
-  /**
-   * ⚠️  The demo core has no sessions — it encodes, it does not encrypt — so
-   * everyone but ourselves reads as `session` and nothing is ever held for a
-   * handshake. Per-email keys only exist in the real core.
-   */
-  async sessionStatus(email: string, recipientKeys: string[]): Promise<SessionStatus[]> {
-    const own = (await demoCore.loadIdentity(email))?.publicKeyArmored;
-    return recipientKeys.map((key) => (key === own ? 'self' : 'session'));
-  },
-
-  /** Encoded like every demo message, with the handshake's fixed text. */
-  async buildHandshake(request: HandshakeRequest): Promise<string> {
-    const rfc822 = await demoCore.buildEncrypted({
-      from: request.from,
-      to: [request.to],
-      ...helloContent(request.from),
-      recipientKeys: [request.recipientKey],
-      autocryptKey: request.autocryptKey,
-      handshake: true,
-    });
-    return rfc822;
   },
 
   /** The Key Manager lives in the real core: its keys never exist in JavaScript. */
@@ -248,12 +222,12 @@ export const demoCore: CryptCore = {
     throw noKm();
   },
 
-  /** Nothing to hand over: the demo core has no conversations. */
+  /** Nothing to hand over: the demo core has no key bank. */
   async transferStatus() {
     return { handedOverAt: null };
   },
 
-  async resumeSessions() {},
+  async resumeTransfer() {},
 
   async buildEncrypted(request: BuildRequest): Promise<string> {
     if (request.level === 2 || request.level === 3) throw noKm();
@@ -277,7 +251,6 @@ export const demoCore: CryptCore = {
       autocryptKeydata: request.autocryptKey ? autocryptKeydata(request.autocryptKey) : undefined,
       inReplyTo: request.inReplyTo,
       references: request.references,
-      handshake: request.handshake,
       linkLeg: request.linkLeg,
     });
   },

@@ -247,7 +247,7 @@ export function createAccounts(ctx: Ctx): AccountsService {
       // Files, not an AsyncStorage key, so not in that list — but just as much
       // this account's, and re-adding the address must not find them.
       await clearRawCache(id);
-      // Forward-secret mail this account opened or sent. Removing the account
+      // Level 2 and 3 mail this account opened or sent. Removing the account
       // is the one place it goes: resetting cached content below must never
       // touch it, because for those messages it is the only copy left.
       await clearArchive(id);

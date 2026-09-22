@@ -75,8 +75,8 @@ One message is traced end to end in
   (RFC 9980), so ciphertext harvested today resists a future quantum computer.
   Signatures are still classical Ed25519; see
   [docs/post-quantum.md](docs/post-quantum.md).
-- **A security level per message.** `L4 · PQC` (per-email keys, the default),
-  `L1 · PGP` (standard OpenPGP), and `L2 · Quantum` (AES-256-GCM keyed from a
+- **A security level per message.** `L1 · PGP` (standard OpenPGP, the
+  default) and `L2 · Quantum` (AES-256-GCM keyed from a
   bank shared with the recipient over BB84, whose messages are themselves sealed
   to ML-KEM-768 + X25519 and signed). The Key Manager is **simulated**: its
   keys are random, not quantum. Level 3 (one-time pad) is switched off for now.

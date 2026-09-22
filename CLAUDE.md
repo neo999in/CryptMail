@@ -6,28 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Recently landed on `main` — read first
 
-Three pieces of encryption work merged on 2026-09-20. Together they are what
-the send path now does, so read them before changing it.
+Encryption work merged on 2026-09-20, then changed on 2026-09-22. Read this
+before changing the send path.
 
-1. **Per-email keys** ([design](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)):
-   every message the user writes gets its own key, destroyed once read.
-2. **Per-email keys only**: `seal` never falls back to a long-term key. First
-   contact is a contentless handshake (`state/handshake.ts`), answered
-   automatically during a sync, and the message waits (`awaiting-session`)
-   until it is. A recipient who does not use CryptMail cannot be sent encrypted
-   mail; Level 1 below is the explicit way out.
-3. **Device transfer** — moving key, conversations and archive to a new phone —
-   and **QKD security levels**
+1. **Per-email keys (Level 4) are removed** — from the Rust core
+   (`forward.rs`, `session.rs`, `session_store.rs`, `seal`, `handshake`,
+   `session_status`, `open`), the bridge, and the app (handshakes,
+   `awaiting-session` holds, `sessionStatus`). **Level 1 (OpenPGP to
+   long-term keys) is the default.** Mail sealed with per-email keys can no
+   longer be decrypted; copies already in the archive still open. A message
+   still held at Level 4 never sends by itself (`isRetiredHold`,
+   `RETIRED_HOLD`) — the user cancels it to drafts and sends it again.
+   The [per-email-keys design](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)
+   is history.
+2. **Device transfer** — moving key, Key Manager bank and archive to a new
+   phone — and **QKD security levels**
    ([design](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)): a
    simulated Key Manager in the core (`core/src/km.rs`; its keys are random, so
-   it is **not** quantum security) behind Levels 1–3, with Level 4 (per-email
-   keys) the default. The Key Manager's login is the mailbox login.
+   it is **not** quantum security) behind Levels 2–3. The Key Manager's login is
+   the mailbox login.
 
-State, decisions already made, build steps, emulator traps and what is next:
-[docs/handoff-2026-09-19-per-email-keys.md](docs/handoff-2026-09-19-per-email-keys.md).
 The branches `feat/per-email-keys`, `feat/per-email-keys-only` and `feat/qkd`
-are the history of that work; `feat/per-email-keys` is the only place the
-long-term-key fallback still exists.
+are the history of that work.
 
 ## What this is
 
@@ -240,27 +240,23 @@ message rather than AsyncStorage, and it is not in `PER_ACCOUNT_STORE_KEYS`, so
 removing or resetting an account clears it explicitly. Never cache the
 decrypted tree there.
 
-**Per-email keys** ([docs/superpowers/specs/2026-09-19-per-email-keys-design.md](docs/superpowers/specs/2026-09-19-per-email-keys-design.md)):
-the core's `seal` gives each message its own key and destroys it once used, so
-no long-term key — the sender's included — can reopen it. On this branch `seal`
-refuses rather than fall back: first contact is a handshake (the one
-long-term-key message left, fixed text only, `core/handshake.ts`), answered
-automatically during sync, and `core.sessionStatus` says who needs one. Such a message **decrypts once**, which is why it is the one exception to
-"only `searchIndex` holds decrypted mail":
-[app/src/store/archiveStore.ts](app/src/store/archiveStore.ts) keeps the
-decrypted copy, sealed, in *durable* storage, keyed by the ciphertext. It is the
-only copy there is, so: it never evicts; `openMessage` reads it before asking
-the core and writes it (awaited) the moment one opens; `deliver` writes it
-**before** sending and refuses to send if it cannot; removing an account clears
-it, but resetting cached content must **never** touch it. Normal mail is still
-never archived — `searchIndex` stays its only decrypted trace. Moving to a new
-phone ([TransferScreen](app/src/screens/TransferScreen.tsx), `core/src/transfer.rs`)
-seals the key, the sessions, the Key Manager's bank and the archive into one
-file under a code shown once, and **hands the old phone's sessions and bank
-over** — it stops sending by session, because two phones writing into one
-conversation breaks it, and stops issuing quantum keys, because two ends drawing
-from one half would reuse a one-time pad. Reading is left alone at every level.
-The new phone's restore field takes that file as it takes a backup.
+**The archive** ([app/src/store/archiveStore.ts](app/src/store/archiveStore.ts))
+is the one exception to "only `searchIndex` holds decrypted mail": a Level 2
+or 3 message **decrypts once**, because its quantum keys are deleted as it
+opens, so the decrypted copy is kept, sealed, in *durable* storage, keyed by
+the ciphertext. It also still holds copies of mail read with the removed
+per-email keys, which nothing else can open. It is the only copy there is, so:
+it never evicts; `openMessage` reads it before asking the core and writes it
+(awaited) the moment one opens; `deliver` writes it **before** sending and
+refuses to send if it cannot; removing an account clears it, but resetting
+cached content must **never** touch it. Level 1 mail is never archived —
+`searchIndex` stays its only decrypted trace. Moving to a new phone
+([TransferScreen](app/src/screens/TransferScreen.tsx), `core/src/transfer.rs`)
+seals the key, the Key Manager's bank and the archive into one file under a
+code shown once, and **hands the old phone's bank over** — it stops issuing
+quantum keys, because two ends drawing from one half would reuse a one-time
+pad. Reading is left alone at every level. The new phone's restore field takes
+that file as it takes a backup; `resumeTransfer` takes the bank back.
 
 **Quantum links** (`core/src/bb84.rs`, [app/src/state/bb84.ts](app/src/state/bb84.ts)):
 two phones come to hold the same bank either by **running BB84 over email** —
@@ -268,7 +264,7 @@ three messages (`core/bb84.ts` is the envelope), sifting, an error check, and
 privacy amplification, after which both derive the same keys and neither sent
 them — or by the older **link file and code**, which copies one bank to the
 other and is kept for when both phones are in one room. A sync carries whichever
-leg arrived (`services.bb84.answer`, beside the handshake). If too much of the
+leg arrived (`services.bb84.answer`). If too much of the
 checked sample disagrees the core refuses (`bb84-eavesdropper`) and **no bank is
 built on either side**; `Core::bb84_eavesdrop` exists to demonstrate that and is
 documented as demonstration-only. The channel is simulated — the states are
@@ -279,30 +275,28 @@ unsigned or signed by another key is refused. Linking needs the other end's key
 first. Everything above the channel is the protocol.
 
 **Security levels** ([docs/superpowers/specs/2026-09-20-qkd-levels-design.md](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)):
-compose picks one per message. **1** OpenPGP to long-term keys (the explicit
-"no quantum security" choice); **2** AES-256-GCM seeded by one 1 Kb key from
-the Key Manager; **3** a one-time pad from those keys, one per 128 bytes plus
-one for the HMAC; **4** per-email keys, the default. **Level 3 is switched off
+compose picks one per message. **1** OpenPGP to long-term keys, the default;
+**2** AES-256-GCM seeded by one 1 Kb key from the Key Manager; **3** a
+one-time pad from those keys, one per 128 bytes plus one for the HMAC. There is
+no Level 4 any more — see the top of this file. **Level 3 is switched off
 for now** — `DISABLED_LEVELS` in `app/src/core/qkd.ts` hides it from the picker
 and `deliver` refuses it; received Level 3 mail still opens. Level 2 is labelled
 `L2 · Quantum`.
 
-They are offered as **two pairs, not a ladder** (`LEVEL_GROUPS` in
-[app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 4 then 1, which work
-with anyone, need no setup and are signed — and *Quantum keys* — 2 (and 3 when
+They are offered as **two groups, not a ladder** (`LEVEL_GROUPS` in
+[app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 1, which works with
+anyone whose key you hold and is signed — and *Quantum keys* — 2 (and 3 when
 enabled), which need a bank shared with the recipient. The group names are not
-drawn in compose; a divider separates the pairs. Numbered 1–4 in a row they read as
-increasing security, which is wrong twice over: 4 is both the default and the
-strongest thing in this build, and 3's guarantee rests on a key source that is
-simulated. Don't reintroduce a single 1→4 row.
+drawn in compose; a divider separates them. Numbered in a row they would read
+as increasing security, which is wrong: 3's guarantee rests on a key source
+that is simulated. Don't reintroduce a single 1→3 row.
 
 Compose refuses a Level 2 or 3 send when this mailbox has **no quantum link**
 (`km.peerSaeId === null`): those levels do not consult the recipient's key, so
 nothing else would catch it, and the message would be one nobody but the sender
 could ever open. Levels 2 and 3 need no
 recipient key at all — holding the same bank is what makes a message readable —
-and their keys are deleted as the message opens, so they are archived exactly
-as per-email-key mail is. `deliver` branches on the level and a held message
+and their keys are deleted as the message opens, so they are archived. `deliver` branches on the level and a held message
 carries it. The bank never leaves the core; the app sees only status and
 ciphertext.
 
@@ -331,18 +325,17 @@ Directory keys land as `trust: 'seen'`, never `verified`.
 These are enforced in review (see [CONTRIBUTING.md](CONTRIBUTING.md)):
 
 1. **No plaintext downgrade.** Never "send unencrypted just this once".
-   Three cases, and none of them puts the message on the wire in the clear:
+   Two cases, and neither puts the message on the wire in the clear:
    - a recipient whose key **changed fingerprint** blocks the send outright —
      nothing is sent and nothing is queued, because waiting cannot resolve a
      possible key substitution;
    - a recipient with **no key yet** has the message *held* in the outbox
      (`awaiting-key`) while a contentless invite goes to them; it delivers itself
      once a key exists. The UI must say *queued*, never *sent*.
-   - a recipient with a key but **no per-email key session** has the message held (`awaiting-session`) while a contentless
-     handshake goes to them (`state/handshake.ts`). It is never sealed to their
-     long-term key instead: **nothing the user writes is sealed to a long-term
-     key**, unless they pick Level 1 up front, and `deliver` refuses to put
-     anything on the wire that is not sealed the way its level says.
+
+   `deliver` refuses to put anything on the wire that is not sealed the way
+   its level says, and refuses a message held at the removed Level 4 rather
+   than seal it to a long-term key the user never chose.
 
    Enforced in `deliver`/`sendEncrypted` in
    [app/src/state/send.ts](app/src/state/send.ts) and covered by

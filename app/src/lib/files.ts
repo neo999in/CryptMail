@@ -235,7 +235,7 @@ const TEXT_FILE_CAP = 256 * 1024;
 
 /**
  * The cap for a restore field that also takes a device transfer. A transfer
- * carries every message read with per-email keys, attachments included, so it
+ * carries every message read with quantum keys, attachments included, so it
  * can be far larger than a backup — but it is still one string across the
  * bridge, and this is where "a video picked by mistake" is still refused.
  */

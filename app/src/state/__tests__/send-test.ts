@@ -10,6 +10,7 @@
  * only exists after `initStorage`; the logic under test is indifferent to where
  * the outbox is written, and their own behaviour is covered next to them.
  */
+import type { SecurityLevel } from '../../core/types';
 import { ADA_ARMORED } from '../../pgp/__tests__/fixtures';
 import { Session } from '../../auth';
 import { Identity, PLACEHOLDER_SUBJECT } from '../../core';
@@ -450,22 +451,12 @@ describe('rich text (feature 0.9)', () => {
 });
 
 /**
- * Per-email keys. A forward-secret message cannot be reopened from the provider
- * by anyone, the sender included — so what was sent has to be kept before it
- * leaves, and a failure to keep it must stop the send rather than follow it.
+ * Level 1 mail reopens from the provider with the long-term key, so nothing is
+ * archived for it. A message held for the removed Level 4 is refused outright,
+ * never quietly sealed to a long-term key instead.
  */
-describe('deliver — a forward-secret message', () => {
-  const { core } = jest.requireActual('../../core') as typeof import('../../core');
+describe('deliver — level 1 and the removed level 4', () => {
   const archiveStore = jest.requireActual('../../store/archiveStore') as typeof import('../../store/archiveStore');
-  const localCrypto = jest.requireActual('../../store/localCrypto') as typeof import('../../store/localCrypto');
-
-  /** The demo build, with the header the Rust core adds when it seals per email. */
-  function sealPerEmail() {
-    const real = core.buildEncrypted.bind(core);
-    return jest.spyOn(core, 'buildEncrypted').mockImplementation(async (request) =>
-      (await real(request)).replace('-----BEGIN PGP MESSAGE-----\n', '-----BEGIN PGP MESSAGE-----\nCryptMail-Session: AAAA\n'),
-    );
-  }
 
   function recordingArchive(events: string[]) {
     const files = new Map<string, string>();
@@ -481,45 +472,15 @@ describe('deliver — a forward-secret message', () => {
     return files;
   }
 
-  beforeEach(async () => {
-    localCrypto.resetLocalCryptoForTests();
-    const secrets: Record<string, string> = {};
-    await localCrypto.initLocalCrypto(
-      { getItem: async (k) => secrets[k] ?? null, setItem: async (k, v) => void (secrets[k] = v) },
-      'keystore',
-    );
-  });
-
   afterEach(() => {
-    jest.restoreAllMocks();
     archiveStore.setArchiveBackendForTests(undefined);
   });
 
-  it('keeps what was sent, before it goes on the wire', async () => {
-    sealPerEmail();
-    const events: string[] = [];
-    recordingArchive(events);
+  it('refuses a message held at Level 4 and sends nothing', async () => {
     const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
-    const send = services.send;
-    const originalSend = wire.push.bind(wire);
-    wire.push = (...items: string[]) => {
-      events.push('sent');
-      return originalSend(...items);
-    };
-
-    expect(await send.sendEncrypted(MESSAGE)).toEqual({ status: 'sent' });
-    expect(events).toEqual(['archived', 'sent']);
-
-    const kept = await archiveStore.readArchived(ACCOUNT, wire[0]);
-    expect(kept).toMatchObject({ subject: MESSAGE.subject, body: MESSAGE.body, forwardSecret: true });
-  });
-
-  it('sends nothing when what was sent could not be kept', async () => {
-    sealPerEmail();
-    archiveStore.setArchiveBackendForTests(null);
-    const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
-
-    await expect(services.send.sendEncrypted(MESSAGE)).rejects.toThrow();
+    await expect(
+      services.send.deliver({ ...MESSAGE, level: 4 as unknown as SecurityLevel }),
+    ).rejects.toThrow(/per-email keys/);
     expect(wire).toHaveLength(0);
   });
 

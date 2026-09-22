@@ -1,19 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { describeCheck } from '../outbox/checkResult';
-import { Held, holdReason, listScheduled, stillPending } from '../outbox/outbox';
+import { Held, holdReason, isRetiredHold, listScheduled, stillPending } from '../outbox/outbox';
 import { textMatchesQuery } from '../search/search';
 import { useApp } from '../state/AppState';
-import { HandshakeEntry } from '../store/handshakeStore';
 import { color, font, glass, radius, type } from '../theme';
 import { Icon } from '../ui/Icon';
 import { useComposeScroll } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
 import { BodyProps } from './HomeScreen';
 import { userMessage } from '../lib/errors';
+import { RETIRED_HOLD } from '../state/send';
 
 /**
  * The outbox: everything written but not yet delivered. Two kinds live here —
@@ -36,8 +36,6 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
     sendScheduledNow,
     cancelScheduled,
     saveDraft,
-    handshakeStatus,
-    resendHandshake,
   } = useApp();
   const insets = useSafeAreaInsets();
   // Held mail has not been encrypted yet — it is still the text this device
@@ -68,12 +66,6 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
         setOutcome({ id: item.id, tone: 'ok', text: 'This message has already left the outbox.' });
       } else if (result.status === 'sent') {
         setOutcome({ id: item.id, tone: 'ok', text: 'Encrypted and sent.' });
-      } else if (result.waitingFor === 'session') {
-        setOutcome({
-          id: item.id,
-          tone: 'warn',
-          text: `Still waiting for ${result.pending.join(', ')} to answer the handshake.`,
-        });
       } else {
         setOutcome({ id: item.id, tone: 'warn', text: describeCheck(result.pending, undiscoverable).text });
       }
@@ -81,56 +73,6 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
       setOutcome({ id: item.id, tone: 'warn', text: userMessage(e) });
     } finally {
       setChecking(null);
-      void loadHandshakes();
-    }
-  };
-
-  /**
-   * What happened to the handshake behind each `awaiting-session` hold, by
-   * address. Without it a hold reads "queued" whether the handshake went out,
-   * failed, or was held back because one went out earlier — three states that
-   * need three different next steps.
-   */
-  const [handshakes, setHandshakes] = useState<Record<string, HandshakeEntry | null>>({});
-  const waitingOn = [
-    ...new Set(
-      listScheduled(scheduled)
-        .filter((item) => holdReason(item) === 'awaiting-session')
-        .flatMap((item) => item.pending ?? item.to),
-    ),
-  ].sort();
-  const waitingKey = waitingOn.join(',');
-  const loadHandshakes = useCallback(async () => {
-    if (waitingOn.length === 0) return;
-    try {
-      setHandshakes(await handshakeStatus(waitingOn));
-    } catch {
-      // No status is better than a wrong one; the card falls back to its note.
-    }
-    // Every outbox change, not just a new address: a drain re-holds under the
-    // same id after it tried a handshake, and that attempt is what to show.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waitingKey, scheduled, handshakeStatus]);
-  useEffect(() => {
-    void loadHandshakes();
-  }, [loadHandshakes]);
-
-  const resend = async (item: Held) => {
-    setChecking(item.id);
-    setOutcome(null);
-    try {
-      const results = await Promise.all((item.pending ?? item.to).map((e) => resendHandshake(e)));
-      const failed = results.find((r) => r?.outcome === 'failed');
-      setOutcome(
-        failed?.outcome === 'failed'
-          ? { id: item.id, tone: 'warn', text: `The handshake didn’t go out: ${failed.error}` }
-          : { id: item.id, tone: 'ok', text: 'Handshake sent. The message goes out once their CryptMail answers.' },
-      );
-    } catch (e) {
-      setOutcome({ id: item.id, tone: 'warn', text: userMessage(e) });
-    } finally {
-      setChecking(null);
-      void loadHandshakes();
     }
   };
 
@@ -183,8 +125,8 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
         ) : null}
         {items.map((item) => {
           const awaitingKey = holdReason(item) === 'awaiting-key';
-          const awaitingSession = holdReason(item) === 'awaiting-session';
-          const held = awaitingKey || awaitingSession;
+          const retired = isRetiredHold(item);
+          const held = awaitingKey || retired;
           const pending = awaitingKey ? stillPending(item, keyring, identity) : [];
           return (
             <View key={item.id} style={s.card}>
@@ -194,7 +136,7 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                 </Text>
                 <View style={[s.when, held && s.whenHeld]}>
                   <Text style={[s.whenText, held && s.whenTextHeld]}>
-                    {awaitingKey ? 'waiting for a key' : awaitingSession ? 'setting up keys' : whenLabel(item.sendAt)}
+                    {retired ? 'not sending' : awaitingKey ? 'waiting for a key' : whenLabel(item.sendAt)}
                   </Text>
                 </View>
               </View>
@@ -216,24 +158,15 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                   {item.body.trim()}
                 </Text>
               ) : null}
-              {awaitingKey ? (
+              {retired ? (
+                <Text style={s.holdNote}>{`Not delivered. ${RETIRED_HOLD}`}</Text>
+              ) : awaitingKey ? (
                 <Text style={s.holdNote}>
                   {pending.length > 0
                     ? `Not delivered. ${pending.join(', ')} ${pending.length > 1 ? 'have' : 'has'} no key CryptMail can use yet — the message goes out by itself once ${pending.length > 1 ? 'they do' : 'they do'}.`
                     : 'A key has turned up. This sends on the next check.'}
                 </Text>
-              ) : awaitingSession ? (
-                <Text style={s.holdNote}>
-                  {`Not delivered. Per-email keys aren’t set up with ${(item.pending ?? item.to).join(', ')} yet. A handshake carries none of this message; it goes out by itself once their CryptMail answers. If they don’t use CryptMail, it waits until they do.`}
-                </Text>
               ) : null}
-              {awaitingSession
-                ? (item.pending ?? item.to).map((address) => (
-                    <Text key={address} style={s.holdNote}>
-                      {describeHandshake(address, handshakes[address])}
-                    </Text>
-                  ))
-                : null}
               {outcome?.id === item.id ? (
                 <Text style={[s.outcome, outcome.tone === 'ok' ? s.outcomeOk : s.outcomeWarn]}>
                   {outcome.text}
@@ -246,28 +179,14 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
                   when the recipient has a key and not before. What it actually
                   does is ask the directory again, and it says what came back.
                 */}
-                <SecondaryButton
-                  title={
-                    checking === item.id
-                      ? 'Checking…'
-                      : awaitingKey
-                        ? 'Check for a key'
-                        : awaitingSession
-                          ? 'Check again'
-                          : 'Send now'
-                  }
-                  icon={held ? 'refresh' : 'send'}
-                  disabled={checking !== null}
-                  onPress={() => void check(item)}
-                />
-                {awaitingSession ? (
+                {retired ? null : (
                   <SecondaryButton
-                    title="Resend handshake"
-                    icon="send"
+                    title={checking === item.id ? 'Checking…' : awaitingKey ? 'Check for a key' : 'Send now'}
+                    icon={held ? 'refresh' : 'send'}
                     disabled={checking !== null}
-                    onPress={() => void resend(item)}
+                    onPress={() => void check(item)}
                   />
-                ) : null}
+                )}
                 <SecondaryButton title="Cancel" icon="edit" onPress={() => void cancelToDraft(item)} />
               </View>
             </View>
@@ -280,19 +199,6 @@ export function ScheduledBody({ navigation, query, clearSearch, composeFold }: B
 }
 
 /* -------------------------------------------------------------- helpers ---- */
-
-/** One line per address on what its handshake did, in words — never a bare "queued". */
-function describeHandshake(address: string, entry: HandshakeEntry | null | undefined): string {
-  if (entry === undefined) return `${address}: checking the handshake…`;
-  if (entry === null) return `${address}: no handshake has gone out yet. It goes on the next check.`;
-  const when = new Date(entry.at);
-  const at = Number.isNaN(when.getTime())
-    ? 'at an unknown time'
-    : when.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return entry.outcome === 'sent'
-    ? `${address}: handshake sent ${at}. Not sent again by itself for a week — use Resend if it went missing.`
-    : `${address}: the handshake failed ${at} — ${entry.error} It is tried again in a few minutes.`;
-}
 
 function whenLabel(sendAt: string): string {
   const d = new Date(sendAt);

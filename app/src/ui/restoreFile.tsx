@@ -14,7 +14,7 @@ import { SecondaryButton } from './primitives';
  *
  * A backup is a few kilobytes of armor and goes into the text field, where it
  * can be checked by eye or pasted over. A transfer can be megabytes, since it
- * carries every message read with per-email keys, and a string that size in a
+ * carries every message read with quantum keys, and a string that size in a
  * text input is enough to stall the screen — so it is held here instead, shown
  * as a card, and handed to the restore in place of the field's text.
  */
@@ -53,7 +53,7 @@ export function LoadedTransfer({ text, onClear }: { text: string; onClear: () =>
       <View style={s.words}>
         <Text style={s.title}>Transfer file loaded</Text>
         <Text style={s.hint}>
-          {sizeOf(text)} · your key, your conversations and mail read with per-email keys
+          {sizeOf(text)} · your key, your quantum key bank and mail read with quantum keys
         </Text>
       </View>
       <SecondaryButton title="Clear" icon="close" onPress={onClear} />

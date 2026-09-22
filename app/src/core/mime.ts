@@ -18,19 +18,6 @@ import { decodeTransfer } from '../mail/transferEncoding';
 import { Bb84Leg, linkSubject } from './bb84';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
-/**
- * The outer subject of a handshake and of its answer (`core/handshake.ts`).
- *
- * In the clear on purpose: it is how a receiving CryptMail finds handshakes
- * during a sync from the headers alone, without fetching and decrypting every
- * encrypted message. It says what the armor headers already say to anyone
- * reading the raw mail — that this is CryptMail — and nothing about content,
- * which a handshake has none of. Anyone can put it on a message; what makes a
- * handshake count is its signed offer, which the core checks.
- */
-export const HANDSHAKE_SUBJECT = '[CryptMail] Setting up per-email keys';
-
-export const isHandshakeSubject = (subject: string | undefined): boolean => subject?.trim() === HANDSHAKE_SUBJECT;
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
 export const ARMOR_END = '-----END PGP MESSAGE-----';
 
@@ -69,16 +56,6 @@ export function extractArmor(raw: string): string | null {
   const end = raw.indexOf(ARMOR_END);
   if (start === -1 || end === -1) return null;
   return raw.slice(start, end + ARMOR_END.length);
-}
-
-/**
- * Whether a built message was sealed with per-email keys — the core marks those
- * with `CryptMail-Session` armor headers carrying each recipient's key, in place
- * of any key packet a long-term key could open. Such a message opens once, so
- * the sender has to keep its own copy (`store/archiveStore.ts`).
- */
-export function isForwardSecret(raw: string): boolean {
-  return /^CryptMail-Session:/m.test(extractArmor(raw) ?? '');
 }
 
 /** Wrap ciphertext base64 in an OpenPGP ASCII-armor block, 64 cols wide. */
@@ -125,8 +102,6 @@ export function buildEncryptedEnvelope(args: {
   /** Threading, in the clear — provider metadata, see message-format.md. */
   inReplyTo?: string;
   references?: string[];
-  /** A handshake or its answer: the outer subject says so, see `HANDSHAKE_SUBJECT`. */
-  handshake?: boolean;
   /** A quantum-link leg: the outer subject names it, see `core/bb84.ts`. */
   linkLeg?: Bb84Leg;
 }): string {
@@ -138,7 +113,7 @@ export function buildEncryptedEnvelope(args: {
     `From: ${args.from}`,
     `To: ${args.to.join(', ')}`,
     `Date: ${date}`,
-    `Subject: ${args.linkLeg ? linkSubject(args.linkLeg) : args.handshake ? HANDSHAKE_SUBJECT : PLACEHOLDER_SUBJECT}`,
+    `Subject: ${args.linkLeg ? linkSubject(args.linkLeg) : PLACEHOLDER_SUBJECT}`,
     `Message-ID: ${messageId}`,
   ];
   if (args.inReplyTo) headers.push(`In-Reply-To: ${args.inReplyTo}`);

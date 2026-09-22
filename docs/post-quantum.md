@@ -10,9 +10,10 @@ Status: **Stage 1 is built.** `core/src/identity.rs` generates a v4 Ed25519
 Sequoia-PGP passes on those keys (`spike/interop-rpgp-sequoia`, re-run
 2026-09-19), and it runs on a physical device through Gmail. PQ.1 and PQ.2 below
 are done; PQ.3–PQ.5 are not. Forward secrecy, which this document names as the
-compounding problem, now exists between CryptMail users —
-[per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md). This
-document was written before any of that and its body is kept as the reasoning.
+compounding problem, existed briefly between CryptMail users as
+[per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md) and was
+removed on 2026-09-22, so it is again absent. This document was written before
+any of that and its body is kept as the reasoning.
 
 > **Headline finding:** of the three candidate libraries, only **rPGP**
 > implements RFC 9980. OpenPGP.js and Bouncy Castle do not. If CryptMail wants

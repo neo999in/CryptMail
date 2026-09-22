@@ -379,27 +379,20 @@ works in demo mode only, and a native build reports `unavailable`.
 
 ### What the recovery code does *not* bring back
 
-[Per-email keys](superpowers/specs/2026-09-19-per-email-keys-design.md) change
-what restoring means. The recovery code restores the **identity**: address,
-fingerprint, every contact's ability to write to you, and all mail sealed to the
-long-term key. It does **not** restore forward-secret mail between CryptMail
-users. Those messages' keys were destroyed as they were used, and the only
-readable copy is the archive on the device that opened or sent them. By design,
-no key survives that could reopen them.
+The recovery code restores the **identity**: address, fingerprint, every
+contact's ability to write to you, and all mail sealed to the long-term key. It
+does **not** restore Level 2 or 3 mail already read: those messages' quantum
+keys were deleted as they opened, and the only readable copy is the archive on
+the device that opened or sent them. The same holds for mail read with the
+per-email keys removed on 2026-09-22.
 
-Sessions — the state that produces those keys — are deliberately excluded from
-every backup (`allowBackup: false`). Restored session state rewinds and
-re-derives keys it has already used, which breaks the encryption rather than
-recovering it. A restored or new device starts fresh sessions automatically.
-
-Each device is also its own participant: a device that has never written to a
-contact cannot open forward-secret mail that contact sends. Carrying history
-and sessions to a replacement phone is the job of **device transfer**
-(Settings → Move to a new phone): a sealed file and a one-time code that move
-the key, the sessions, the Key Manager's bank and the archive together.
-Sessions and the bank are *moved*, not copied — the old phone stops sending
-with per-email keys and with quantum keys the moment the file is made, and
-keeps reading with both. See [the design](superpowers/specs/2026-09-19-per-email-keys-design.md#device-transfer).
+Carrying that archive and the Key Manager's bank to a replacement phone is the
+job of **device transfer** (Settings → Move to a new phone): a sealed file and
+a one-time code that move the key, the bank and the archive together. The bank
+is *moved*, not copied — the old phone stops sending with quantum keys the
+moment the file is made, and keeps reading. See
+[the design](superpowers/specs/2026-09-19-per-email-keys-design.md#device-transfer),
+whose per-email-key parts no longer apply.
 
 ## Quantum keys, and how two phones come to share them
 

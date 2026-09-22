@@ -110,7 +110,7 @@ impl CryptMailCore {
         Ok(self.core.import_recovery_backup(&self.passphrase, &blob, &code)?)
     }
 
-    /// → the armored transfer file. Hands this phone's conversations over.
+    /// → the armored transfer file. Hands this phone's key bank over.
     pub fn export_transfer(&self, email: String, code: String, archive: String) -> FfiResult<String> {
         Ok(self.core.export_transfer(&email, &self.passphrase, &code, &archive)?)
     }
@@ -125,8 +125,8 @@ impl CryptMailCore {
         Ok(self.core.transfer_status(&self.passphrase)?)
     }
 
-    pub fn resume_sessions(&self) -> FfiResult<()> {
-        Ok(self.core.resume_sessions(&self.passphrase)?)
+    pub fn resume_transfer(&self) -> FfiResult<()> {
+        Ok(self.core.resume_transfer(&self.passphrase)?)
     }
 
     pub fn encrypt_sign(
@@ -146,26 +146,6 @@ impl CryptMailCore {
         let keys = parse_keys(&sender_keys_json)?;
         let email = self.sole_identity_email()?;
         Ok(self.core.decrypt_verify(&email, &self.passphrase, &armored, &keys)?)
-    }
-
-    /// → `{ armored, forwardSecret }`. A new, destroyable key per email, or a
-    /// `no-key` refusal (`no-session:`) — never long-term keys.
-    pub fn seal(&self, email: String, plaintext: String, recipient_keys_json: String) -> FfiResult<String> {
-        let keys = parse_keys(&recipient_keys_json)?;
-        Ok(self.core.seal(&email, &self.passphrase, &plaintext, &keys)?)
-    }
-
-    /// → the armored handshake: this device's offer around a caller-fixed,
-    /// contentless `plaintext`, sealed to long-term keys.
-    pub fn handshake(&self, email: String, plaintext: String, recipient_keys_json: String) -> FfiResult<String> {
-        let keys = parse_keys(&recipient_keys_json)?;
-        Ok(self.core.handshake(&email, &self.passphrase, &plaintext, &keys)?)
-    }
-
-    /// → JSON array of `"self" | "session" | "offer" | "none"`, in key order.
-    pub fn session_status(&self, email: String, recipient_keys_json: String) -> FfiResult<String> {
-        let keys = parse_keys(&recipient_keys_json)?;
-        Ok(self.core.session_status(&email, &self.passphrase, &keys)?)
     }
 
     /// → KM status JSON for the signed-in mailbox `email` — the one login.
@@ -227,14 +207,6 @@ impl CryptMailCore {
     /// → `{ plaintext, level, senderSae }`. Opens once.
     pub fn qkd_open(&self, email: String, armored: String) -> FfiResult<String> {
         Ok(self.core.qkd_open(&self.passphrase, &email, &armored)?)
-    }
-
-    /// → the `decrypt_verify` document plus `forwardSecret`. A forward-secret
-    /// message opens **once**: the caller must keep what it decrypted.
-    pub fn open(&self, armored: String, sender_keys_json: String) -> FfiResult<String> {
-        let keys = parse_keys(&sender_keys_json)?;
-        let email = self.sole_identity_email()?;
-        Ok(self.core.open(&email, &self.passphrase, &armored, &keys)?)
     }
 }
 

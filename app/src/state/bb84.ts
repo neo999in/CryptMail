@@ -26,7 +26,7 @@
  * key, signed with ours — and a leg that arrives unencrypted, unsigned, or
  * signed by anyone but the contact's known key is refused. So the bank that
  * Levels 2 and 3 draw on is only as exposed as a post-quantum-sealed message.
- * Both ends need each other's key first, which a handshake already arranges.
+ * Both ends need each other's key first — from Autocrypt or a manual import.
  *
  * An exchange replaces whatever bank this mailbox held. That is the same
  * bargain as *Link another phone*, and the screen says so before it starts.

@@ -1,5 +1,8 @@
 # QKD integration and the three security levels — design
 
+> **2026-09-22:** Level 4 (per-email keys) was removed and Level 1 is the
+> default. Where this design says Level 4, read it as history.
+
 Written 2026-09-20 on `feat/qkd` (cut from `feat/per-email-keys-only`), merged
 into `main` the same day.
 
