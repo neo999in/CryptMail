@@ -20,7 +20,7 @@
  * row came from, and re-fetched if the provider refuses.
  */
 import { providerFiledAsJunk } from '../categorizer/categorizer';
-import { PLACEHOLDER_SUBJECT } from '../core';
+import { hasSealedSubject } from '../core';
 import { applyLabels } from '../labels/labels';
 import { MailSummary } from '../mail/types';
 import {
@@ -135,4 +135,4 @@ export function createRules(ctx: Ctx): RulesService {
 }
 
 /** Headers alone, as everywhere else: a placeholder subject is ciphertext. */
-const isEncrypted = (summary: MailSummary): boolean => summary.subject.trim() === PLACEHOLDER_SUBJECT;
+const isEncrypted = (summary: MailSummary): boolean => hasSealedSubject(summary.subject);

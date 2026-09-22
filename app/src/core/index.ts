@@ -9,4 +9,4 @@ import { CryptCore } from './types';
 export const core: CryptCore = getNativeCore() ?? demoCore;
 
 export * from './types';
-export { PLACEHOLDER_SUBJECT, buildPlaintext, isPgpMime, parseRfc822 } from './mime';
+export { PLACEHOLDER_SUBJECT, buildPlaintext, hasSealedSubject, isPgpMime, parseRfc822 } from './mime';

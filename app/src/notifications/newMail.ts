@@ -40,7 +40,7 @@
  * the count. The user looking at the mailbox clears it (`clearPending`).
  */
 import { providerFiledAsJunk } from '../categorizer/categorizer';
-import { PLACEHOLDER_SUBJECT } from '../core';
+import { hasSealedSubject } from '../core';
 import { MailSummary } from '../mail/types';
 import { NewMail } from './policy';
 
@@ -77,7 +77,7 @@ export const SINCE_SLACK_MS = 10 * 60 * 1000;
 /** The provider tabs that are not Primary (`categorizer.ts` reads the same labels). */
 const OTHER_TABS = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS'];
 
-export const isEncryptedSummary = (row: MailSummary): boolean => row.subject.trim() === PLACEHOLDER_SUBJECT;
+export const isEncryptedSummary = (row: MailSummary): boolean => hasSealedSubject(row.subject);
 
 export type ObserveOptions = {
   /** This mailbox's own address; mail from it is never announced. */

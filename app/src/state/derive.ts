@@ -7,7 +7,7 @@
  * screens hold them in `useMemo` dependency arrays, and a badge that never
  * refreshes after a key is verified is worse than no badge.
  */
-import { DecryptedMessage, PLACEHOLDER_SUBJECT } from '../core';
+import { DecryptedMessage, hasSealedSubject } from '../core';
 import { MailSummary } from '../mail/types';
 import { ContactKey, findKey, Keyring } from '../store/keyring';
 import { EncryptionState } from './types';
@@ -18,7 +18,7 @@ export function encryptionFor(
   selfEmail: string | undefined,
   summary: MailSummary,
 ): EncryptionState {
-  if (summary.subject.trim() !== PLACEHOLDER_SUBJECT) return { kind: 'plain' };
+  if (!hasSealedSubject(summary.subject)) return { kind: 'plain' };
   // Our own copy: encrypted to our key, so it is readable and trusted here.
   if (summary.from.address === selfEmail) {
     return { kind: 'encrypted', trust: 'verified', own: true };

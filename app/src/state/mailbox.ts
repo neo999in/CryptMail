@@ -3,7 +3,7 @@
  */
 import { needsReauth } from '../auth/types';
 import { providerFiledAsJunk, spamInputFor } from '../categorizer/categorizer';
-import { core, PLACEHOLDER_SUBJECT } from '../core';
+import { core, hasSealedSubject } from '../core';
 import { harvestAutocrypt } from '../keys';
 import { applyFlagPatch } from '../mail/flags';
 import { attachmentsOf, htmlOf, plainBodyOf } from '../mail/plainBody';
@@ -818,4 +818,4 @@ export function createMailbox(ctx: Ctx): MailboxService {
  * decides whether the body may be read: a placeholder subject means the provider
  * is holding ciphertext, so only content in the local index is readable.
  */
-const isEncrypted = (summary: MailSummary): boolean => summary.subject.trim() === PLACEHOLDER_SUBJECT;
+const isEncrypted = (summary: MailSummary): boolean => hasSealedSubject(summary.subject);

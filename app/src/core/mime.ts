@@ -15,9 +15,22 @@ import {
   newAttachmentId,
 } from '../mail/attachment';
 import { decodeTransfer } from '../mail/transferEncoding';
-import { Bb84Leg, linkSubject } from './bb84';
+import { Bb84Leg, isLinkSubject, linkSubject } from './bb84';
 
 export const PLACEHOLDER_SUBJECT = '[Encrypted message]';
+
+/**
+ * Whether a row's outer subject says its body is sealed, from headers alone.
+ *
+ * The placeholder, or a quantum-link leg: a leg is a signed, encrypted
+ * PGP/MIME message like any other, but its subject names the step so a sync
+ * can route it before fetching (`core/bb84.ts`). Checking the placeholder
+ * alone showed every leg as *not encrypted* — a lie about the one message
+ * whose contents most need sealing. Every header-only "is it encrypted?" check
+ * goes through here.
+ */
+export const hasSealedSubject = (subject: string): boolean =>
+  subject.trim() === PLACEHOLDER_SUBJECT || isLinkSubject(subject);
 export const ARMOR_BEGIN = '-----BEGIN PGP MESSAGE-----';
 export const ARMOR_END = '-----END PGP MESSAGE-----';
 
