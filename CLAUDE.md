@@ -242,10 +242,10 @@ decrypted tree there.
 
 **The archive** ([app/src/store/archiveStore.ts](app/src/store/archiveStore.ts))
 is the one exception to "only `searchIndex` holds decrypted mail": a Level 2
-or 3 message **decrypts once**, because its quantum keys are deleted as it
+message **decrypts once**, because its quantum keys are deleted as it
 opens, so the decrypted copy is kept, sealed, in *durable* storage, keyed by
 the ciphertext. It also still holds copies of mail read with the removed
-per-email keys, which nothing else can open. It is the only copy there is, so:
+per-email keys and the removed Level 3, which nothing else can open. It is the only copy there is, so:
 it never evicts; `openMessage` reads it before asking the core and writes it
 (awaited) the moment one opens; `deliver` writes it **before** sending and
 refuses to send if it cannot; removing an account clears it, but resetting
@@ -254,8 +254,8 @@ cached content must **never** touch it. Level 1 mail is never archived —
 ([TransferScreen](app/src/screens/TransferScreen.tsx), `core/src/transfer.rs`)
 seals the key, the Key Manager's bank and the archive into one file under a
 code shown once, and **hands the old phone's bank over** — it stops issuing
-quantum keys, because two ends drawing from one half would reuse a one-time
-pad. Reading is left alone at every level. The new phone's restore field takes
+quantum keys, because the new phone sends under the same SAE ID, and two phones
+sending as one end would derive one AES key twice. Reading is left alone at every level. The new phone's restore field takes
 that file as it takes a backup; `resumeTransfer` takes the bank back.
 
 **Quantum links** (`core/src/bb84.rs`, [app/src/state/bb84.ts](app/src/state/bb84.ts)):
@@ -276,30 +276,41 @@ first. Everything above the channel is the protocol.
 
 **Security levels** ([docs/superpowers/specs/2026-09-20-qkd-levels-design.md](docs/superpowers/specs/2026-09-20-qkd-levels-design.md)):
 compose picks one per message. **1** OpenPGP to long-term keys, the default;
-**2** AES-256-GCM seeded by one 1 Kb key from the Key Manager; **3** a
-one-time pad from those keys, one per 128 bytes plus one for the HMAC. There is
-no Level 4 any more — see the top of this file. **Level 3 is switched off
-for now** — `DISABLED_LEVELS` in `app/src/core/qkd.ts` hides it from the picker
-and `deliver` refuses it; received Level 3 mail still opens. Level 2 is labelled
-`L2 · Quantum`.
+**2** AES-256-GCM seeded by one 1 Kb key from the Key Manager, labelled
+`L2 · Quantum`. There is no Level 4 any more — see the top of this file — and
+**no Level 3**: the one-time pad was removed on 2026-09-23, because it was the
+only thing that needed the bank split into halves. `deliver` refuses a held
+Level 3 message (`RETIRED_HOLD`, `isRetiredHold`), the core refuses to open
+one before touching a key, and archived copies still open (`OpenedLevel`,
+`levelName`).
+
+**The bank has no halves.** Both ends of a link send from all of it, so both
+can pick the same key before either has seen the other's mail. That is safe
+because the Level 2 AES key is `HKDF(key, salt = Key-ID, info = … ‖ sender's
+SAE ID)` (`core/src/qkd.rs`): one bank key, two senders, two unrelated AES
+keys. It rests on the two ends' SAE IDs differing (linking gives each its own)
+and on one phone per SAE ID issuing keys (a device transfer's hand-over). Never
+reintroduce a cipher that uses bank bytes directly — a pad cannot be bound to
+its sender, and it would need the halves back. Mail sealed before the binding
+says `Cipher: …over a QKD key` and opens with the old derivation.
 
 They are offered as **two groups, not a ladder** (`LEVEL_GROUPS` in
 [app/src/core/qkd.ts](app/src/core/qkd.ts)): *Everyday* — 1, which works with
-anyone whose key you hold and is signed — and *Quantum keys* — 2 (and 3 when
-enabled), which need a bank shared with the recipient. The group names are not
-drawn in compose; a divider separates them. Numbered in a row they would read
-as increasing security, which is wrong: 3's guarantee rests on a key source
-that is simulated. Don't reintroduce a single 1→3 row.
+anyone whose key you hold and is signed — and *Quantum keys* — 2, which needs a
+bank shared with the recipient. The group names are not drawn in compose; a
+divider separates them. Numbered in a row they would read as increasing
+security, which is wrong: 2's guarantee rests on a key source that is
+simulated.
 
-Compose refuses a Level 2 or 3 send when this mailbox has **no quantum link**
-(`km.peerSaeId === null`): those levels do not consult the recipient's key, so
+Compose refuses a Level 2 send when this mailbox has **no quantum link**
+(`km.peerSaeId === null`): that level does not consult the recipient's key, so
 nothing else would catch it, and the message would be one nobody but the sender
-could ever open. Levels 2 and 3 need no
+could ever open. Level 2 needs no
 recipient key at all — holding the same bank is what makes a message readable —
 though when every recipient's key is held and unchanged, `deliver` also seals
 the quantum block to those keys (an L1 PGP/MIME envelope around it; see
 `docs/message-format.md`), so the bank alone opens nothing;
-and their keys are deleted as the message opens, so they are archived. `deliver` branches on the level and a held message
+and its keys are deleted as the message opens, so it is archived. `deliver` branches on the level and a held message
 carries it. The bank never leaves the core; the app sees only status and
 ciphertext.
 

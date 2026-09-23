@@ -7,7 +7,29 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-22.
+Last updated: 2026-09-23.
+
+> **Level 3 removed; the bank has no halves (2026-09-23):** `qkd.rs` seals
+> only Level 2, and derives its AES key from the bank key, the key ID **and
+> the sender's SAE ID** (`Cipher: …over a QKD key and the sender`), so both
+> ends of a link send from all 100 keys and a key both pick seals two messages
+> under two unrelated AES keys. `km.rs` no longer filters by master/slave half.
+> Level 2 mail sealed before this (`Cipher: …over a QKD key`) opens with the old
+> derivation. A Level 3 block is refused before any key is fetched; archived
+> Level 3 copies still open; a held Level 3 message is a retired hold.
+>
+> | Claim | Level |
+> |---|---|
+> | Both ends pick the same key and each opens the other's message | ✅ `cargo test` (`tests/qkd.rs`, `tests/bb84.rs`) |
+> | Old-format Level 2 mail opens; a `Cipher:` line swapped between formats does not | ✅ `cargo test` (`qkd.rs` unit) |
+> | Level 3 refused to seal and to open, costing no keys | ✅ `cargo test`, app `qkd-test.ts` |
+> | Held Level 3 message refused by `deliver`, shown as a retired hold | ✅ `send-test.ts`, `outbox-test.ts` |
+> | Two installs exchanging Level 2 after this change | ⛔ **not run** — needs the NDK build; FFI signatures are unchanged, so the UniFFI bindings need no regeneration |
+>
+> **Both phones need this build.** An older build rebuilds the header from the
+> level alone, so it fails every new-format message as "changed after it was
+> sent". Mail from an older build still opens here. App suite
+> **1,830**, `tsc` clean.
 
 > **Per-email keys (Level 4) removed (2026-09-22):** the Rust core's
 > `forward.rs`, `session.rs` and `session_store.rs` are gone, with `seal`,

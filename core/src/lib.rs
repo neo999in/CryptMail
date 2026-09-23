@@ -249,7 +249,7 @@ impl Core {
     }
 
     /// Leg 3, the sender: sift, judge the channel, and — if it was clean —
-    /// build this end's half of the bank as master. Returns the verdict to
+    /// build this end's bank as master. Returns the verdict to
     /// send back. A rate above the limit builds nothing and says so.
     pub fn bb84_judge(&self, passphrase: &str, email: &str, armored: &str) -> Result<String> {
         let km = km::KeyManager::for_account(&self.dir, passphrase, email)?;
@@ -271,7 +271,7 @@ impl Core {
     }
 
     /// After leg 3, the receiver: check the verdict against what it measured
-    /// itself, and build the other half of the bank as slave. Returns the KM
+    /// itself, and build this end's bank as slave. Returns the KM
     /// status.
     pub fn bb84_accept(&self, passphrase: &str, email: &str, armored: &str) -> Result<String> {
         let km = km::KeyManager::for_account(&self.dir, passphrase, email)?;
@@ -314,7 +314,7 @@ impl Core {
         })
     }
 
-    /// Level 2 (quantum-aided AES) or 3 (one-time pad). Returns the armored block.
+    /// Level 2 (quantum-aided AES), the only quantum level. Returns the armored block.
     pub fn qkd_seal(&self, passphrase: &str, email: &str, level: u8, plaintext: &str) -> Result<String> {
         qkd::seal(&km::KeyManager::for_account(&self.dir, passphrase, email)?, level, plaintext)
     }

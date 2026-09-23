@@ -34,8 +34,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Transfer'>;
  * the bank and the archive of what was read, under a code shown once.
  *
  * The part the copy must carry is that this is a *move*. Once the file exists
- * this phone stops sending with quantum keys, because two phones drawing from
- * one bank would use the same one-time pad twice. It can still read, at every
+ * this phone stops sending with quantum keys, because two phones sending as one
+ * end would seal two messages with the same key. It can still read, at every
  * level. The new phone's half is the ordinary restore field, which takes a
  * transfer file as readily as a backup.
  */

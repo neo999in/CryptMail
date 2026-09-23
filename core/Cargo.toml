@@ -38,7 +38,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # naming them directly adds no new crypto code — only direct access to it.
 # `static_secrets` because a receiving key must outlive the call that made it.
 hkdf = "0.12"
-hmac = "0.12"
 sha2 = "0.10"
 aes-gcm = "0.10"
 ml-kem = "0.2.3"

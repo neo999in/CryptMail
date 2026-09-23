@@ -8,7 +8,7 @@
  */
 import { buildPlaintext, core, CoreError } from '../core';
 import { isPgpMime } from '../core/mime';
-import { DEFAULT_LEVEL, isLevelEnabled, isQkdMessage, LEVELS } from '../core/qkd';
+import { DEFAULT_LEVEL, isQkdMessage } from '../core/qkd';
 import { cryptoMode } from '../config';
 import { archive } from '../store/archiveStore';
 import { recordInvite, saveInvites, shouldInvite } from '../store/inviteStore';
@@ -16,9 +16,12 @@ import { Ctx, SendService } from './contracts';
 import { newOutboxId } from './scheduler';
 import { PlainSendInput, SendInput, SendOutcome } from './types';
 
-/** Why a message held for the removed per-email keys will not go by itself. */
+/**
+ * Why a message held at a removed level — per-email keys (4) or the one-time
+ * pad (3) — will not go by itself.
+ */
 export const RETIRED_HOLD =
-  'This message was waiting for per-email keys, which this version no longer has. Cancel it to drafts and send it again with a level you choose.';
+  'This message was waiting to go at a security level this version no longer has. Cancel it to drafts and send it again with a level you choose.';
 
 export function createSend(ctx: Ctx): SendService {
   const { store, mail } = ctx;
@@ -100,27 +103,24 @@ export function createSend(ctx: Ctx): SendService {
      *    it; only a person re-verifying the key can.
      *
      * That is Level 1, the default: OpenPGP to long-term keys. The user may
-     * choose another level up front (`core/qkd.ts`): Levels 2 and 3 take keys
+     * choose another level up front (`core/qkd.ts`): Level 2 takes a key
      * from the Key Manager, so no recipient key is needed — though one held
      * for everyone adds a second, ML-KEM layer.
      */
     async deliver({ id, to, subject, body, html, inReplyTo, references, attachments, level }: SendInput): Promise<SendOutcome> {
       const { session, identity } = store.get();
       if (!mail.current || !session || !identity) throw new Error('Not connected.');
-      // Level 4 (per-email keys) was removed. A message held from before
-      // carries it, and was written expecting a key that no long-term key
-      // could open — so it is not quietly sealed to one now.
-      if ((level as number | undefined) === 4) {
+      // Levels 3 (the one-time pad) and 4 (per-email keys) were removed. A
+      // message held from before carries one, and was written expecting a
+      // level the user chose — so it is not quietly sent at another. Checked
+      // before anything is built or held.
+      const retired = level as number | undefined;
+      if (retired === 3 || retired === 4) {
         throw new CoreError(RETIRED_HOLD, 'unavailable');
       }
       const chosen = level ?? DEFAULT_LEVEL;
-      // Before anything is built or held: a level switched off in this build
-      // sends nothing, including a message held from before it was.
-      if (!isLevelEnabled(chosen)) {
-        throw new CoreError(`${LEVELS[chosen].name} is turned off in this version. Choose another level.`, 'unavailable');
-      }
 
-      // Levels 2 and 3: the quantum keys come from this mailbox's Key Manager,
+      // Level 2: the quantum key comes from this mailbox's Key Manager,
       // and the recipient's KM holds the same ones — their public key is not
       // what makes it readable. It opens once, so it is kept first.
       //
@@ -129,7 +129,7 @@ export function createSend(ctx: Ctx): SendService {
       // leaked on its own opens nothing. Otherwise it goes bank-only, exactly
       // as before: a missing key is no reason to hold a message these levels
       // never needed a key for, and a changed one must not be sealed to.
-      if (chosen === 2 || chosen === 3) {
+      if (chosen === 2) {
         if (to.length === 0) throw new CoreError('Add a recipient first.', 'no-key');
         const recipients = await ctx.services.contacts.discoverRecipients(to);
         const wrap = recipients.every((r) => (r.status === 'ok' || r.status === 'verified') && r.key);

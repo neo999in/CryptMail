@@ -478,7 +478,6 @@ dependencies = [
  "chrono",
  "hex",
  "hkdf",
- "hmac",
  "ml-kem",
  "pgp",
  "rand",

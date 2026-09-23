@@ -104,16 +104,20 @@ guarantees we layer keyserver discovery and optional manual verification (see
 
 **Security levels.** The user picks a level per message
 ([design](superpowers/specs/2026-09-20-qkd-levels-design.md)): 1 OpenPGP to
-long-term keys (the default), 2 (`L2 · Quantum`) AES-256-GCM seeded by a
-quantum key, 3 a one-time pad from quantum keys. **Level 3 is switched off for
-now** (`DISABLED_LEVELS`): hidden from compose and refused by `deliver`;
-received Level 3 mail still opens. Compose offers them as two groups rather
-than a ladder — 1, then 2 after a divider, with no group labels. Level 4
+long-term keys (the default), and 2 (`L2 · Quantum`) AES-256-GCM seeded by a
+quantum key and bound to the sender. **Level 3 (one-time pad) was removed on
+2026-09-23**, and with it the split of the bank into halves: both ends now send
+from the whole bank, and a key both happen to pick seals two messages under two
+unrelated AES keys (see [message-format.md](message-format.md)). A held Level 3
+message is refused by `deliver` and waits for the user to cancel it to drafts;
+received Level 3 mail no longer opens unless it was opened — and so archived —
+before. Compose offers the levels as two groups rather than a ladder — 1, then
+2 after a divider, with no group labels. Level 4
 (per-email keys) was removed on 2026-09-22; a message still held at Level 4 is
 refused by `deliver` rather than sealed to a long-term key, and waits in the
 outbox for the user to cancel it to drafts.
 
-Levels 2 and 3 take their keys from a simulated Key Manager and need no
+Level 2 takes its keys from a simulated Key Manager and need no
 recipient public key at all, so no recipient check can catch a message to
 someone who shares no bank: compose refuses those sends while this mailbox has
 no quantum link. The table below is Level 1.

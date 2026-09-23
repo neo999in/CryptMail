@@ -193,16 +193,17 @@ export function KeyManagerScreen({ navigation }: Props) {
             {status?.handedOver ? (
               <Banner tone="note" icon="forward">
                 This key bank moved to another phone. It still opens quantum mail that was already on its way,
-                but the other phone sends with it now — two phones sending from one bank would use the same
-                one-time pad twice.
+                but the other phone sends with it now — two phones sending as one end would seal with the
+                same key twice.
               </Banner>
             ) : null}
             <Row label="Keys to send with" value={status ? (status.handedOver ? '—' : `${status.available}`) : '—'} />
             <Row label="Keys in the bank" value={status ? `${status.remaining} of ${status.bankSize}` : '—'} />
             <Row label="Key size" value={status ? `${status.keyBits} bits (1 Kb)` : '—'} />
             <Text style={s.hint}>
-              Level 2 uses one key per message. Level 3, the one-time pad, uses one key per 128 bytes plus one
-              to authenticate it. A key is deleted as soon as the message it sealed is opened.
+              Level 2 uses one key per message. Both phones send from the whole bank — if you both pick the
+              same key, each message still gets its own encryption key, because it is tied to who sent it. A
+              key is deleted as soon as the message it sealed is opened.
             </Text>
             <SecondaryButton title="Refill the bank" icon="refresh" onPress={confirmRegenerate} />
           </View>

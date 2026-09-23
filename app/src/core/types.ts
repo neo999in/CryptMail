@@ -63,7 +63,8 @@ export type RecoveryBackup = {
  * The same two halves as a recovery backup — a code shown once and a file —
  * and the same rule: the code is never stored. Unlike a backup, making one
  * **hands this phone's bank over**: from then on it issues no quantum keys,
- * because two ends drawing from one half would reuse a one-time pad.
+ * because the new phone sends under the same SAE ID, and two phones sending
+ * under one ID would derive one AES key twice.
  */
 export type DeviceTransfer = {
   /** Shown once, as a recovery code is. Never persisted. */
@@ -104,7 +105,7 @@ export type BuildRequest = {
   attachments?: Attachment[];
   /**
    * Which security level seals it (`core/qkd.ts`). Defaults to 1, OpenPGP to
-   * long-term keys. 2 and 3 take keys from the Key Manager and need no
+   * long-term keys. 2 takes a key from the Key Manager and needs no
    * recipient keys — but given them (every recipient's, and the sender's),
    * the quantum block is sealed to those keys as well, in a PGP/MIME
    * envelope, so opening it needs both the bank and the private key.
@@ -120,14 +121,21 @@ export type BuildRequest = {
 
 /**
  * The security levels the user can choose between, in the problem statement's
- * numbering: 1 no quantum security (OpenPGP, the default), 2 quantum-aided AES,
- * 3 quantum one-time pad.
+ * numbering: 1 no quantum security (OpenPGP, the default), 2 quantum-aided AES.
+ * Level 3, the one-time pad, was removed — see `OpenedLevel`.
  */
 import type { Bb84Leg } from './bb84';
 
 export type { Bb84Leg };
 
-export type SecurityLevel = 1 | 2 | 3;
+export type SecurityLevel = 1 | 2;
+
+/**
+ * A level a message may have been sealed at. Adds the removed Level 3: the
+ * archive still holds copies of Level 3 mail opened before it went, and those
+ * still open. Nothing is sent at it, and the core no longer opens it.
+ */
+export type OpenedLevel = SecurityLevel | 3;
 
 /**
  * The simulated QKD Key Manager, as the app may see it — never a key.
@@ -138,16 +146,21 @@ export type KmStatus = {
   saeId: string;
   peerSaeId: string | null;
   role: 'Solo' | 'Master' | 'Slave';
-  /** Keys this end can still encrypt with. */
+  /**
+   * Keys this end can still encrypt with — any in the bank it has not issued
+   * or read. There are no halves: both ends may send with one key, because
+   * each use is bound to its sender (`core/src/qkd.rs`).
+   */
   available: number;
-  /** Keys still in the bank, either end's, not yet consumed. */
+  /** Keys still in the bank, not yet consumed. */
   remaining: number;
   bankSize: number;
   keyBits: number;
   /**
    * The bank moved to another phone with a device transfer. It still opens
    * mail — reading deletes only this phone's own copy of a key — but it issues
-   * no more, because two ends sending from one half would reuse a one-time pad.
+   * no more, because two phones sending under one SAE ID would derive one AES
+   * key twice.
    */
   handedOver: boolean;
 };
@@ -179,15 +192,15 @@ export type DecryptedMessage = {
   attachments: Attachment[];
   /**
    * True when the keys that sealed the message are now destroyed — a Level 2
-   * or 3 message. It opens **once**: the caller must archive what was
+   * message, or an archived Level 3 one. It opens **once**: the caller must archive what was
    * decrypted (`store/archiveStore.ts`), because no key anywhere can open it
    * again.
    */
   forwardSecret?: boolean;
-  /** The level it was sealed at. 2 and 3 open once. */
-  securityLevel?: SecurityLevel;
+  /** The level it was sealed at. 2 (and the removed 3) open once. */
+  securityLevel?: OpenedLevel;
   /**
-   * A Level 2 or 3 message that was also sealed to this device's long-term
+   * A Level 2 (or archived Level 3) message that was also sealed to this device's long-term
    * key (ML-KEM-768 + X25519) and signed — so reading it took the bank *and*
    * the private key. Absent on a bank-only one.
    */
@@ -248,7 +261,7 @@ export interface CryptCore {
 
   /**
    * M5: sign + encrypt, then assemble the full RFC 5322 / PGP-MIME message
-   * (Level 1), or the Key Manager's text envelope (Levels 2 and 3).
+   * (Level 1), or the Key Manager's text envelope (Level 2).
    */
   buildEncrypted(request: BuildRequest): Promise<string>;
 

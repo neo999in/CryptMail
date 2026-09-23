@@ -24,7 +24,7 @@ import { OpenedMessage, useApp } from '../state/AppState';
 import { SECONDARY_BOXES, SecondaryBox } from '../state/types';
 import { settingsOf } from '../store/accountScope';
 import { countRemoteImages } from '../html/remoteImages';
-import { LEVELS } from '../core/qkd';
+import { levelName } from '../core/qkd';
 import { color, font, glass, radius, shadow, space, type } from '../theme';
 import { AttachmentList } from '../ui/attachments';
 import { useAccent, useAppearance } from '../ui/appearance';
@@ -625,11 +625,11 @@ export function MessageScreen({ route, navigation }: Props) {
                   {/* Which security level sealed it. Level 1 is the default and
                       goes unsaid; the quantum levels were someone's deliberate
                       choice. An archived copy may carry the removed Level 4,
-                      which has no entry in LEVELS, so only 2 and 3 are named. */}
+                      which is not named; the removed Level 3 is, by levelName. */}
                   {opened.decrypted?.securityLevel === 2 || opened.decrypted?.securityLevel === 3 ? (
                     <View style={{ marginBottom: 14 }}>
                       <Banner tone="ok" icon="lock">
-                        {LEVELS[opened.decrypted.securityLevel].name}. Opened with quantum keys from your Key
+                        {levelName(opened.decrypted.securityLevel)}. Opened with quantum keys from your Key
                         Manager, which are now deleted — this copy on the phone is the only one.
                         {opened.decrypted.sealedToKey
                           ? ' It was also sealed to your ML-KEM-768 + X25519 key, so the key bank alone could not open it.'

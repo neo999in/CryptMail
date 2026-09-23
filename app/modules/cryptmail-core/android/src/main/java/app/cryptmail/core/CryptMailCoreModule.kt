@@ -110,7 +110,7 @@ class CryptMailCoreModule : Module() {
       mapErrors { core.decryptVerify(armored, senderKeysJson) }
     }
 
-    // The simulated QKD Key Manager (Levels 2 and 3). One login: every call
+    // The simulated QKD Key Manager (Level 2). One login: every call
     // names the signed-in mailbox, whose bank the core keeps. The quantum keys
     // themselves never leave Rust — only ciphertext and status cross here.
     AsyncFunction("kmStatus") Coroutine { email: String ->

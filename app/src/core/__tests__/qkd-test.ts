@@ -1,5 +1,5 @@
 /**
- * The Level 2/3 email: an ordinary text message around an armored block, so any
+ * The Level 2 email: an ordinary text message around an armored block, so any
  * mail system carries it — and the bridge that seals and opens it.
  */
 import { parseRfc822, PLACEHOLDER_SUBJECT } from '../mime';
@@ -8,28 +8,31 @@ import {
   buildQkdEnvelope,
   extractQkdArmor,
   isQkdMessage,
-  otpKeysNeeded,
+  levelName,
   qkdLevelOf,
   QKD_BEGIN,
   QKD_END,
 } from '../qkd';
 
-const BLOCK = `${QKD_BEGIN}\nLevel: 3\nCipher: one-time pad\nSAE: sae-1\nKey-ID: a-0001\nKey-ID: b-0002\n\nQUJD\n${QKD_END}\n`;
+const BLOCK = `${QKD_BEGIN}\nLevel: 2\nCipher: AES-256-GCM, key from HKDF-SHA256 over a QKD key and the sender\nSAE: sae-1\nKey-ID: a-0001\n\nQUJD\n${QKD_END}\n`;
 
-describe('the Level 2/3 email', () => {
-  const rfc822 = buildQkdEnvelope({ from: 'a@x.com', to: ['b@x.com'], armored: BLOCK, level: 3 });
+/** What an older version sent at Level 3, the one-time pad, which is gone. */
+const LEVEL_3_BLOCK = `${QKD_BEGIN}\nLevel: 3\nCipher: one-time pad, HMAC-SHA256 with a QKD key\nSAE: sae-1\nKey-ID: a-0001\nKey-ID: b-0002\n\nQUJD\n${QKD_END}\n`;
+
+describe('the Level 2 email', () => {
+  const rfc822 = buildQkdEnvelope({ from: 'a@x.com', to: ['b@x.com'], armored: BLOCK, level: 2 });
 
   it('is plain text with the placeholder subject, so every client and every list treats it as encrypted mail', () => {
     const { headers } = parseRfc822(rfc822);
     expect(headers['content-type']).toMatch(/^text\/plain/);
     expect(headers['subject']).toBe(PLACEHOLDER_SUBJECT);
-    expect(headers['x-cryptmail-security']).toMatch(/Level 3/);
+    expect(headers['x-cryptmail-security']).toMatch(/Level 2/);
   });
 
   it('carries the block, found again whole', () => {
     expect(isQkdMessage(rfc822)).toBe(true);
     expect(extractQkdArmor(rfc822)).toBe(BLOCK.trim());
-    expect(qkdLevelOf(rfc822)).toBe(3);
+    expect(qkdLevelOf(rfc822)).toBe(2);
     expect(isQkdMessage('Subject: hi\n\nplain')).toBe(false);
   });
 
@@ -69,13 +72,6 @@ ${QKD_END}
 `, level: 2 });
     expect(extractQkdArmor(padded)).toContain('QUJDRA=');
   });
-
-  it('prices a one-time pad at one 1 Kb key per 128 bytes, plus the MAC key', () => {
-    expect(otpKeysNeeded(1)).toBe(2);
-    expect(otpKeysNeeded(128)).toBe(2);
-    expect(otpKeysNeeded(129)).toBe(3);
-    expect(otpKeysNeeded(0)).toBe(2);
-  });
 });
 
 describe('levels through the native bridge', () => {
@@ -97,7 +93,7 @@ describe('levels through the native bridge', () => {
       qkdSeal: record('qkdSeal', BLOCK),
       qkdOpen: record(
         'qkdOpen',
-        JSON.stringify({ plaintext: 'Subject: Launch\r\nContent-Type: text/plain\r\n\r\nAt noon.', level: 3, senderSae: 'sae-1' }),
+        JSON.stringify({ plaintext: 'Subject: Launch\r\nContent-Type: text/plain\r\n\r\nAt noon.', level: 2, senderSae: 'sae-1' }),
       ),
       kmStatus: record('kmStatus', JSON.stringify({ account: 'a@x.com', available: 100 })),
       kmExportLink: record('kmExportLink', '-----BEGIN CRYPTMAIL KM LINK-----'),
@@ -106,11 +102,11 @@ describe('levels through the native bridge', () => {
   }
   const request = { from: 'a@x.com', to: ['b@x.com'], subject: 'Launch', body: 'At noon.', recipientKeys: ['k'] };
 
-  it('Level 2/3 go to the Key Manager with no recipient key, and never to the PGP paths', async () => {
+  it('Level 2 goes to the Key Manager with no recipient key, and never to the PGP paths', async () => {
     const { core, calls } = bridge();
-    const rfc822 = await core.buildEncrypted({ ...request, recipientKeys: [], level: 3 });
+    const rfc822 = await core.buildEncrypted({ ...request, recipientKeys: [], level: 2 });
     expect(calls.qkdSeal?.[0]).toBe('a@x.com');
-    expect(calls.qkdSeal?.[1]).toBe(3);
+    expect(calls.qkdSeal?.[1]).toBe(2);
     expect(String(calls.qkdSeal?.[2])).toContain('Subject: Launch');
     expect(calls.encryptSign).toBeUndefined();
     expect(isQkdMessage(rfc822)).toBe(true);
@@ -123,13 +119,20 @@ describe('levels through the native bridge', () => {
     expect(calls.encryptSign).toBeDefined();
   });
 
-  it('opens a Level 3 email with the signed-in mailbox’s Key Manager, and reports the level', async () => {
+  it('opens a Level 2 email with the signed-in mailbox’s Key Manager, and reports the level', async () => {
     const { core, calls } = bridge();
-    const rfc822 = buildQkdEnvelope({ from: 'b@x.com', to: ['a@x.com'], armored: BLOCK, level: 3 });
+    const rfc822 = buildQkdEnvelope({ from: 'b@x.com', to: ['a@x.com'], armored: BLOCK, level: 2 });
     expect(core.looksEncrypted(rfc822)).toBe(true);
     const opened = await core.parseEncrypted(rfc822, 'a@x.com');
     expect(calls.qkdOpen?.[0]).toBe('a@x.com');
-    expect(opened).toMatchObject({ subject: 'Launch', securityLevel: 3, forwardSecret: true, signature: 'none' });
+    expect(opened).toMatchObject({ subject: 'Launch', securityLevel: 2, forwardSecret: true, signature: 'none' });
+  });
+
+  it('refuses a Level 3 email in its own words, without asking the Key Manager', async () => {
+    const { core, calls } = bridge();
+    const rfc822 = buildQkdEnvelope({ from: 'b@x.com', to: ['a@x.com'], armored: LEVEL_3_BLOCK, level: 2 });
+    await expect(core.parseEncrypted(rfc822, 'a@x.com')).rejects.toThrow(/Level 3, the one-time pad/);
+    expect(calls.qkdOpen).toBeUndefined();
   });
 
   it('asks the Key Manager as the signed-in mailbox, and makes the link code here', async () => {
@@ -154,15 +157,19 @@ describe('levels through the native bridge', () => {
         throw Object.assign(new Error('no-key: no-qkd-keys: this needs 9 quantum keys'), { code: 'no-key' });
       },
     })!;
-    await expect(failing.buildEncrypted({ ...request, level: 3 })).rejects.toThrow(/one 1 Kb key per 128 bytes/);
+    await expect(failing.buildEncrypted({ ...request, level: 2 })).rejects.toThrow(/no quantum keys left/);
   });
 });
 
-describe('levels switched off in this build', () => {
-  it('Level 3 cannot be picked, and the others can', () => {
-    const { LEVEL_GROUPS, isLevelEnabled } = jest.requireActual('../qkd');
+describe('Level 3 is gone', () => {
+  it('cannot be picked — only 1 and 2 are offered', () => {
+    const { LEVEL_GROUPS } = jest.requireActual('../qkd');
     const offered = LEVEL_GROUPS.flatMap((g: { levels: number[] }) => g.levels);
     expect(offered).toEqual([1, 2]);
-    expect(isLevelEnabled(3)).toBe(false);
+  });
+
+  it('is still named, for the archived copies that still open', () => {
+    expect(levelName(3)).toMatch(/Level 3.*removed/);
+    expect(levelName(2)).toBe('Level 2 — Quantum');
   });
 });

@@ -27,9 +27,12 @@
 //! Real KMs share keys because the quantum link produced them at both ends.
 //! Here the "link" is a file: `export_link` seals this bank under a one-time
 //! code, `import_link` adopts it on the other phone. The two banks then hold the
-//! same keys, and each side encrypts only from its own half — ETSI's master and
-//! slave roles — so the two never pick the same key, which would be fatal for
-//! a one-time pad.
+//! same keys, and **either side may encrypt with any of them** — there are no
+//! halves. Both ends can therefore pick the same key before either has seen
+//! the other's message; `qkd.rs` makes that harmless by binding each message's
+//! AES key to the sender's SAE ID, so one bank key sealed by the two ends gives
+//! two unrelated keys. The master and slave roles survive as names for who
+//! started the link.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,9 +58,10 @@ pub const MATERIAL_BYTES: usize = BANK_SIZE * KEY_BYTES;
 const LINK_BEGIN: &str = "-----BEGIN CRYPTMAIL KM LINK-----";
 const LINK_END: &str = "-----END CRYPTMAIL KM LINK-----";
 
-/// Which half of the bank this end encrypts from. `Solo` is a bank that has
-/// never been linked: it encrypts from all of it, which is only ever read back
-/// by this same phone (mail to yourself, and your Sent copy).
+/// Which end of a link this is: `Master` started it, `Slave` answered. `Solo`
+/// is a bank that has never been linked, which only this same phone reads back
+/// (mail to yourself, and your Sent copy). Every role sends from the whole
+/// bank; the halves the roles once chose between are gone with Level 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Role {
     Solo,
@@ -88,7 +92,8 @@ struct Bank {
     keys: Vec<BankKey>,
     /// This bank has gone to another phone. It still opens mail — reading only
     /// deletes keys, and each phone deletes its own copy — but it never issues
-    /// another, because two ends issuing from one half would reuse a pad.
+    /// another: the new phone sends under the same SAE ID, and two phones
+    /// sending under one ID would derive the same AES key from one bank key.
     #[serde(default)]
     handed_over: bool,
     /// When it was handed over, in Unix seconds. Absent in a bank handed over
@@ -108,7 +113,8 @@ pub struct Status {
     pub role: Role,
     /// Keys this end can still encrypt with.
     pub available: usize,
-    /// Keys still in the bank, either half, not yet consumed.
+    /// Keys still in the bank, not yet consumed — including ones this end
+    /// issued and has not read back.
     pub remaining: usize,
     pub bank_size: usize,
     pub key_bits: usize,
@@ -161,8 +167,7 @@ impl KeyManager {
     ///
     /// Both ends run this on the same material and must land on the same key
     /// IDs, so the IDs are derived from the material too. The slot still rides
-    /// in the last four hex digits, which is what keeps master's half and
-    /// slave's apart once keys start being deleted.
+    /// in the last four hex digits, as in every bank.
     pub fn fill_from(&self, material: &[u8], role: Role, peer_sae_id: &str) -> Result<()> {
         if material.len() != MATERIAL_BYTES {
             return Err(CoreError::Malformed(format!(
@@ -242,8 +247,9 @@ impl KeyManager {
         self.write_bank(&fresh_bank(sae_id))
     }
 
-    /// ETSI GS QKD 014 `enc_keys`: `number` fresh keys from this end's half,
-    /// marked issued. Refuses rather than hand out fewer than asked.
+    /// ETSI GS QKD 014 `enc_keys`: `number` fresh keys from the bank, marked
+    /// issued. The other end may issue the same key; `qkd.rs` binds each use to
+    /// its sender, so that reuses nothing. Refuses rather than hand out fewer than asked.
     pub fn enc_keys(&self, number: usize) -> Result<(String, Vec<QKey>)> {
         let mut bank = self.read_bank()?;
         if bank.handed_over {
@@ -289,8 +295,7 @@ impl KeyManager {
         Ok(out)
     }
 
-    /// Seal this bank for the other end under `code`, and become its master:
-    /// from now on this end encrypts from the first half only.
+    /// Seal this bank for the other end under `code`, and become its master.
     pub fn export_link(&self, code: &str) -> Result<String> {
         let code = link_code(code)?;
         let mut bank = self.read_bank()?;
@@ -304,7 +309,8 @@ impl KeyManager {
             handed_over_at: None,
         };
         bank.peer_sae_id = Some(peer.sae_id.clone());
-        // Keys this end already issued are its own; the other end never sends with them.
+        // Keys this end already issued are still fresh to the other end: a use
+        // is bound to its sender, so both may send with one.
         for k in &mut peer.keys {
             k.state = KeyState::Fresh;
         }
@@ -432,18 +438,9 @@ impl KeyManager {
     }
 }
 
-/// Fresh keys this end may encrypt with, in bank order.
+/// Fresh keys this end may encrypt with, in bank order: all of them.
 fn own_fresh(bank: &Bank) -> impl Iterator<Item = usize> + '_ {
-    let half = BANK_SIZE / 2;
-    bank.keys.iter().enumerate().filter_map(move |(i, k)| {
-        let slot = slot_of(&k.id);
-        let mine = match bank.role {
-            Role::Solo => true,
-            Role::Master => slot < half,
-            Role::Slave => slot >= half,
-        };
-        (mine && k.state == KeyState::Fresh).then_some(i)
-    })
+    bank.keys.iter().enumerate().filter_map(|(i, k)| (k.state == KeyState::Fresh).then_some(i))
 }
 
 fn fresh_bank(sae_id: String) -> Bank {
@@ -458,8 +455,7 @@ fn new_sae_id() -> String {
 }
 
 /// A UUID-shaped key ID, as ETSI GS QKD 014 uses, whose last four hex digits
-/// record the key's slot in the original bank, so the halves survive keys
-/// being deleted.
+/// record the key's slot in the original bank.
 fn key_id(slot: usize) -> String {
     id_from(&random(14), slot)
 }
@@ -468,10 +464,6 @@ fn key_id(slot: usize) -> String {
 fn id_from(seed: &[u8], slot: usize) -> String {
     let r = hex::encode(seed);
     format!("{}-{}-4{}-{}-{}{:04x}", &r[..8], &r[8..12], &r[12..15], &r[15..19], &r[19..27], slot)
-}
-
-fn slot_of(id: &str) -> usize {
-    usize::from_str_radix(&id[id.len().saturating_sub(4)..], 16).unwrap_or(usize::MAX)
 }
 
 fn random(n: usize) -> Vec<u8> {
@@ -598,27 +590,25 @@ mod tests {
     }
 
     #[test]
-    fn a_linked_pair_holds_the_same_keys_and_never_sends_with_the_same_one() {
+    fn a_linked_pair_holds_the_same_keys_and_each_end_sends_from_all_of_them() {
         let (a, b) = (km("link-a", "alice@example.com"), km("link-b", "bob@example.com"));
         let code = "K7M2-NQ8Z-R4J5-TWXB-3HYP-D6C9-FGKM-1N8Q";
         let link = a.export_link(code).unwrap();
         assert!(b.import_link(&link, "0000-0000-0000-0000-0000-0000-0000-0000").is_err());
         b.import_link(&link, code).unwrap();
 
-        assert_eq!(a.status().unwrap().available, 50);
-        assert_eq!(b.status().unwrap().available, 50);
+        assert_eq!(a.status().unwrap().available, 100);
+        assert_eq!(b.status().unwrap().available, 100);
+        assert_ne!(a.status().unwrap().sae_id, b.status().unwrap().sae_id, "the two ends share an SAE ID");
 
-        let (_, from_a) = a.enc_keys(50).unwrap();
-        let (_, from_b) = b.enc_keys(50).unwrap();
-        for k in &from_a {
-            assert!(from_b.iter().all(|o| o.id != k.id), "both ends sent with one key");
-        }
+        let (_, from_a) = a.enc_keys(100).unwrap();
         // B reads what A sent, by ID, and gets the same bytes.
         let ids: Vec<String> = from_a.iter().take(3).map(|k| k.id.clone()).collect();
         let got = b.dec_keys(&ids).unwrap();
         for (x, y) in got.iter().zip(&from_a) {
             assert_eq!(*x.key, *y.key);
         }
-        assert!(a.enc_keys(1).is_err(), "the master's half ran past its end");
+        assert!(a.enc_keys(1).is_err(), "the bank ran past its end");
+        assert_eq!(b.status().unwrap().available, 97, "reading deleted only the keys it read");
     }
 }

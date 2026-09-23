@@ -3,6 +3,7 @@ import { Keyring, upsertKey } from '../../store/keyring';
 import {
   dueScheduled,
   Held,
+  isRetiredHold,
   listScheduled,
   removeScheduled,
   resolvableHeld,
@@ -27,6 +28,16 @@ describe('listScheduled', () => {
 
   test('is empty for an empty outbox', () => {
     expect(listScheduled({})).toEqual([]);
+  });
+});
+
+describe('isRetiredHold', () => {
+  test('a message held at a removed level — the one-time pad (3) or per-email keys (4) — never sends by itself', () => {
+    const at = (level: number) => item('x', '2026-07-23T10:00:00Z', { level: level as Held['level'] });
+    expect(isRetiredHold(at(3))).toBe(true);
+    expect(isRetiredHold(at(4))).toBe(true);
+    expect(isRetiredHold(at(2))).toBe(false);
+    expect(isRetiredHold(item('x', '2026-07-23T10:00:00Z'))).toBe(false);
   });
 });
 

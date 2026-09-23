@@ -12,13 +12,15 @@
 //!   decrypted copies of Level 2 and 3 mail are the only copies there are;
 //! - the Key Manager's bank of quantum keys (`km.rs`), which is state and not a
 //!   key that can be re-derived: a phone that left it behind could not open a
-//!   single unread Level 2 or 3 message, and would have to link with the other
+//!   single unread Level 2 message, and would have to link with the other
 //!   end all over again.
 //!
 //! # Moved, never copied
 //!
-//! Exporting **hands the bank over**: two ends issuing from one half would hand
-//! out the same key twice, and a one-time pad used twice is no cipher at all.
+//! Exporting **hands the bank over**: the new phone sends under the old one's
+//! SAE ID, and two phones sending under one ID would turn one bank key into the
+//! same AES key twice — the sender binding in `qkd.rs` separates two *ends*,
+//! not two copies of one end.
 //! Reading is safe to leave alone, since `dec_keys` only deletes each phone's
 //! own copy — which is what lets the user keep using the old phone until the
 //! new one is set up.

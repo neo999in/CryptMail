@@ -476,11 +476,11 @@ describe('deliver — level 1 and the removed level 4', () => {
     archiveStore.setArchiveBackendForTests(undefined);
   });
 
-  it('refuses a message held at Level 4 and sends nothing', async () => {
+  it.each([3, 4])('refuses a message held at the removed Level %i and sends nothing', async (removed) => {
     const { services, wire } = harness({ keyring: { 'ada@example.com': contact() } });
     await expect(
-      services.send.deliver({ ...MESSAGE, level: 4 as unknown as SecurityLevel }),
-    ).rejects.toThrow(/per-email keys/);
+      services.send.deliver({ ...MESSAGE, level: removed as unknown as SecurityLevel }),
+    ).rejects.toThrow(/level this version no longer has/);
     expect(wire).toHaveLength(0);
   });
 

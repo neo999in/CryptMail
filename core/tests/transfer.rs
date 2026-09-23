@@ -182,7 +182,7 @@ fn linked(tag: &str) -> (Phone, Phone) {
 fn the_key_bank_moves_with_the_phone_and_the_link_survives() {
     let (alice, bob) = linked("bank-moves");
     // Mail Alice has not opened yet, sealed with keys only her bank holds.
-    let waiting = bob.core.qkd_seal(PW, bob.email, 3, "read me on the new phone").unwrap();
+    let waiting = bob.core.qkd_seal(PW, bob.email, 2, "read me on the new phone").unwrap();
 
     let file = alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
     let mut new = new_phone("bank-moves");
@@ -196,7 +196,7 @@ fn the_key_bank_moves_with_the_phone_and_the_link_survives() {
     let opened: Value = serde_json::from_str(&new.core.qkd_open(NEW_PW, new.email, &waiting).unwrap()).unwrap();
     assert_eq!(opened["plaintext"], "read me on the new phone");
 
-    // And it still sends to Bob, from the same half as before.
+    // And it still sends to Bob, under the same SAE ID as before.
     let m = new.core.qkd_seal(NEW_PW, new.email, 2, "from the new phone").unwrap();
     let back: Value = serde_json::from_str(&bob.core.qkd_open(PW, bob.email, &m).unwrap()).unwrap();
     assert_eq!(back["plaintext"], "from the new phone");
@@ -208,7 +208,7 @@ fn the_old_phone_stops_sending_with_the_bank_but_still_reads() {
     let waiting = bob.core.qkd_seal(PW, bob.email, 2, "sent before the move").unwrap();
     alice.core.export_transfer(alice.email, PW, CODE, "").unwrap();
 
-    // Two phones issuing from one half would hand out the same one-time pad.
+    // Two phones sending under one SAE ID would derive one AES key twice.
     let err = alice.core.qkd_seal(PW, alice.email, 2, "still sending?").unwrap_err();
     assert_eq!(err.code(), "no-key");
     assert!(err.to_string().contains("km-handed-over"), "{err}");
@@ -226,7 +226,7 @@ fn a_transfer_never_used_gives_the_bank_back_too() {
     alice.core.resume_transfer(PW).unwrap();
 
     assert_eq!(km(&alice)["handedOver"], false);
-    let m = alice.core.qkd_seal(PW, alice.email, 3, "back again").unwrap();
+    let m = alice.core.qkd_seal(PW, alice.email, 2, "back again").unwrap();
     let opened: Value = serde_json::from_str(&bob.core.qkd_open(PW, bob.email, &m).unwrap()).unwrap();
     assert_eq!(opened["plaintext"], "back again");
 }

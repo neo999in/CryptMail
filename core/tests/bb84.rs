@@ -1,6 +1,6 @@
 //! Two phones arriving at the same key bank by running BB84, with the three
 //! legs travelling as armored blocks — exactly the strings the app would put in
-//! an email body — and then using that bank for Level 2 and Level 3 mail.
+//! an email body — and then using that bank for Level 2 mail.
 
 use std::fs;
 
@@ -41,13 +41,13 @@ fn three_emails_leave_both_phones_holding_the_same_bank() {
     assert_eq!(b["role"], "Slave");
     assert_eq!(a["peerSaeId"], b["saeId"], "Alice is not pointed at Bob");
     assert_eq!(b["peerSaeId"], a["saeId"], "Bob is not pointed at Alice");
-    // Halves, as a linked bank has always had: 50 each, 100 in the bank.
-    assert_eq!((a["available"].as_u64(), a["remaining"].as_u64()), (Some(50), Some(100)));
-    assert_eq!((b["available"].as_u64(), b["remaining"].as_u64()), (Some(50), Some(100)));
+    // No halves: each end may send with all 100.
+    assert_eq!((a["available"].as_u64(), a["remaining"].as_u64()), (Some(100), Some(100)));
+    assert_eq!((b["available"].as_u64(), b["remaining"].as_u64()), (Some(100), Some(100)));
 }
 
 #[test]
-fn a_bank_built_this_way_carries_level_2_and_level_3_mail_both_ways() {
+fn a_bank_built_this_way_carries_level_2_mail_both_ways() {
     let (alice, bob) = (phone("a-mail"), phone("b-mail"));
     exchange(&alice, &bob).unwrap();
 
@@ -55,26 +55,28 @@ fn a_bank_built_this_way_carries_level_2_and_level_3_mail_both_ways() {
     let opened: Value = serde_json::from_str(&bob.qkd_open(PW, BOB, &m).unwrap()).unwrap();
     assert_eq!(opened["plaintext"], "the launch is at noon");
 
-    let m = bob.qkd_seal(PW, BOB, 3, "understood").unwrap();
+    let m = bob.qkd_seal(PW, BOB, 2, "understood").unwrap();
     let opened: Value = serde_json::from_str(&alice.qkd_open(PW, ALICE, &m).unwrap()).unwrap();
     assert_eq!(opened["plaintext"], "understood");
-    assert_eq!(opened["level"], 3);
+    assert_eq!(opened["level"], 2);
 }
 
 #[test]
-fn the_two_ends_never_send_with_the_same_key() {
-    // The halves are what stop a one-time pad being used twice, so the IDs the
-    // two ends issue must not overlap — and both derived them independently.
-    let (alice, bob) = (phone("a-halves"), phone("b-halves"));
+fn the_two_ends_derived_the_same_key_ids_and_may_both_send_with_one() {
+    // Both ends derived the bank independently, so they list the same IDs in
+    // the same order and pick the same first key. Each still reads the other:
+    // a use is bound to its sender (`qkd.rs`).
+    let (alice, bob) = (phone("a-same"), phone("b-same"));
     exchange(&alice, &bob).unwrap();
 
-    let ids = |armored: &str| -> Vec<String> {
-        armored.lines().filter_map(|l| l.strip_prefix("Key-ID:")).map(|v| v.trim().to_string()).collect()
-    };
-    let hers = ids(&alice.qkd_seal(PW, ALICE, 3, &"a".repeat(2_000)).unwrap());
-    let his = ids(&bob.qkd_seal(PW, BOB, 3, &"b".repeat(2_000)).unwrap());
-    assert_eq!(hers.len(), 17);
-    assert!(hers.iter().all(|id| !his.contains(id)), "both ends issued the same key");
+    let id = |m: &str| m.lines().find_map(|l| l.strip_prefix("Key-ID:")).unwrap().trim().to_string();
+    let hers = alice.qkd_seal(PW, ALICE, 2, "from alice").unwrap();
+    let his = bob.qkd_seal(PW, BOB, 2, "from bob").unwrap();
+    assert_eq!(id(&hers), id(&his));
+
+    let read = |core: &Core, email: &str, m: &str| -> Value { serde_json::from_str(&core.qkd_open(PW, email, m).unwrap()).unwrap() };
+    assert_eq!(read(&bob, BOB, &hers)["plaintext"], "from alice");
+    assert_eq!(read(&alice, ALICE, &his)["plaintext"], "from bob");
 }
 
 #[test]
@@ -152,7 +154,7 @@ fn an_exchange_replaces_a_bank_that_was_linked_by_file() {
 
     exchange(&alice, &bob).unwrap();
     assert_eq!(status(&alice, ALICE)["saeId"], before, "the exchange changed who this end is");
-    assert_eq!(status(&alice, ALICE)["available"], 50);
+    assert_eq!(status(&alice, ALICE)["available"], 100);
     let m = alice.qkd_seal(PW, ALICE, 2, "after relinking").unwrap();
     let opened: Value = serde_json::from_str(&bob.qkd_open(PW, BOB, &m).unwrap()).unwrap();
     assert_eq!(opened["plaintext"], "after relinking");

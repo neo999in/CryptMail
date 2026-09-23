@@ -81,12 +81,15 @@ export function listScheduled(outbox: ScheduledOutbox): Held[] {
 export const holdReason = (item: Held): HoldReason => item.reason ?? 'time';
 
 /**
- * Held for per-email keys (Level 4), which were removed: its reason was
- * `awaiting-session`, or it carries Level 4. It never sends by itself — the
- * user cancels it to drafts and picks a level (`RETIRED_HOLD` in `send.ts`).
+ * Held at a level that was removed — per-email keys (Level 4: its reason was
+ * `awaiting-session`, or it carries 4) or the one-time pad (Level 3). It never
+ * sends by itself — the user cancels it to drafts and picks a level
+ * (`RETIRED_HOLD` in `send.ts`).
  */
-export const isRetiredHold = (item: Held): boolean =>
-  (item.reason as string | undefined) === 'awaiting-session' || (item.level as number | undefined) === 4;
+export const isRetiredHold = (item: Held): boolean => {
+  const level = item.level as number | undefined;
+  return (item.reason as string | undefined) === 'awaiting-session' || level === 3 || level === 4;
+};
 
 /**
  * Time-held messages whose send time has arrived, soonest first.

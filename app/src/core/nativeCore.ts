@@ -253,9 +253,9 @@ export function getNativeCore(
         html: request.html,
         attachments: request.attachments,
       });
-      // Levels 2 and 3: keys from the Key Manager, sealed in the core, in an
+      // Level 2: a key from the Key Manager, sealed in the core, in an
       // ordinary text email any client can carry and display.
-      if (level === 2 || level === 3) {
+      if (level === 2) {
         const armored = await call(
           required(bridge, 'qkdSeal', 'Quantum encryption')(request.from, level, inner),
           WORDING.qkdSeal,
@@ -311,12 +311,13 @@ export function getNativeCore(
     async parseEncrypted(rfc822: string, mailbox?: string): Promise<DecryptedMessage> {
       const qkdBlock = extractQkdArmor(rfc822);
       if (qkdBlock) {
+        refuseRemovedLevel(qkdBlock);
         const opened = JSON.parse(
           await call(
             required(bridge, 'qkdOpen', 'Opening quantum-encrypted mail')(mailbox ?? '', qkdBlock),
             WORDING.qkdOpen,
           ),
-        ) as { plaintext: string; level: 2 | 3 };
+        ) as { plaintext: string; level: 2 };
         const { subject, body, html, attachments } = parseProtectedInner(opened.plaintext);
         return {
           subject,
@@ -342,17 +343,18 @@ export function getNativeCore(
         await call(bridge.decryptVerify(block, senderKeysJson), WORDING.decryptVerify),
       ) as NativeDecrypted;
 
-      // A Level 2 or 3 block sealed again to our long-term key: the outer
+      // A Level 2 block sealed again to our long-term key: the outer
       // layer is open, so now the quantum keys. The signature is the outer
       // layer's, and the level is the inner one's.
       const wrapped = extractQkdArmor(decrypted.plaintext);
       if (wrapped && decrypted.plaintext.trimStart().startsWith(QKD_BEGIN)) {
+        refuseRemovedLevel(wrapped);
         const opened = JSON.parse(
           await call(
             required(bridge, 'qkdOpen', 'Opening quantum-encrypted mail')(mailbox ?? '', wrapped),
             WORDING.qkdOpen,
           ),
-        ) as { plaintext: string; level: 2 | 3 };
+        ) as { plaintext: string; level: 2 };
         const inner = parseProtectedInner(opened.plaintext);
         return {
           ...inner,
@@ -531,8 +533,7 @@ const WORDING = {
     malformed: 'That quantum key exchange is damaged or incomplete.',
   },
   qkdSeal: {
-    'no-key':
-      'The Key Manager doesn’t have enough quantum keys left for this. A one-time pad needs one 1 Kb key per 128 bytes — shorten it, use Level 2, or refill the bank.',
+    'no-key': 'The Key Manager has no quantum keys left to send with. Refill or relink the bank.',
   },
   qkdOpen: {
     'decrypt-failed':
@@ -560,6 +561,22 @@ const WORDING = {
 } satisfies Record<string, Wording>;
 
 /** Await a bridge call, with its rejection translated by `toCoreError`. */
+/**
+ * Level 3, the one-time pad, was removed, and the core refuses it before
+ * touching a key. Said here in its own words: the core's code for it is
+ * `decrypt-failed`, whose wording blames missing keys or tampering, and
+ * neither is why. An archived copy never reaches this — the archive answers
+ * first.
+ */
+function refuseRemovedLevel(armor: string): void {
+  if (/^Level:\s*3\s*$/m.test(armor)) {
+    throw new CoreError(
+      'This message was sent with Level 3, the one-time pad, which CryptMail no longer has, so it can’t be opened here. Ask the sender to send it again at Level 2.',
+      'decrypt-failed',
+    );
+  }
+}
+
 function call<T>(pending: Promise<T>, wording: Wording = {}): Promise<T> {
   return pending.catch((e: unknown) => {
     throw toCoreError(e, wording);

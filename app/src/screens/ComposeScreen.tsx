@@ -24,7 +24,7 @@ import {
 } from '../compose/richText';
 import { cryptoMode } from '../config';
 import { KmStatus } from '../core';
-import { DEFAULT_LEVEL, LEVEL_GROUPS, LEVELS, otpKeysNeeded, SecurityLevel } from '../core/qkd';
+import { DEFAULT_LEVEL, LEVEL_GROUPS, LEVELS, SecurityLevel } from '../core/qkd';
 import { Contact, searchContacts } from '../contacts/contacts';
 import { useContacts } from '../contacts/useContacts';
 import { isDraftEmpty } from '../drafts/drafts';
@@ -243,7 +243,7 @@ export function ComposeScreen({ route, navigation }: Props) {
    * OpenPGP — unless the user picks another for this message.
    */
   const [level, setLevel] = useState<SecurityLevel>(DEFAULT_LEVEL);
-  const quantum = level === 2 || level === 3;
+  const quantum = level === 2;
   /** This mailbox's Key Manager, read when a quantum level is chosen. */
   const [km, setKm] = useState<KmStatus | null>(null);
   const [kmError, setKmError] = useState<string | null>(null);
@@ -372,8 +372,8 @@ export function ComposeScreen({ route, navigation }: Props) {
     [contacts, draft, to],
   );
 
-  // The Key Manager is read when a quantum level is picked, and again after a
-  // send — its count of keys left is what decides whether Level 3 fits.
+  // The Key Manager is read when Level 2 is picked, and again after a send —
+  // its count of keys left is what decides whether there is one to send with.
   useEffect(() => {
     if (!quantum) return;
     let live = true;
@@ -391,21 +391,15 @@ export function ComposeScreen({ route, navigation }: Props) {
   const changed = recipients.filter((r) => r.status === 'changed');
   const looking = discovering.length > 0;
   const gate = canSendEncrypted();
-  // A one-time pad spends one 1 Kb key per 128 bytes of the sealed message —
-  // estimated from what it holds, plus the headers the inner tree adds.
-  const sealedBytes =
-    subject.length + body.length + (html?.length ?? 0) + attachments.reduce((n, a) => n + a.data.length, 0) + 400;
-  const otpKeys = otpKeysNeeded(sealedBytes);
-  const otpTooBig = level === 3 && km !== null && otpKeys > km.available;
   /**
-   * A bank nobody else shares. Levels 2 and 3 would seal happily against it and
+   * A bank nobody else shares. Level 2 would seal happily against it and
    * the recipient could never open the result — there is no key state on a
-   * contact to warn about, because these levels do not use their key at all.
+   * contact to warn about, because Level 2 does not use their key at all.
    * So the link, not the recipient, is what compose checks.
    */
   const noLink = quantum && km !== null && km.peerSaeId === null;
   const kmBlocked =
-    quantum && (km === null || kmError !== null || otpTooBig || noLink || km.available === 0);
+    quantum && (km === null || kmError !== null || noLink || km.available === 0);
 
   // A missing key no longer blocks: the message is held and an invite goes out.
   // A *changed* key still does — waiting cannot resolve a possible substitution.
@@ -414,8 +408,8 @@ export function ComposeScreen({ route, navigation }: Props) {
   // path that must not consult a recipient's key state, because a send that
   // *becomes* possible when a key is absent is the downgrade wearing a hat. The
   // only thing that can block it is having nobody to send to.
-  // Levels 2 and 3 use no recipient key, so nothing about keys blocks them —
-  // only having nobody to send to, or a Key Manager that cannot cover it.
+  // Level 2 uses no recipient key, so nothing about keys blocks it — only
+  // having nobody to send to, or a Key Manager that cannot cover it.
   const blocked = plain
     ? to.length === 0
     : quantum
@@ -424,7 +418,7 @@ export function ComposeScreen({ route, navigation }: Props) {
   // Only a real problem is coloured like one. Waiting on a lookup, or on a
   // recipient who has yet to install anything, is not a warning — an
   // unencrypted message is, for as long as it is on screen.
-  const alarming = plain || (!quantum && changed.length > 0) || !gate.allowed || otpTooBig;
+  const alarming = plain || (!quantum && changed.length > 0) || !gate.allowed;
 
   /* ------------------------------------------------------------- from ---- */
 
@@ -1476,11 +1470,7 @@ export function ComposeScreen({ route, navigation }: Props) {
       }
       const bank = `${km.available} quantum key${km.available === 1 ? '' : 's'} left in the Key Manager for ${km.account}`;
       if (km.available === 0) return `${LEVELS[level].name}: no quantum keys left to send with. Refill or relink the bank under Settings → Quantum Key Manager.`;
-      if (level === 2) return `${LEVELS[2].name}. One 1 Kb quantum key seeds AES-256-GCM for this message · ${bank}.`;
-      if (otpTooBig) {
-        return `${LEVELS[3].name} needs ${otpKeys} keys for a message this size — one per 128 bytes — and there are ${km.available}. Shorten it, drop attachments, or use Level 2.`;
-      }
-      return `${LEVELS[3].name}. This message uses ${otpKeys} of the ${bank}.`;
+      return `${LEVELS[2].name}. One 1 Kb quantum key seeds AES-256-GCM for this message · ${bank}.`;
     }
     if (looking) return `Looking up keys for ${discovering.join(', ')}…`;
     if (changed.length > 0) {

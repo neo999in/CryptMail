@@ -230,7 +230,7 @@ export const demoCore: CryptCore = {
   async resumeTransfer() {},
 
   async buildEncrypted(request: BuildRequest): Promise<string> {
-    if (request.level === 2 || request.level === 3) throw noKm();
+    if (request.level === 2) throw noKm();
     if (request.recipientKeys.length === 0) {
       throw new CoreError('Refusing to build a message with no recipient keys.', 'no-key');
     }

@@ -1,11 +1,15 @@
 /**
- * The three security levels, and the email that carries a Level 2 or 3 message.
+ * The two security levels, and the email that carries a Level 2 message.
  *
  * | Level | What seals the message | Keys from |
  * |---|---|---|
  * | 1 — No quantum security (default) | OpenPGP to the recipient's long-term key | their public key |
- * | 2 — Quantum | AES-256-GCM, key from HKDF over one 1 Kb quantum key | the Key Manager |
- * | 3 — Quantum secure (OTP) | one-time pad: XOR with quantum keys, HMAC with one more | the Key Manager |
+ * | 2 — Quantum | AES-256-GCM, key from HKDF over one 1 Kb quantum key and the sender's SAE ID | the Key Manager |
+ *
+ * Level 3, the one-time pad, was removed: it was the only reason the bank had
+ * halves, since a pad cannot be bound to its sender and two ends picking one
+ * key would reuse it. Archived Level 3 mail still opens (`levelName` names it);
+ * the core refuses any other, and nothing sends it.
  *
  * The Key Manager is simulated inside the core (`core/src/km.rs`) — the keys
  * are random, not quantum — and never leave it: this file only ever sees the
@@ -13,7 +17,7 @@
  *
  * ## On the wire
  *
- * A Level 2 or 3 email is an ordinary `text/plain` message: a sentence saying
+ * A Level 2 email is an ordinary `text/plain` message: a sentence saying
  * what it is, then the armored block. Any mail system carries it and any client
  * displays it — interoperable with the traditional network by construction. Its
  * subject is the same placeholder as every encrypted message, so the inbox,
@@ -21,27 +25,17 @@
  */
 import { decodeTransfer } from '../mail/transferEncoding';
 import { autocryptHeaderLine, PLACEHOLDER_SUBJECT } from './mime';
-import type { SecurityLevel } from './types';
+import type { OpenedLevel, SecurityLevel } from './types';
 
-export type { SecurityLevel };
+export type { OpenedLevel, SecurityLevel };
 
 /** Level 1 — what this build sends when nothing else is chosen. */
 export const DEFAULT_LEVEL: SecurityLevel = 1;
 
 /**
- * Levels that cannot be chosen or sent in this build. Level 3 is switched off:
- * a one-time pad is only as good as its key source, which here is simulated,
- * and it drains the bank a key per 128 bytes. Mail already received at Level 3
- * still opens — only sending is off. Remove it from here to bring it back.
- */
-export const DISABLED_LEVELS: readonly SecurityLevel[] = [3];
-
-export const isLevelEnabled = (level: SecurityLevel): boolean => !DISABLED_LEVELS.includes(level);
-
-/**
  * How compose groups the levels, and the order it offers them in.
  *
- * Numbered 1–3 they read as a ladder, which is wrong: Level 3's guarantee
+ * Numbered in a row they read as a ladder, which is wrong: Level 2's guarantee
  * depends on a key source this build simulates. They are two groups — what
  * works with anyone, and what demonstrates the Key Manager — so the row says
  * so, and leads with the default.
@@ -55,7 +49,7 @@ export const LEVEL_GROUPS: { label: string; hint: string; levels: SecurityLevel[
   {
     label: 'Quantum keys',
     hint: 'Needs a key bank shared with them (Settings → Quantum Key Manager). Demonstrates the QKD integration.',
-    levels: ([2, 3] as SecurityLevel[]).filter(isLevelEnabled),
+    levels: [2],
   },
 ];
 
@@ -77,12 +71,12 @@ export const LEVELS: Record<SecurityLevel, { short: string; name: string; detail
       'A quantum key from the shared key bank, used once, seeds AES-256-GCM. The bank is linked over ' +
       'ML-KEM-768 + X25519. One key per message; attachments fit.',
   },
-  3: {
-    short: 'L3 · OTP',
-    name: 'Level 3 — Quantum secure (one-time pad)',
-    detail: 'Quantum keys used directly as a one-time pad. One 1 Kb key per 128 bytes — short text only.',
-  },
 };
+
+/** The name of any level a message may carry, including the removed Level 3. */
+export function levelName(level: OpenedLevel): string {
+  return level === 3 ? 'Level 3 — one-time pad (removed)' : LEVELS[level].name;
+}
 
 export const QKD_BEGIN = '-----BEGIN CRYPTMAIL QKD MESSAGE-----';
 export const QKD_END = '-----END CRYPTMAIL QKD MESSAGE-----';
@@ -168,15 +162,12 @@ export function qkdLevelOf(raw: string): 2 | 3 | null {
   return level === '2' ? 2 : level === '3' ? 3 : null;
 }
 
-/** Quantum keys a Level 3 message of `bytes` needs: one per 128 bytes, plus the MAC key. */
-export const otpKeysNeeded = (bytes: number): number => Math.max(1, Math.ceil(bytes / QKD_KEY_BYTES)) + 1;
-
 /** Build the email around a QKD block. */
 export function buildQkdEnvelope(args: {
   from: string;
   to: string[];
   armored: string;
-  level: 2 | 3;
+  level: 2;
   autocryptKeydata?: string;
   inReplyTo?: string;
   references?: string[];

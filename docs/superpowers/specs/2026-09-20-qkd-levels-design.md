@@ -2,6 +2,14 @@
 
 > **2026-09-22:** Level 4 (per-email keys) was removed and Level 1 is the
 > default. Where this design says Level 4, read it as history.
+>
+> **2026-09-23:** Level 3 (one-time pad) was removed, and with it the master
+> and slave **halves** of the bank. Both ends now send from all 100 keys; the
+> Level 2 AES key is `HKDF(salt = Key-ID, ikm = key, info =
+> "cryptmail/v2/qkd-aes" ‖ 0 ‖ sender's SAE ID)`, so a key both ends pick seals
+> two messages under two unrelated keys. The roles survive only as names. The
+> wire format is in [message-format.md](../../message-format.md); where this
+> design says Level 3 or halves, read it as history.
 
 Written 2026-09-20 on `feat/qkd` (cut from `feat/per-email-keys-only`), merged
 into `main` the same day.

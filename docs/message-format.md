@@ -165,39 +165,50 @@ For a recipient with no key, we don't produce PGP/MIME. Instead:
 - Opening the link loads a zero-knowledge web reader; the recipient enters the
   passphrase to decrypt locally in the browser. See [encryption.md](encryption.md).
 
-## Quantum levels on the wire (Levels 2 and 3)
+## Quantum level on the wire (Level 2)
 
-A Level 2 or 3 message is **not** PGP/MIME. It is an ordinary `text/plain`
+A Level 2 message is **not** PGP/MIME. It is an ordinary `text/plain`
 email: a sentence saying what it is, then an armored block. Any mail system
 carries it and any client shows something a person can read, which is the point
-— these levels are what the QKD integration looks like to the existing mail
+— this level is what the QKD integration looks like to the existing mail
 infrastructure.
 
 ```
 Subject: [Encrypted message]
-X-CryptMail-Security: 3
+X-CryptMail-Security: Level 2 — Quantum
 
 This message is encrypted with quantum keys from a Key Manager.
 
 -----BEGIN CRYPTMAIL QKD MESSAGE-----
-Level: 3
-Cipher: one-time pad, HMAC-SHA256 with a QKD key
+Level: 2
+Cipher: AES-256-GCM, key from HKDF-SHA256 over a QKD key and the sender
 SAE: sae-7af975536f00
 Key-ID: 3f9a01c2-b7d4-4e51-9c02-1a2b3c4d0007
-Key-ID: 3f9a01c2-b7d4-4e51-9c02-1a2b3c4d0008
 
-base64 of (ciphertext ‖ tag)
+base64 of (nonce ‖ ciphertext ‖ tag)
 -----END CRYPTMAIL QKD MESSAGE-----
 ```
+
+- **The AES key is bound to the sender.** It is
+  `HKDF-SHA256(salt = Key-ID, ikm = the 1 Kb quantum key, info = "cryptmail/v2/qkd-aes" ‖ 0x00 ‖ SAE)`.
+  Both ends of a link send from the whole bank, so both may pick the same key
+  before either has seen the other's message; with the sender's `SAE:` in the
+  derivation that is two unrelated AES keys, not one used twice. The `Cipher:`
+  line names the derivation. `…over a QKD key` with nothing after it is the
+  earlier one — `info = "cryptmail/v1/qkd-aes"`, no SAE — from while each end
+  sent only from its half of the bank; mail sealed that way still opens, and
+  nothing sends it now.
+- **Level 3 (one-time pad) was removed.** A pad cannot be bound to its sender —
+  the key bytes are the cipher — so it was the only reason for the halves. A
+  block saying `Level: 3` is refused before any key is fetched; copies opened
+  before the removal stay in the archive and still open.
 
 - The **outer subject is the same placeholder** as every encrypted message, so
   the inbox, rules and notifications treat it as encrypted without being told.
 - **Key IDs travel in the clear, deliberately** — that is what ETSI GS QKD 014
-  intends, and an ID without the bank is worthless. Level 3 repeats `Key-ID:`
-  once per key, pad keys first and the MAC key last.
-- **Every header line is authenticated**: it is the AEAD's associated data at
-  Level 2 and part of the HMAC input at Level 3, so changing `Level:` or a
-  `Key-ID:` fails the open.
+  intends, and an ID without the bank is worthless. Level 2 names exactly one.
+- **Every header line is authenticated**: it is the AEAD's associated data, so
+  changing `Level:`, `Cipher:`, `SAE:` or the `Key-ID:` fails the open.
 - **The body is transfer-decoded before the block is read.** The envelope is
   sent as `7bit`, but that is a claim about what leaves, not a promise about
   what arrives: a provider may re-encode the body, and Gmail does. The failure
@@ -206,7 +217,7 @@ base64 of (ciphertext ‖ tag)
   while the base64 between them is rewritten (`=` padding becomes `=3D`, long
   lines gain soft breaks). The block is then found, looks well-formed, and fails
   to open. Observed between two installs on 2026-09-21: every Level 2 and 3
-  message opened on the sender and failed on the receiver.
+  message opened on the sender and failed on the receiver (Level 3 still existed then).
   Decoding must use the part's **declared** encoding and can never be guessed
   after the fact — a base64 line ending in `=` and a quoted-printable soft break
   are the same two bytes.
