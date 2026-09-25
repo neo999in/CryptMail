@@ -622,21 +622,6 @@ export function MessageScreen({ route, navigation }: Props) {
                       <Banner tone="warn" icon="alert">{opened.notice}</Banner>
                     </View>
                   ) : null}
-                  {/* Which security level sealed it. Level 1 is the default and
-                      goes unsaid; the quantum levels were someone's deliberate
-                      choice. An archived copy may carry the removed Level 4,
-                      which is not named; the removed Level 3 is, by levelName. */}
-                  {opened.decrypted?.securityLevel === 2 || opened.decrypted?.securityLevel === 3 ? (
-                    <View style={{ marginBottom: 14 }}>
-                      <Banner tone="ok" icon="lock">
-                        {levelName(opened.decrypted.securityLevel)}. Opened with quantum keys from your Key
-                        Manager, which are now deleted — this copy on the phone is the only one.
-                        {opened.decrypted.sealedToKey
-                          ? ' It was also sealed to your ML-KEM-768 + X25519 key, so the key bank alone could not open it.'
-                          : ''}
-                      </Banner>
-                    </View>
-                  ) : null}
                   {/* Real mail is mostly HTML, and the plain-text alternative
                       a sender ships alongside it is usually a worse version of
                       the same message — a wall of bare URLs where the links
@@ -704,6 +689,22 @@ export function MessageScreen({ route, navigation }: Props) {
                     onSave={(a) => void save(a)}
                     busyId={saving}
                   />
+                  {/* Which security level sealed it. Level 1 is the default and
+                      goes unsaid; the quantum levels were someone's deliberate
+                      choice. It follows the body, so the message is what the eye
+                      meets first. An archived copy may carry the removed Level 4,
+                      which is not named; the removed Level 3 is, by levelName. */}
+                  {opened.decrypted?.securityLevel === 2 || opened.decrypted?.securityLevel === 3 ? (
+                    <View style={{ marginTop: 16 }}>
+                      <Banner tone="ok" icon="lock">
+                        {levelName(opened.decrypted.securityLevel)}. Opened with quantum keys from your Key
+                        Manager, which are now deleted — this copy on the phone is the only one.
+                        {opened.decrypted.sealedToKey
+                          ? ' It was also sealed to your ML-KEM-768 + X25519 key, so the key bank alone could not open it.'
+                          : ''}
+                      </Banner>
+                    </View>
+                  ) : null}
                   {saveError ? (
                     <View style={{ marginTop: 12 }}>
                       <Banner tone="warn" icon="alert">{saveError}</Banner>
