@@ -7,7 +7,12 @@ The other docs in `docs/` describe *intended* behaviour. This one describes
 **what has actually been observed**, and is deliberately pessimistic: a claim
 appears under "verified" only if a command was run and its output read.
 
-Last updated: 2026-09-23.
+Last updated: 2026-09-25.
+
+> **Verified on a real device (2026-09-25, reported by the developer):** the
+> app lock (PIN and biometric prompt), background delivery of queued mail and
+> new-mail notifications (§7.3, §7.3a), and a device transfer — key, Key
+> Manager bank and archive — exported on one phone and imported on another.
 
 > **Level 3 removed; the bank has no halves (2026-09-23):** `qkd.rs` seals
 > only Level 2, and derives its AES key from the bank key, the key ID **and
@@ -623,7 +628,7 @@ the tests passed while certifying nothing — hence the pure-JS hash. And a
 fingerprint of `"not-hex"` normalised to one hex character and produced a
 perfectly plausible six-group number, hence the length floor.
 
-### 7.3 Background delivery of queued mail — 🟨 built, never run on a device
+### 7.3 Background delivery of queued mail — ✅ verified on a real device (2026-09-25)
 
 §5.2 closed, which was the stated blocker, so it is written — as of 2026-09-18.
 The OS runs the same `scheduler.run()` the in-app 15 s interval calls, through
@@ -666,7 +671,7 @@ a pass, and a failed boot never read as an empty outbox.
 Only the account in front has its outbox drained — the same limit the in-app
 interval has.
 
-### 7.3a New-mail notifications — 🟨 built, never run on a device
+### 7.3a New-mail notifications — ✅ verified on a real device (2026-09-25)
 
 Added 2026-09-18 on top of §7.3's task (features.md 0.10 has the behaviour).
 The background task is now registered while the outbox is non-empty **or** a

@@ -70,9 +70,8 @@ A new call that hands the screen to another app on the user's behalf should go
 through `whileAway()`, or it will bring the lock down on return with the
 timeout at *Immediately*.
 
-## Not yet verified on a device
+## Verified on a device
 
 Written against the SDK 57 docs and typechecked; the unit tests cover the rules.
-On a device, still to check: which of the pickers and the biometric prompt
-actually report `background` on Android 14+, and that the lock `Modal` lands
-above a `Sheet` that was open when the app left.
+The PIN lock and the biometric prompt were verified on a real device on
+2026-09-25 (reported by the developer).

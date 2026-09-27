@@ -828,7 +828,7 @@ encryption; recent-apps thumbnails are not hidden. Both stated in the doc and on
 the settings screen.
 
 **Done when.** ✓ Rule tests cover the verifier, cooldown and timeout decision;
-still to do: run it on a device ([app-lock.md](app-lock.md) §Not yet verified).
+✓ verified on a real device (2026-09-25, [app-lock.md](app-lock.md) §Verified on a device).
 
 ### 0.19 Snooze folder · Impact M · Effort M
 
