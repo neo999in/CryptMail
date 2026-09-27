@@ -150,7 +150,7 @@ export function ImapSetupSheet({
 
   return (
     <Sheet bottomInset={insets.bottom} onClose={busy ? () => undefined : onClose} title={initialEmail ? 'Sign in again' : 'Other mailbox'} visible={visible}>
-      <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: height * 0.72 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" style={{ flexShrink: 1, maxHeight: height * 0.72 }}>
         <View style={s.body}>
           <Text style={s.note}>
             For iCloud, Yahoo, Fastmail or your own server. Your password stays in this device's keystore and is

@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   Image,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +16,7 @@ import {
   TextInput,
   TextInputProps,
   TextStyle,
+  useWindowDimensions,
   View,
   ViewStyle,
 } from 'react-native';
@@ -28,6 +30,7 @@ import Reanimated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
 import { avatarTints, color, font, glass, motion, ON_ACCENT, radius, shadow, space, tint, type } from '../theme';
@@ -871,6 +874,9 @@ export function Sheet({
   children: React.ReactNode;
   bottomInset?: number;
 }) {
+  const keyboard = useKeyboardHeight();
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
       <Pressable accessibilityLabel="Close" onPress={onClose} style={StyleSheet.absoluteFill}>
@@ -880,13 +886,43 @@ export function Sheet({
         <View style={[StyleSheet.absoluteFill, { backgroundColor: color.scrim }, frost(glass.blur.medium)]} />
       </Pressable>
 
-      <View style={[s.sheet, shadow.sheet, { paddingBottom: bottomInset + space.lg }]}>
+      {/* A transparent modal is not resized for the keyboard, so the sheet
+          stands on it itself - and gives up height rather than run under the
+          status bar, which is what lets a sheet's ScrollView shrink to fit. */}
+      <View
+        style={[
+          s.sheet,
+          shadow.sheet,
+          {
+            bottom: keyboard,
+            maxHeight: height - keyboard - insets.top - space.xl,
+            paddingBottom: (keyboard > 0 ? 0 : bottomInset) + space.lg,
+          },
+        ]}
+      >
         <View style={s.sheetGrip} />
         {title ? <Text style={s.sheetTitle}>{title}</Text> : null}
         {children}
       </View>
     </Modal>
   );
+}
+
+/** How much of the window the software keyboard covers, 0 while it is down. */
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const shown = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', (e) =>
+      setHeight(e.endCoordinates.height),
+    );
+    const hidden = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setHeight(0));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return height;
 }
 
 /* ------------------------------------------------------------- settings ---- */
