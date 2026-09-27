@@ -1,6 +1,6 @@
 import { MotiView } from 'moti';
 import React, { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,6 +14,9 @@ import { Banner, Callout, Group, PressableRow } from '../ui/primitives';
 import { useAccent } from '../ui/appearance';
 import { GoogleLogo, MicrosoftLogo } from '../ui/providerLogos';
 import { userMessage } from '../lib/errors';
+
+/** The app's mark on a transparent ground, cropped from the splash icon. */
+const LOGO = require('../../assets/logo.png');
 
 /** Onboarding: provider OAuth with least-privilege scopes, or IMAP/SMTP with a password. */
 export function ConnectScreen() {
@@ -49,9 +52,8 @@ export function ConnectScreen() {
     >
       <Reveal step={0}>
         <View style={s.brand}>
-          <View style={s.brandMark}>
-            <Icon name="lock" size={18} color={color.ink} strokeWidth={2.1} />
-          </View>
+          {/* The mark alone, straight on the black ground — no tile behind it. */}
+          <Image source={LOGO} style={s.brandMark} resizeMode="contain" accessibilityIgnoresInvertColors />
           <Text style={s.brandText}>
             Crypt<Text style={{ fontFamily: font.displayBold }}>Mail</Text>
           </Text>
@@ -219,14 +221,8 @@ const s = StyleSheet.create({
   content: { paddingHorizontal: space.lg },
 
   brand: { alignItems: 'center', flexDirection: 'row', gap: space.sm, marginBottom: space.xl },
-  brandMark: {
-    alignItems: 'center',
-    backgroundColor: color.surfaceRaised,
-    borderRadius: radius.sm,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
+  // The logo's own 614 × 478 proportions.
+  brandMark: { height: 20, width: 26 },
   brandText: { color: color.ink, fontFamily: font.display, fontSize: 18, letterSpacing: -0.3 },
 
   pitch: { color: color.ink, fontFamily: font.displayBold, fontSize: 28, letterSpacing: -0.5, lineHeight: 35 },
