@@ -19,18 +19,21 @@
  * nothing checks that the certificate names the server that was asked for. Any
  * certificate any public CA issued, for any domain, would be accepted.
  *
- * So the check is done here, before a single byte is written: the peer
- * certificate's subject CN must name the host (`certificateMatchesHost`). The
- * library reports the CN but not the subjectAltNames, so a server whose CN is a
- * *different* one of its names is refused — the safe way to be wrong, and the
- * message says which name the certificate carried. The same unconnected socket
+ * So the check is done here, before a single byte is written: one of the peer
+ * certificate's names must name the host (`certificateNames`,
+ * `certificateMatchesHost`). Upstream reports only the subject CN, which
+ * refused servers whose CN is a different one of their names — Outlook's
+ * `outlook.office365.com` presents CN `outlook.com` — so
+ * `patches/react-native-tcp-socket+6.4.3.patch` adds the subjectAltName DNS
+ * entries as `dnsNames`, and those are what is matched. It also stops upstream
+ * casting every key to RSA, which failed to read any EC certificate (Gmail's). The same unconnected socket
  * means no SNI is sent either, so a host that serves many domains from one
  * address may present its default certificate and be refused for the same
  * reason.
  */
 import { NativeModules } from 'react-native';
 
-import { certificateMatchesHost, MailSocket, OpenSocket, TransportError } from './socket';
+import { certificateMatchesHost, certificateNames, MailSocket, OpenSocket, TransportError } from './socket';
 
 /** The slice of the library this file uses. Its own typings are JSDoc-generated and loose. */
 type LibSocket = {
@@ -41,7 +44,9 @@ type LibSocket = {
   write(data: Uint8Array): boolean;
   destroy(): void;
 };
-type LibTlsSocket = LibSocket & { getPeerCertificate(): Promise<{ subject?: { CN?: string } } | null> };
+type LibTlsSocket = LibSocket & {
+  getPeerCertificate(): Promise<{ subject?: { CN?: string }; dnsNames?: string[] } | null>;
+};
 type Lib = {
   Socket: new () => LibSocket & { connect(options: object, callback?: () => void): LibSocket };
   TLSSocket: new (socket: LibSocket, options?: object) => LibTlsSocket;
@@ -62,16 +67,19 @@ function load(): Lib {
 }
 
 async function verifyPeer(tls: LibTlsSocket, host: string): Promise<void> {
-  let commonName: string | undefined;
+  let names: string[];
   try {
-    commonName = (await tls.getPeerCertificate())?.subject?.CN;
+    const cert = await tls.getPeerCertificate();
+    names = certificateNames({ commonName: cert?.subject?.CN, dnsNames: cert?.dnsNames });
   } catch (e) {
     throw new TransportError(`Could not read ${host}'s certificate: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (!certificateMatchesHost(commonName, host)) {
+  if (!names.some((name) => certificateMatchesHost(name, host))) {
+    const quoted = names.slice(0, 3).map((n) => `"${n}"`).join(', ');
+    const shown = names.length > 3 ? `${quoted} and ${names.length - 3} more` : quoted;
     throw new TransportError(
-      commonName
-        ? `${host} presented a certificate for "${commonName}", not for ${host}. CryptMail refused the connection.`
+      names.length > 0
+        ? `${host} presented a certificate for ${shown}, not for ${host}. CryptMail refused the connection.`
         : `${host} presented a certificate that names no host. CryptMail refused the connection.`,
     );
   }

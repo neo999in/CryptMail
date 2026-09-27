@@ -187,7 +187,7 @@ run should check these, in order:
 
 - The socket library loads under the new architecture.
 - TLS on 993/465, and STARTTLS on 143/587, succeed against a public provider,
-  and the CN check does not refuse it.
+  and the certificate name check does not refuse it.
 - Inbox, Sent, Archive, Junk and Trash list. Star and mark read survive a
   re-fetch.
 - Archive, then swipe back, round-trips.

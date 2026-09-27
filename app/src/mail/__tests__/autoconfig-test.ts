@@ -1,5 +1,5 @@
 import { discoverSettings, guessSettings, parseAutoconfig } from '../autoconfig';
-import { certificateMatchesHost } from '../socket';
+import { certificateMatchesHost, certificateNames } from '../socket';
 
 const ISPDB = `<?xml version="1.0"?>
 <clientConfig version="1.1">
@@ -97,5 +97,25 @@ describe('certificateMatchesHost', () => {
     [undefined, 'imap.example.org', false],
   ])('CN %s for host %s → %s', (cn, host, expected) => {
     expect(certificateMatchesHost(cn, host)).toBe(expected);
+  });
+});
+
+describe('certificateNames', () => {
+  it('uses the DNS names and ignores the CN when there are any', () => {
+    // Outlook's IMAP certificate: CN outlook.com, the host in its SANs.
+    const names = certificateNames({ commonName: 'outlook.com', dnsNames: ['*.outlook.com', 'outlook.office365.com'] });
+    expect(names).toEqual(['*.outlook.com', 'outlook.office365.com']);
+    expect(names.some((n) => certificateMatchesHost(n, 'outlook.office365.com'))).toBe(true);
+  });
+
+  it('does not let a CN rescue a certificate whose DNS names miss the host', () => {
+    const names = certificateNames({ commonName: 'imap.example.org', dnsNames: ['mail.evil.com'] });
+    expect(names.some((n) => certificateMatchesHost(n, 'imap.example.org'))).toBe(false);
+  });
+
+  it('falls back to the CN without DNS names, and names nothing without either', () => {
+    expect(certificateNames({ commonName: 'imap.example.org' })).toEqual(['imap.example.org']);
+    expect(certificateNames({ commonName: 'imap.example.org', dnsNames: [] })).toEqual(['imap.example.org']);
+    expect(certificateNames({})).toEqual([]);
   });
 });

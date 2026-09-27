@@ -50,20 +50,34 @@ export class TransportError extends Error {
 }
 
 /**
- * Whether a certificate's subject common name names this host (RFC 6125 §6.4).
+ * The names a server certificate is for (RFC 6125 §6.4.4): its subjectAltName
+ * DNS entries when it has any — and then the subject CN is **not** consulted —
+ * else the CN. A certificate carrying DNS names but no match among them is not
+ * rescued by its CN; that is what a CA vouched for.
  *
- * Only the CN, because it is all the socket library reports — see `tcpSocket.ts`
- * for why the check has to happen here at all. A wildcard covers exactly one
- * whole leftmost label: `*.example.com` names `imap.example.com`, but neither
- * `example.com` nor `a.b.example.com`, and a wildcard never names an IP address.
- *
- * Being strict costs a refusal on the rare server whose CN is a different one of
- * its names; being loose would accept a certificate for a host the user never
- * typed, which is the attack this exists to stop.
+ * `dnsNames` comes from the patch in `patches/react-native-tcp-socket+*.patch`;
+ * an unpatched library reports only the CN, which is the stricter answer.
  */
-export function certificateMatchesHost(commonName: string | undefined, host: string): boolean {
-  if (!commonName) return false;
-  const name = commonName.trim().toLowerCase().replace(/\.$/, '');
+export function certificateNames(cert: { commonName?: string; dnsNames?: readonly string[] }): string[] {
+  const dns = (cert.dnsNames ?? []).filter((n) => n.trim().length > 0);
+  if (dns.length > 0) return dns;
+  return cert.commonName ? [cert.commonName] : [];
+}
+
+/**
+ * Whether one name a certificate carries names this host (RFC 6125 §6.4).
+ *
+ * See `tcpSocket.ts` for why the check has to happen here at all. A wildcard
+ * covers exactly one whole leftmost label: `*.example.com` names
+ * `imap.example.com`, but neither `example.com` nor `a.b.example.com`, and a
+ * wildcard never names an IP address.
+ *
+ * Being loose would accept a certificate for a host the user never typed, which
+ * is the attack this exists to stop.
+ */
+export function certificateMatchesHost(certName: string | undefined, host: string): boolean {
+  if (!certName) return false;
+  const name = certName.trim().toLowerCase().replace(/\.$/, '');
   const target = host.trim().toLowerCase().replace(/\.$/, '');
   if (!name || !target) return false;
   if (name === target) return true;

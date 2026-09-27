@@ -1,0 +1,74 @@
+diff --git a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/SSLCertificateHelper.java b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/SSLCertificateHelper.java
+index 1e0622f..afd3dc7 100644
+--- a/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/SSLCertificateHelper.java
++++ b/node_modules/react-native-tcp-socket/android/src/main/java/com/asterinet/react/tcpsocket/SSLCertificateHelper.java
+@@ -21,12 +21,15 @@ import java.security.PrivateKey;
+ import java.security.SecureRandom;
+ import java.security.cert.Certificate;
+ import java.security.cert.CertificateFactory;
++import java.security.cert.CertificateParsingException;
+ import java.security.spec.PKCS8EncodedKeySpec;
+ import java.security.cert.X509Certificate;
+ import java.security.interfaces.RSAPublicKey;
+ import java.text.SimpleDateFormat;
+ import java.util.Base64;
++import java.util.Collection;
+ import java.util.Date;
++import java.util.List;
+ import java.util.Locale;
+ 
+ import javax.net.ssl.KeyManagerFactory;
+@@ -42,6 +45,7 @@ import javax.net.ssl.X509TrustManager;
+ 
+ import com.facebook.react.bridge.Arguments;
+ import com.facebook.react.bridge.ReadableMap;
++import com.facebook.react.bridge.WritableArray;
+ import com.facebook.react.bridge.WritableMap;
+ 
+ 
+@@ -262,9 +266,13 @@ final class SSLCertificateHelper {
+                     certDetails.putMap("subject", parseDN(cert.getSubjectDN().getName()));
+                     certDetails.putMap("issuer", parseDN(cert.getIssuerDN().getName()));
+                     certDetails.putBoolean("ca", cert.getBasicConstraints() != -1);
+-                    certDetails.putString("modulus", getModulus(cert));
+-                    certDetails.putInt("bits", getModulusBitLength(cert));
+-                    certDetails.putString("exponent", "0x" + getExponent(cert));
++                    // RSA-only fields: an EC key (Gmail's, among many) has no
++                    // modulus, and casting it to RSAPublicKey threw here.
++                    if (cert.getPublicKey() instanceof RSAPublicKey) {
++                        certDetails.putString("modulus", getModulus(cert));
++                        certDetails.putInt("bits", getModulusBitLength(cert));
++                        certDetails.putString("exponent", "0x" + getExponent(cert));
++                    }
+                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                         certDetails.putString("pubkey", Base64.getEncoder().encodeToString(cert.getPublicKey().getEncoded()));
+                     }
+@@ -274,6 +282,7 @@ final class SSLCertificateHelper {
+                     certDetails.putString("fingerprint256", getFingerprint(cert, "SHA-256"));
+                     certDetails.putString("fingerprint512", getFingerprint(cert, "SHA-512"));
+                     certDetails.putString("serialNumber", getSerialNumber(cert));
++                    certDetails.putArray("dnsNames", getDnsNames(cert));
+ 
+                     certInfo = certDetails;
+                 }
+@@ -326,6 +335,20 @@ final class SSLCertificateHelper {
+         return output.toString().replaceAll("^\\p{Cntrl}", "").trim();
+     }
+ 
++    // The certificate's subjectAltName dNSName entries (type 2), which are what
++    // names a TLS server (RFC 6125); the subject CN alone is not.
++    private static WritableArray getDnsNames(X509Certificate cert) throws CertificateParsingException {
++        WritableArray out = Arguments.createArray();
++        Collection<List<?>> names = cert.getSubjectAlternativeNames();
++        if (names == null) return out;
++        for (List<?> entry : names) {
++            if (entry.size() >= 2 && Integer.valueOf(2).equals(entry.get(0)) && entry.get(1) instanceof String) {
++                out.pushString((String) entry.get(1));
++            }
++        }
++        return out;
++    }
++
+     private static String getSerialNumber(X509Certificate cert) {
+         BigInteger serialNumber = cert.getSerialNumber();
+         return serialNumber.toString(16).toUpperCase(); // Convert to hex string and uppercase

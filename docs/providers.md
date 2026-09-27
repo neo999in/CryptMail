@@ -121,12 +121,20 @@ the address and password, with the servers looked up and folded away.
 **The certificate host check is ours.** `react-native-tcp-socket` 6.4.3 on
 Android validates the certificate *chain*, but it does not check that the
 certificate names the host, and it sends no SNI. `tcpSocket.ts` therefore
-compares the peer certificate's subject CN against the host (wildcards cover one
-label) before writing a byte. The library reports only the CN, not the
-subjectAltNames. So a server whose CN is a *different* one of its names is
-refused, and so is a shared host that serves its default certificate for lack of
-SNI. Both refusals are the safe way to be wrong, and the message names the
-certificate's CN.
+matches the certificate's names against the host (wildcards cover one label)
+before writing a byte. Upstream reports only the subject CN, which refused
+servers whose CN is a *different* one of their names — Outlook's
+`outlook.office365.com` presents CN `outlook.com`. So
+[`patches/react-native-tcp-socket+6.4.3.patch`](../app/patches/react-native-tcp-socket+6.4.3.patch)
+(applied by `patch-package` on `postinstall`) adds the subjectAltName DNS entries
+as `dnsNames`. Per RFC 6125 §6.4.4 those are matched when present and the CN is
+then ignored; the CN is used only by a certificate with no DNS names
+(`certificateNames` in `socket.ts`). A shared host that serves its default
+certificate for lack of SNI is still refused — the safe way to be wrong — and
+the message names what the certificate was for. The same patch stops the
+library casting every public key to RSA, which threw "Error processing
+certificate" on any EC certificate (Gmail's `imap.gmail.com`). Bumping the
+library means re-making the patch.
 
 **Mapping onto `MailClient`:**
 - **Ids** are `<uidvalidity>:<uid>:<folder>`. That is stable for as long as the
