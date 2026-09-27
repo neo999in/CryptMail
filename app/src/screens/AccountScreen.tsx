@@ -24,7 +24,7 @@ import { back, RootStackParamList } from '../navigation';
 import { SEARCH_INDEX_MAX_BYTES } from '../search/search';
 import { useApp } from '../state/AppState';
 import { KEY_DIRECTORY_ENABLED } from '../config';
-import { ExportProgress, StorageUsage } from '../state/types';
+import { EncryptedSweepProgress, ExportProgress, StorageUsage } from '../state/types';
 import { accountLabel, AVATAR_MODES, AvatarMode, settingsOf, SYNC_WINDOWS, SyncWindow } from '../store/accountScope';
 import { MAX_SIGNATURE_LENGTH } from '../store/accountsStore';
 import { PublishStatus } from '../store/publishStore';
@@ -95,6 +95,8 @@ export function AccountScreen({ navigation, route }: Props) {
     pauseAccount,
     resumeAccount,
     exportMailbox,
+    findEncrypted,
+    trashEncrypted,
     storageUsage,
   } = useApp();
   const insets = useSafeAreaInsets();
@@ -109,6 +111,8 @@ export function AccountScreen({ navigation, route }: Props) {
   const signatureFocus = useFocus();
   /** How far the running export has got, or null when none is running. */
   const [exporting, setExporting] = useState<ExportProgress | null>(null);
+  /** How far the encrypted-mail sweep has got, or null when none is running. */
+  const [sweeping, setSweeping] = useState<EncryptedSweepProgress | null>(null);
   /** Bytes on this device; null until the first measurement lands. */
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   /** Bumped after a clear or reset, so the byte counts are measured again. */
@@ -179,6 +183,12 @@ export function AccountScreen({ navigation, route }: Props) {
       ? `Listing mail… ${exporting.done}`
       : `Exporting ${exporting.done} of ${exporting.total}…`;
 
+  const sweepLabel = !sweeping
+    ? 'Move all encrypted mail to Trash'
+    : sweeping.phase === 'listing'
+      ? `Looking for encrypted mail… ${sweeping.found} of ${sweeping.scanned}`
+      : `Moving ${sweeping.done} of ${sweeping.total} to Trash…`;
+
   /**
    * Whether pausing this one would leave nothing fetching mail.
    *
@@ -223,6 +233,59 @@ export function AccountScreen({ navigation, route }: Props) {
     } finally {
       setExporting(null);
     }
+  };
+
+  /**
+   * Find every encrypted message first, then ask with the number in hand.
+   *
+   * The listing reads headers only and changes nothing, so it runs before the
+   * question: "Move 214 messages" is something a person can say yes or no to,
+   * and "move all of them" without a number is not.
+   */
+  const runSweep = async () => {
+    if (sweeping) return;
+    const noun = (n: number) => `${n} encrypted ${n === 1 ? 'message' : 'messages'}`;
+    setSweeping({ phase: 'listing', scanned: 0, found: 0 });
+    let ids: string[];
+    try {
+      ids = await findEncrypted(account.id, { onProgress: setSweeping });
+    } catch (e) {
+      setSweeping(null);
+      showToast({ durationMs: 5000, icon: 'alert', message: userMessage(e) });
+      return;
+    }
+    setSweeping(null);
+    if (ids.length === 0) {
+      showToast({ durationMs: 4000, icon: 'lock', message: 'This mailbox has no encrypted mail in Inbox, Sent or Archive.' });
+      return;
+    }
+    confirmDialog(
+      `Move ${noun(ids.length)} to Trash?`,
+      `Every encrypted message in Inbox, Sent and Archive of ${account.email}. You can restore any of them from Trash until ${account.provider === 'imap' ? 'your provider' : providerName(account.provider)} empties it. What this device has already decrypted stays readable.`,
+      [
+        { label: 'Cancel' },
+        {
+          label: 'Move to Trash',
+          tone: 'destructive',
+          onPress: () => {
+            setSweeping({ phase: 'trashing', done: 0, total: ids.length });
+            trashEncrypted(account.id, ids, { onProgress: setSweeping })
+              .then(({ moved, failed }) =>
+                showToast({
+                  durationMs: failed > 0 ? 6000 : 4000,
+                  icon: failed > 0 ? 'alert' : 'trash',
+                  message:
+                    failed > 0
+                      ? `Moved ${noun(moved)} to Trash. ${failed} could not be moved and are still where they were.`
+                      : `Moved ${noun(moved)} to Trash.`,
+                }),
+              )
+              .catch((e: unknown) => showToast({ durationMs: 5000, icon: 'alert', message: userMessage(e) }))
+              .finally(() => setSweeping(null));
+          },
+        },
+      ],
+    );
   };
 
   const confirmPause = () =>
@@ -572,6 +635,22 @@ export function AccountScreen({ navigation, route }: Props) {
                 : stale
                   ? 'Sign in again to export this mailbox'
                   : 'Resume syncing to export this mailbox'
+            }
+          />
+        </Group>
+
+        <GroupHeading>Encrypted mail</GroupHeading>
+        <Group>
+          <SettingsRow
+            icon="trash"
+            label={sweepLabel}
+            onPress={() => (canExport ? void runSweep() : undefined)}
+            value={
+              canExport
+                ? 'Finds every encrypted message in Inbox, Sent and Archive on the server, not only what is loaded, and asks before moving them. Restore any of them from Trash. Nothing on this device is deleted.'
+                : stale
+                  ? 'Sign in again to reach this mailbox'
+                  : 'Resume syncing to reach this mailbox'
             }
           />
         </Group>

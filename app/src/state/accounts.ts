@@ -39,7 +39,9 @@ import { openTextFileWriter, saveTextFile } from '../lib/files';
 import { emlFilename, entryToMbox, mboxFilename } from '../mail/mbox';
 import { withRateLimitRetry } from '../mail/rateLimit';
 import { Mailbox, MailSummary } from '../mail/types';
+import { PLACEHOLDER_SUBJECT } from '../core';
 import { AccountsService, Ctx, message } from './contracts';
+import { InboxItem, SECONDARY_BOXES, State } from './types';
 
 /**
  * What a whole-mailbox export pages through.
@@ -62,8 +64,30 @@ const EXPORT_PAGE_SIZE = 25;
 /** Raw messages fetched at a time — well inside the provider's per-second quota. */
 const EXPORT_CONCURRENCY = 5;
 
+/**
+ * Mail sealed by CryptMail, from its headers alone: the placeholder subject.
+ * Narrower than `hasSealedSubject`, which also matches quantum-link legs — see
+ * `findEncrypted` for why those stay.
+ */
+const isSealedMail = (row: MailSummary): boolean => row.subject.trim() === PLACEHOLDER_SUBJECT;
+
 export function createAccounts(ctx: Ctx): AccountsService {
   const { store, mail } = ctx;
+
+  /**
+   * Take one mailbox's rows off every list, after the provider has moved them.
+   *
+   * Matched by account as well as id: a merged inbox holds several mailboxes'
+   * rows, and ids are only unique within one.
+   */
+  function dropRows(account: AccountId, ids: Set<string>): void {
+    if (ids.size === 0) return;
+    const keep = (row: InboxItem) => !(row.account === account && ids.has(row.id));
+    const { messages, boxes } = store.get();
+    const nextBoxes = { ...boxes };
+    for (const box of SECONDARY_BOXES) nextBoxes[box] = { ...boxes[box], items: boxes[box].items.filter(keep) };
+    store.patch({ messages: messages.filter(keep), boxes: nextBoxes as State['boxes'] });
+  }
 
   /** Sessions for connected accounts, kept out of `State` for the same reason `mail` is. */
   const sessions = new Map<AccountId, Session>();
@@ -400,6 +424,64 @@ export function createAccounts(ctx: Ctx): AccountsService {
 
       if (written > 0) await file.finish();
       return { written, skipped };
+    },
+
+    async findEncrypted(id, options) {
+      const client = mail.clients.get(id);
+      if (!client) throw new Error('That mailbox is not syncing, so its mail cannot be listed.');
+      // The export's folders and paging, for the export's reasons: the whole
+      // mailbox rather than what was loaded, one id once however many folders
+      // list it.
+      const seen = new Set<string>();
+      const found: string[] = [];
+      for (const box of EXPORT_BOXES) {
+        let pageToken: string | undefined;
+        do {
+          const page = await withRateLimitRetry(() => client.list(box, { limit: EXPORT_PAGE_SIZE, pageToken }));
+          for (const row of page.messages) {
+            if (seen.has(row.id)) continue;
+            seen.add(row.id);
+            if (isSealedMail(row)) found.push(row.id);
+          }
+          options?.onProgress?.({ phase: 'listing', scanned: seen.size, found: found.length });
+          pageToken = page.nextPageToken;
+        } while (pageToken);
+      }
+      return found;
+    },
+
+    async trashEncrypted(id, ids, options) {
+      const client = mail.clients.get(id);
+      if (!client) throw new Error('That mailbox is not syncing, so nothing was moved.');
+      const gone = new Set<string>();
+      let failed = 0;
+      try {
+        for (let at = 0; at < ids.length; at += EXPORT_CONCURRENCY) {
+          const batch = ids.slice(at, at + EXPORT_CONCURRENCY);
+          const moved = await Promise.all(
+            batch.map((messageId) =>
+              withRateLimitRetry(() => client.updateFlags(messageId, { trashed: true })).then(
+                () => true,
+                (e: unknown) => {
+                  if (e instanceof AuthError) throw e;
+                  // Deleted elsewhere since it was listed, or a transient refusal.
+                  return false;
+                },
+              ),
+            ),
+          );
+          moved.forEach((ok, i) => {
+            if (ok) gone.add(batch[i]);
+            else failed += 1;
+          });
+          options?.onProgress?.({ phase: 'trashing', done: at + batch.length, total: ids.length });
+        }
+      } finally {
+        // Whatever reached Trash leaves the lists on screen now, even when a dead
+        // grant cut the sweep short — the same as a single `trashMessage`.
+        dropRows(id, gone);
+      }
+      return { moved: gone.size, failed };
     },
 
     /**

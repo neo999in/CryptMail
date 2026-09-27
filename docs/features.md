@@ -180,6 +180,16 @@ other mail apps on the account.
   `useSwipeRunner().runOperation`, the swipe's own implementation, toast and
   undo; there is no second archive. The selection is read back through the rows
   on screen, so it can never act on mail a sync has taken away.
+- **Move all encrypted mail to Trash** is on each mailbox's screen (Settings →
+  Accounts → the mailbox). `findEncrypted` in
+  [`state/accounts.ts`](../app/src/state/accounts.ts) pages Inbox, Sent and
+  Archive from the provider to the end, as the export does, and keeps what has
+  the placeholder subject — quantum-link legs excepted, since a link still being
+  set up reads them from the inbox. The row then asks with the count in hand,
+  and `trashEncrypted` makes the ordinary `trashed: true` move for each, five at
+  a time. A move, never an erasure: everything restores from Trash. Nothing on
+  the device is cleared — the search index and the archive keep what was
+  decrypted, so a restored Level 2 message still opens.
 - The row stays one `Pressable` (tap + long press), per the RN-web note.
 - Entering selection must stay cheap. The swipe wrapper stays mounted with its
   gesture disabled rather than being swapped out (a swap remounted every row),

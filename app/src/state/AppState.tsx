@@ -161,6 +161,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resumeAccount: services.accounts.resumeAccount,
       exportMailbox: services.accounts.exportMailbox,
       exportMessage: services.accounts.exportMessage,
+      findEncrypted: services.accounts.findEncrypted,
+      trashEncrypted: services.accounts.trashEncrypted,
       storageUsage: services.accounts.storageUsage,
       setUnified: services.accounts.setUnified,
       refreshInbox: services.mailbox.refreshInbox,

@@ -40,6 +40,17 @@ export type ExportProgress = { phase: 'listing'; done: number } | { phase: 'fetc
 /** What an export wrote, and how many listed messages the provider refused to hand over. */
 export type ExportResult = { written: number; skipped: number };
 
+/**
+ * How far a sweep of one mailbox's encrypted mail has got: first the listing,
+ * which reads every header in Inbox, Sent and Archive, then the moves.
+ */
+export type EncryptedSweepProgress =
+  | { phase: 'listing'; scanned: number; found: number }
+  | { phase: 'trashing'; done: number; total: number };
+
+/** What a sweep moved to Trash, and how many moves the provider refused. */
+export type EncryptedSweepResult = { moved: number; failed: number };
+
 export type EncryptionState =
   | { kind: 'encrypted'; trust: 'verified' | 'seen' | 'changed' | 'unknown'; own?: boolean }
   | { kind: 'plain' };
@@ -410,6 +421,17 @@ export type Actions = {
   exportMailbox(id: AccountId, options?: { onProgress?: (progress: ExportProgress) => void }): Promise<ExportResult>;
   /** Save one message of the mailbox in front as an `.eml` file — the provider's bytes, sealed if it was. */
   exportMessage(summary: MailSummary): Promise<void>;
+  /** Every encrypted message's id in a mailbox's Inbox, Sent and Archive, paged from its provider. */
+  findEncrypted(
+    id: AccountId,
+    options?: { onProgress?: (progress: EncryptedSweepProgress) => void },
+  ): Promise<string[]>;
+  /** Move those messages to the provider's Trash — a move, never an erasure. */
+  trashEncrypted(
+    id: AccountId,
+    ids: string[],
+    options?: { onProgress?: (progress: EncryptedSweepProgress) => void },
+  ): Promise<EncryptedSweepResult>;
   /** Bytes one mailbox's stores take on this device, measured without decrypting them. */
   storageUsage(id: AccountId): Promise<StorageUsage>;
   /** Show every account's mail in one list, or just the active one's. */

@@ -29,6 +29,8 @@ import { RecipientState } from './recipients';
 import { userMessage } from '../lib/errors';
 import { Store } from './store';
 import {
+  EncryptedSweepProgress,
+  EncryptedSweepResult,
   ExportProgress,
   ExportResult,
   InboxItem,
@@ -275,6 +277,39 @@ export type AccountsService = {
    * subject so no decrypted text ends up in a filename.
    */
   exportMessage(summary: MailSummary): Promise<void>;
+  /**
+   * The id of every encrypted message in one mailbox's Inbox, Sent and Archive.
+   *
+   * Paged from the provider like `exportMailbox` — the whole mailbox, whatever
+   * the sync window, and any syncing mailbox rather than only the one in front.
+   * Read-only: this is what the screen counts before asking to confirm.
+   *
+   * "Encrypted" is the placeholder subject, the test the inbox's Encrypted view
+   * uses. Quantum-link legs are left out: they are the BB84 exchange, not mail,
+   * and a link still being set up reads them from the inbox.
+   */
+  findEncrypted(
+    id: AccountId,
+    options?: { onProgress?: (progress: EncryptedSweepProgress) => void },
+  ): Promise<string[]>;
+  /**
+   * Move each of those messages to the provider's Trash.
+   *
+   * The same move `trashMessage` makes, so the same promise holds: nothing is
+   * erased, every message can be restored from Trash until the provider empties
+   * it, and emptying it stays the provider's own action. Nothing on this device
+   * is touched either — the search index and the archive keep what was
+   * decrypted, so a message restored from Trash still opens, including a
+   * Level 2 message whose keys are already gone.
+   *
+   * A move the provider refuses is counted, not fatal; a dead grant ends the
+   * sweep, because every move after it would fail the same way.
+   */
+  trashEncrypted(
+    id: AccountId,
+    ids: string[],
+    options?: { onProgress?: (progress: EncryptedSweepProgress) => void },
+  ): Promise<EncryptedSweepResult>;
   /**
    * What one mailbox's stores occupy on this device, in bytes.
    *
