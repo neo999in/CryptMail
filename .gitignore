@@ -105,3 +105,6 @@ Ui rework/
 # aurora reference source (reacticx-aurora, aurora-curtain) — local-only,
 # consulted while building app/src/ui/aurora/
 /aurora/
+
+# local-only reports
+/Report/
