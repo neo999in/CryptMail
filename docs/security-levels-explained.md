@@ -173,6 +173,77 @@ key also depends on who sent it, so one bank key gives two unrelated AES keys.
   sender's ID, when each phone used only its half of the bank; its header says
   so, and CryptMail opens it the old way.
 
+### Step by step, from setup to reading
+
+> **Needs a core built after 2026-09-23.** A native library built before then
+> still splits the bank and does not tie keys to the sender, and cannot open
+> mail in the new format. Rebuild the core and install it on **both** phones
+> before relying on what follows.
+
+**1. Setup — link once.**
+
+- The two phones build the same **bank of 100 keys** (1 Kb each), by BB84 over
+  three emails or with a link file.
+- Each phone keeps its own **SAE ID**, a name like `sae-3f9a…`.
+- There is no split: each phone can send with **all 100** keys.
+
+**2. Sending (Alice → Bob).**
+
+1. Alice picks **L2 · Quantum** in compose. Compose refuses if this mailbox
+   has no link.
+2. The core takes the **next unused key** from the bank, say key 7, and saves
+   it as used on Alice's phone *before* using it
+   ([`km.rs`](../core/src/km.rs) `enc_keys`), so a crash wastes the key rather
+   than handing it out twice.
+3. It derives the AES key from three inputs
+   ([`qkd.rs`](../core/src/qkd.rs)):
+   ```
+   AES key = HKDF-SHA256(key 7, salt = key ID, info = "cryptmail/v2/qkd-aes" ‖ Alice's SAE ID)
+   ```
+4. The message is encrypted with AES-256-GCM under a random 12-byte nonce. The
+   header (`Level`, `Cipher`, `SAE`, `Key-ID`) is authenticated with it, so
+   changing the header breaks the message.
+5. If Alice holds the unchanged keys of **everyone** she is writing to, the
+   block is also sealed to their ML-KEM-768 + X25519 keys and signed, so the
+   bank alone opens nothing.
+6. Alice's decrypted copy goes into her archive **before** the message is sent
+   ([`send.ts`](../app/src/state/send.ts)). What Gmail's own app shows depends
+   on step 5: sealed with the bank alone, an ordinary email carrying an armored
+   block; also sealed to the recipients' keys, a PGP/MIME encrypted email with
+   the subject *[Encrypted message]*.
+
+**3. Reading (on Bob's phone).**
+
+1. Bob's core reads the `Key-ID` and Alice's `SAE` from the header, finds key 7
+   in **his** bank, derives the same AES key and decrypts.
+2. **Key 7 is deleted from Bob's bank**, and only once every key the message
+   needs has been found, so a message that cannot open costs no keys. The
+   message opens only once, so the decrypted copy goes into Bob's archive and
+   later reads come from there.
+3. The level banner appears **after the body**.
+
+**4. When both phones use the same key.** If Bob sends with key 7 before he has
+seen Alice's mail, his AES key uses **his** SAE ID, so it is unrelated to
+Alice's. Both messages open, and no AES key is ever used twice.
+
+**5. Old mail and moved phones.**
+
+- **Level 2 mail from before the change** (its `Cipher:` line lacks
+  "…and the sender") still opens, with the old derivation.
+- **Level 3** cannot be sent. An unopened Level 3 message is refused with a
+  clear reason; archived copies still open.
+- **Device transfer:** the old phone stops sending (`km-handed-over`), because
+  the new phone takes over its SAE ID, but it can still read.
+
+**6. What the Key Manager screen shows**
+([`KeyManagerScreen.tsx`](../app/src/screens/KeyManagerScreen.tsx)).
+
+- **Keys to send with:** keys this phone has neither sent with nor opened with.
+- **Keys in the bank:** keys not yet deleted. A key is deleted only when this
+  phone opens a message sealed with it.
+- The two phones' counts match only when neither has unread or unsent Level 2
+  mail: each deletes a key only on opening mail sealed with it.
+
 ---
 
 ## Why there is no Level 3
