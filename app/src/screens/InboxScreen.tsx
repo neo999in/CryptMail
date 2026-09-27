@@ -495,8 +495,8 @@ export function InboxBody({
           onSelectAll={
             selected.size < threadsById.size ? () => setPicked(new Set(threadsById.keys())) : undefined
           }
-          onArchive={() => bulk('archive')}
-          onTrash={() => bulk('trash')}
+          box={null}
+          onMove={bulk}
           onToggleRead={() => bulk(targets.some((m) => m.unread) ? 'mark-read' : 'mark-unread')}
           onToggleStar={bulkStar}
           onLabel={() => setLabelling(targets.map((m) => m.id))}

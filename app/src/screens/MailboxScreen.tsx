@@ -32,8 +32,8 @@
  * would misrepresent which mailbox a message left from.
  */
 import { useIsFocused } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, BackHandler, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { hasLabel, labelNamesFor } from '../labels/labels';
@@ -44,6 +44,7 @@ import { SwipeVisual } from '../swipe/swipe';
 import { color, space, type } from '../theme';
 import { Icon, IconName } from '../ui/Icon';
 import { useAccent, useAppearance } from '../ui/appearance';
+import { BulkBar } from '../ui/bulkBar';
 import { useChrome } from '../ui/chrome';
 import { OriginRect } from '../ui/expand';
 import { mailBandBelow, mailTopInset } from '../ui/mailBar';
@@ -58,7 +59,9 @@ import {
   useComposeScroll,
 } from '../ui/mailList';
 import { EmptyState, SecondaryButton } from '../ui/primitives';
-import { useSwipeRunner } from '../ui/swipeRun';
+import { LabelSheet } from '../ui/labelSheet';
+import { MailOperation, useSwipeRunner } from '../ui/swipeRun';
+import { useToast } from '../ui/ToastContext';
 import { useLatest } from '../ui/useLatest';
 import { BodyProps } from './HomeScreen';
 
@@ -97,10 +100,12 @@ export function MailboxBody({
   clearFilters,
   entry,
   labelFilter,
+  onSelecting,
   composeFold,
 }: BodyProps & { box: SecondaryBox }) {
   const composeScroll = useComposeScroll(composeFold);
-  const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session, labels } = useApp();
+  const { boxes, loadBox, loadMoreBox, encryptionFor, searchIndex, session, labels, toggleStar } = useApp();
+  const { showToast } = useToast();
   const { items, loading, refreshing, loadingMore, canLoadMore, error } = boxes[box];
   const { rowPadding } = useAppearance();
   const accent = useAccent();
@@ -109,7 +114,7 @@ export function MailboxBody({
   const isFocused = useIsFocused();
   // One runner, and one snooze sheet, for the whole list — see `ui/swipeRun.tsx`.
   // A side nobody has configured offers the setup screen rather than an action.
-  const { runSwipe, snoozePicker } = useSwipeRunner({
+  const { runSwipe, runOperation, snoozePicker } = useSwipeRunner({
     onSetUp: () => navigation.navigate('SwipeOptions'),
   });
   const copy = COPY[box];
@@ -211,6 +216,90 @@ export function MailboxBody({
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item] as const)), [items]);
   const latestItems = useLatest(itemsById);
 
+  /**
+   * The selected messages, by id — the inbox's arrangement (`InboxBody`), one
+   * message per row. Read back through what is on screen, so a row a sync or a
+   * filter took away is no longer selected and the bar never acts on it.
+   */
+  const visibleIds = useMemo(
+    () => new Set(sections.flatMap((section) => section.data.map((row) => row.item.id))),
+    [sections],
+  );
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const selected = useMemo(() => new Set([...picked].filter((id) => visibleIds.has(id))), [picked, visibleIds]);
+  const selecting = selected.size > 0;
+  const selectingNow = useLatest(selecting);
+  const [labelling, setLabelling] = useState<string[] | null>(null);
+
+  const clearSelection = useCallback(() => setPicked(new Set()), []);
+  const toggleSelected = useCallback(
+    (id: string) =>
+      setPicked((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
+
+  // Another box is another list: a selection made in Sent does not follow the
+  // reader into Archive.
+  useEffect(() => clearSelection(), [box, clearSelection]);
+
+  useEffect(() => {
+    onSelecting(selecting);
+  }, [onSelecting, selecting]);
+
+  // Back leaves the selection before it leaves anything else.
+  useEffect(() => {
+    if (!selecting || !isFocused) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      clearSelection();
+      return true;
+    });
+    return () => sub.remove();
+  }, [clearSelection, isFocused, selecting]);
+
+  const openRow = useCallback(
+    (id: string, origin?: OriginRect) => {
+      // Selecting, a tap adds or removes the row; it never opens mail.
+      if (selectingNow.current) toggleSelected(id);
+      else openMail(id, origin);
+    },
+    [openMail, selectingNow, toggleSelected],
+  );
+
+  const targets = useMemo(
+    () => [...selected].flatMap((id) => itemsById.get(id) ?? []),
+    [itemsById, selected],
+  );
+
+  /** Run one of the swipe's own operations over the selection, then leave it. */
+  const bulk = (operation: MailOperation) => {
+    runOperation(operation, targets, box);
+    clearSelection();
+  };
+
+  /** Star or unstar the whole selection — the inbox's `bulkStar`, over this box. */
+  const bulkStar = () => {
+    const starring = !targets.every((m) => m.starred);
+    const ids = targets.filter((m) => m.starred !== starring).map((m) => m.id);
+    clearSelection();
+    if (ids.length === 0) return;
+    Promise.all(ids.map(toggleStar)).then(
+      () =>
+        showToast({
+          message: starring ? 'Starred' : 'Unstarred',
+          icon: 'star',
+          durationMs: 5000,
+          actionLabel: 'Undo',
+          onAction: () => void Promise.all(ids.map(toggleStar)),
+        }),
+      () => showToast({ message: 'Couldn’t change the star on those messages', icon: 'alert', durationMs: 5000 }),
+    );
+  };
+
   // One message, not a conversation: these lists are not threaded.
   const swipeRow = useCallback(
     (visual: SwipeVisual, id: string) => {
@@ -230,7 +319,7 @@ export function MailboxBody({
         entry={entry}
         padding={rowPadding}
         selfAddress={session?.email}
-        onPress={openMail}
+        onPress={openRow}
         // The list itself is the context. Sent swipes to Delete alone and
         // Archive to Delete and Move to inbox, whatever the preference says;
         // Trash follows the preference, with Delete becoming Restore
@@ -239,9 +328,13 @@ export function MailboxBody({
         swipe={{ box, junk: false, category: null, foreign: false }}
         onSwipe={swipeRow}
         labels={item.labels}
+        selecting={selecting}
+        selected={selected.has(item.item.id)}
+        // A long press starts a selection; while one is up it adds to it.
+        onLongPress={toggleSelected}
       />
     ),
-    [box, entry, openMail, rowPadding, swipeRow, session?.email],
+    [box, entry, openRow, rowPadding, selected, selecting, swipeRow, session?.email, toggleSelected],
   );
 
   return (
@@ -263,6 +356,7 @@ export function MailboxBody({
           sections={sections}
           keyExtractor={(row) => row.item.id}
           renderItem={renderItem}
+          extraData={selected}
           renderSectionHeader={({ section }) => <SectionHeading title={section.title} />}
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
@@ -312,6 +406,32 @@ export function MailboxBody({
           three lists resolves to Snooze today; it is here so that stays a fact
           about the resolver rather than about which screen wired what. */}
       {snoozePicker}
+
+      {selecting ? (
+        <BulkBar
+          count={selected.size}
+          bottom={insets.bottom + 16}
+          anyUnread={targets.some((m) => m.unread)}
+          allStarred={targets.length > 0 && targets.every((m) => m.starred)}
+          onCancel={clearSelection}
+          onSelectAll={selected.size < visibleIds.size ? () => setPicked(new Set(visibleIds)) : undefined}
+          box={box}
+          onMove={bulk}
+          onToggleRead={() => bulk(targets.some((m) => m.unread) ? 'mark-read' : 'mark-unread')}
+          onToggleStar={bulkStar}
+          onLabel={() => setLabelling(targets.map((m) => m.id))}
+        />
+      ) : null}
+
+      {/* Held on the ids it was opened with — see the same sheet in the inbox. */}
+      <LabelSheet
+        visible={labelling !== null}
+        messageIds={labelling ?? []}
+        onClose={() => {
+          setLabelling(null);
+          clearSelection();
+        }}
+      />
     </View>
   );
 }

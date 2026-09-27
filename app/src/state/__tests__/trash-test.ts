@@ -156,3 +156,16 @@ it('refetches the list it came from when the provider rejects the move', async (
   // Asked twice: the row is put back on screen because the server still has it.
   expect(listed).toEqual(['trash', 'trash']);
 });
+
+it('unstars a starred row that is in Sent and not in the inbox', async () => {
+  // A star read from `messages` alone found nothing for a Sent row, took it for
+  // unstarred, and starred it again — so a bulk Unstar in Sent did nothing.
+  const impl = client({ list: async () => ({ messages: [{ ...row('sent-row'), starred: true }] }) });
+  const { store, services, flagged } = harness({}, impl);
+  await services.mailbox.loadBox('sent');
+
+  await services.mailbox.toggleStar('sent-row');
+
+  expect(flagged).toEqual([{ id: 'sent-row', patch: { starred: false } }]);
+  expect(store.get().boxes.sent.items[0].starred).toBe(false);
+});

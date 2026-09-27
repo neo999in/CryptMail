@@ -682,8 +682,10 @@ export function createMailbox(ctx: Ctx): MailboxService {
       }
     },
 
+    // Read from whichever list holds the row: a Sent, Archive or Trash row is
+    // not in `messages`, and reading only that would re-star a starred one.
     async toggleStar(id) {
-      const starred = store.get().messages.find((m) => m.id === id)?.starred ?? false;
+      const starred = locate(id)?.row.starred ?? false;
       await service.setFlags(id, { starred: !starred });
     },
 

@@ -145,7 +145,7 @@ The properties that make it trustworthy:
 
 ### 0.2 Labels / folders + bulk selection · Impact M · Effort M — ✅ **Built**
 
-**What.** Local labels, multi-select in the inbox, bulk archive/star/mark-read.
+**What.** Local labels, multi-select in the mail lists, bulk archive/star/mark-read.
 Swipe actions are **built** — see [swipe-actions.md](swipe-actions.md).
 
 **Why.** The inbox was a flat single-action list. This is table stakes that also
@@ -170,9 +170,12 @@ other mail apps on the account.
   inbox and Sent/Archive/Trash alike, and are managed in Settings → Mail →
   Labels. The reader and the conversation view label from their More menu; a
   conversation is labelled across all its messages.
-- **Multi-select** is a long press on an inbox row; taps then toggle. The compose
-  button steps aside for `ui/bulkBar.tsx` — Archive, Star, Mark read/unread,
-  Label, Move to Trash — and Android back leaves the selection. Swiping is off
+- **Multi-select** is a long press on a row in the inbox or in Sent, Archive or
+  Trash; taps then toggle. The compose button steps aside for `ui/bulkBar.tsx` —
+  Archive, Star, Mark read/unread, Label, Move to Trash — and Android back leaves
+  the selection. The two moves follow the list through the swipe's resolver:
+  Archive is Move to inbox in Archive and absent from Sent and Trash, and Move to
+  Trash is Restore in Trash. Drafts, Scheduled and Snoozed have no selection. Swiping is off
   while selecting. Archive, Trash and read/unread run through
   `useSwipeRunner().runOperation`, the swipe's own implementation, toast and
   undo; there is no second archive. The selection is read back through the rows

@@ -16,13 +16,20 @@
  * selected is unread, "Star" while anything is unstarred. A selection that mixes
  * states resolves toward the state that is not yet true everywhere, which is the
  * direction a person selecting mail to act on almost always means.
+ *
+ * The two moves follow the list, as a swipe does, and through the same
+ * resolver (`swipe/swipe.ts`): Archive becomes Move to inbox in Archive and is
+ * absent from Sent and Trash, and Move to Trash becomes Restore in Trash.
  */
 import { MotiView } from 'moti';
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SecondaryBox } from '../state/types';
+import { resolveSwipe, SwipeContext } from '../swipe/swipe';
 import { color, font, radius, shadow, space } from '../theme';
 import { Icon, IconName } from './Icon';
+import { MailOperation } from './swipeRun';
 
 export type BulkBarProps = {
   /** How many conversations are selected — what the count says. */
@@ -34,8 +41,10 @@ export type BulkBarProps = {
   allStarred: boolean;
   onCancel: () => void;
   onSelectAll?: () => void;
-  onArchive: () => void;
-  onTrash: () => void;
+  /** The list the selection is in — `null` for the inbox — which decides the two moves. */
+  box: SecondaryBox | null;
+  /** Archive, Move to inbox, Move to Trash or Restore, as `box` resolved it. */
+  onMove: (operation: MailOperation) => void;
   onToggleRead: () => void;
   onToggleStar: () => void;
   onLabel: () => void;
@@ -48,12 +57,14 @@ export function BulkBar({
   allStarred,
   onCancel,
   onSelectAll,
-  onArchive,
-  onTrash,
+  box,
+  onMove,
   onToggleRead,
   onToggleStar,
   onLabel,
 }: BulkBarProps) {
+  const archive = moveFor('archive', box);
+  const trash = moveFor('trash', box);
   return (
     <MotiView
       from={{ opacity: 0, translateY: 16 }}
@@ -77,14 +88,36 @@ export function BulkBar({
         ) : null}
       </View>
       <View style={s.actions}>
-        <Action icon="archive" label="Archive" onPress={onArchive} />
+        {archive ? (
+          <Action
+            icon={archive === 'unarchive' ? 'inbox' : 'archive'}
+            label={archive === 'unarchive' ? 'Move to inbox' : 'Archive'}
+            onPress={() => onMove(archive)}
+          />
+        ) : null}
         <Action icon="star" label={allStarred ? 'Unstar' : 'Star'} onPress={onToggleStar} filled={allStarred} />
         <Action icon="mail" label={anyUnread ? 'Mark read' : 'Mark unread'} onPress={onToggleRead} />
         <Action icon="file" label="Label" onPress={onLabel} />
-        <Action icon="trash" label="Move to Trash" onPress={onTrash} />
+        {trash ? (
+          <Action
+            icon={trash === 'restore' ? 'inbox' : 'trash'}
+            label={trash === 'restore' ? 'Restore' : 'Move to Trash'}
+            onPress={() => onMove(trash)}
+          />
+        ) : null}
       </View>
     </MotiView>
   );
+}
+
+/**
+ * What a move means in this list, or `null` where it means nothing. Only the
+ * list matters to a move, so the rest of the context is neutral.
+ */
+function moveFor(action: 'archive' | 'trash', box: SecondaryBox | null): MailOperation | null {
+  const ctx: SwipeContext = { box, junk: false, unread: false, foreign: false, category: null };
+  const operation = resolveSwipe(action, ctx)?.operation;
+  return operation && operation !== 'set-up' ? operation : null;
 }
 
 function Action({
